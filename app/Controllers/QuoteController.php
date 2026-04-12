@@ -167,7 +167,7 @@ final class QuoteController extends Controller
             redirect('/presupuestos/' . $id);
         }
         $status = (string) $this->input('status', '');
-        $allowed = ['draft', 'sent', 'accepted', 'rejected', 'expired'];
+        $allowed = ['draft', 'sent', 'accepted', 'rejected', 'expired', 'delivered'];
         if (!in_array($status, $allowed, true)) {
             flash('error', 'Estado inválido.');
             redirect('/presupuestos/' . $id);

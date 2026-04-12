@@ -5,6 +5,7 @@ $statusStyle = [
     'accepted' => 'bg-green-100 text-green-800',
     'rejected' => 'bg-red-100 text-red-800',
     'expired' => 'bg-amber-100 text-amber-800',
+    'delivered' => 'bg-teal-100 text-teal-900',
 ];
 ?>
 <div class="flex justify-between mb-6">

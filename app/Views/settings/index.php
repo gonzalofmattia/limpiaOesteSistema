@@ -14,8 +14,12 @@ $labels = [
     'mostrar_iva' => ['Sistema', 'Mostrar IVA en listados (0/1)'],
     'quote_prefix' => ['Sistema', 'Prefijo presupuestos'],
     'quote_validity_days' => ['Sistema', 'Validez presupuesto default (días)'],
+    'seiq_cliente_id' => ['Seiq', 'ID Cliente Seiq'],
+    'seiq_cliente_nombre' => ['Seiq', 'Nombre en Seiq'],
+    'seiq_condicion_pago' => ['Seiq', 'Condición de pago'],
+    'seiq_observaciones' => ['Seiq', 'Observaciones (pedido)'],
 ];
-$groups = ['Empresa' => [], 'Pricing' => [], 'Sistema' => []];
+$groups = ['Empresa' => [], 'Pricing' => [], 'Sistema' => [], 'Seiq' => []];
 foreach ($labels as $key => $meta) {
     $groups[$meta[0]][$key] = $meta[1];
 }

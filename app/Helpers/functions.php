@@ -148,6 +148,26 @@ function setting(string $key, ?string $default = null): ?string
 }
 
 /**
+ * Texto de remanente para pedidos Seiq (un., sobres, etc.).
+ *
+ * @param array<string, mixed> $row Consolidado o ítem con units_remainder, sale_unit_label, category_slug
+ */
+function seiqRemainderLabel(array $row): string
+{
+    $n = (int) ($row['units_remainder'] ?? 0);
+    if ($n <= 0) {
+        return '0 un.';
+    }
+    $slug = strtolower((string) ($row['category_slug'] ?? ''));
+    $label = strtolower(trim((string) ($row['sale_unit_label'] ?? '')));
+    if ($slug === 'sobres' || str_contains($label, 'sobre')) {
+        return $n . ' sobres';
+    }
+
+    return $n . ' un.';
+}
+
+/**
  * Texto columna «Detalle» en presupuestos (snapshot o fallback).
  *
  * @param array<string, mixed> $it Fila quote_items con joins (category_slug, content, sale_unit_description, etc.)

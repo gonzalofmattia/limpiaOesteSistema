@@ -18,6 +18,7 @@ $badges = [
     'accepted' => 'bg-green-100 text-green-800',
     'rejected' => 'bg-red-100 text-red-800',
     'expired' => 'bg-amber-100 text-amber-800',
+    'delivered' => 'bg-teal-100 text-teal-900',
 ];
 ?>
 <div class="max-w-4xl space-y-6">
@@ -43,7 +44,7 @@ $badges = [
     <form method="post" action="<?= e(url('/presupuestos/' . (int) $quote['id'] . '/status')) ?>" class="flex flex-wrap gap-2 items-center bg-white p-4 rounded-xl border border-gray-200">
         <?= csrfField() ?>
         <span class="text-sm text-gray-600">Cambiar estado:</span>
-        <?php foreach (['draft', 'sent', 'accepted', 'rejected', 'expired'] as $s): ?>
+        <?php foreach (['draft', 'sent', 'accepted', 'rejected', 'expired', 'delivered'] as $s): ?>
             <button type="submit" name="status" value="<?= e($s) ?>" class="px-3 py-1 rounded-lg text-xs border border-gray-200 hover:bg-gray-50"><?= e($s) ?></button>
         <?php endforeach; ?>
     </form>

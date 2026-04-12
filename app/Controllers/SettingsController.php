@@ -14,6 +14,7 @@ final class SettingsController extends Controller
         'empresa_nombre', 'empresa_tagline', 'empresa_instagram', 'empresa_whatsapp', 'empresa_zona',
         'default_markup', 'iva_rate', 'lista_seiq_numero', 'lista_seiq_fecha', 'moneda',
         'mostrar_iva', 'quote_prefix', 'quote_validity_days',
+        'seiq_cliente_id', 'seiq_cliente_nombre', 'seiq_condicion_pago', 'seiq_observaciones',
     ];
 
     public function index(): void

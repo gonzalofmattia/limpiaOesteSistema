@@ -48,6 +48,14 @@ return [
     ['GET', 'presupuestos/{id}/pdf', 'QuoteController@downloadPdf', []],
     ['POST', 'presupuestos/{id}/status', 'QuoteController@changeStatus', []],
 
+    ['GET', 'pedido-seiq', 'SeiqOrderController@index', []],
+    ['GET', 'pedido-seiq/generar', 'SeiqOrderController@generate', []],
+    ['POST', 'pedido-seiq', 'SeiqOrderController@store', []],
+    ['GET', 'pedido-seiq/{id}', 'SeiqOrderController@show', []],
+    ['GET', 'pedido-seiq/{id}/pdf', 'SeiqOrderController@downloadPdf', []],
+    ['POST', 'pedido-seiq/{id}/status', 'SeiqOrderController@changeStatus', []],
+    ['POST', 'pedido-seiq/{id}/quotes-delivered', 'SeiqOrderController@markQuotesDelivered', []],
+
     ['GET', 'settings', 'SettingsController@index', []],
     ['POST', 'settings', 'SettingsController@update', []],
 
