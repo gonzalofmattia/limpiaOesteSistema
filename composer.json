@@ -11,5 +11,13 @@
         "psr-4": {
             "App\\": "app/"
         }
+    },
+    "scripts": {
+        "deploy": "php deploy.php",
+        "deploy:dry": "php deploy.php --dry-run",
+        "deploy:app": "php deploy.php --only=app",
+        "deploy:public": "php deploy.php --only=public",
+        "db:export": "php db_export.php",
+        "db:import": "php db_import.php"
     }
 }

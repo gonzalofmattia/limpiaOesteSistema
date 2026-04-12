@@ -460,28 +460,55 @@ SQL);
     warn('UPDATE categorías venta: ' . $e->getMessage());
 }
 
-$dbConfig = <<<'PHP'
-<?php
-
-declare(strict_types=1);
-
-return [
-    'host' => 'localhost',
-    'database' => 'limpia_oeste_abm',
-    'username' => 'root',
-    'password' => '',
-    'charset' => 'utf8mb4',
-];
-
-PHP;
-
 $configDir = $basePath . $ds . 'app' . $ds . 'config';
 if (!is_dir($configDir) && !mkdir($configDir, 0755, true)) {
     err('No se pudo crear app/config');
     exit(1);
 }
-file_put_contents($configDir . $ds . 'database.php', $dbConfig);
-ok('Archivo app/config/database.php escrito');
+
+$envPath = $basePath . $ds . '.env';
+$envExample = $basePath . $ds . '.env.example';
+$setEnvVar = static function (string $content, string $key, string $value): string {
+    $escaped = preg_quote($key, '/');
+    $line = $key . '=' . $value;
+    if (preg_match('/^' . $escaped . '=.*$/m', $content)) {
+        return (string) preg_replace('/^' . $escaped . '=.*$/m', $line, $content);
+    }
+    return rtrim($content) . "\n" . $line . "\n";
+};
+
+if (!is_file($envPath)) {
+    if (is_file($envExample)) {
+        copy($envExample, $envPath);
+        ok('Archivo .env creado desde .env.example');
+    } else {
+        file_put_contents($envPath, '');
+        ok('Archivo .env creado');
+    }
+}
+
+$envContent = (string) file_get_contents($envPath);
+$envContent = $setEnvVar($envContent, 'APP_ENV', 'local');
+$envContent = $setEnvVar($envContent, 'APP_DEBUG', 'true');
+$envContent = $setEnvVar($envContent, 'APP_URL', 'http://localhost/limpiaOesteSistema/public');
+$envContent = $setEnvVar($envContent, 'DB_HOST', $host);
+$envContent = $setEnvVar($envContent, 'DB_NAME', $dbName);
+$envContent = $setEnvVar($envContent, 'DB_USER', $user);
+$envContent = $setEnvVar($envContent, 'DB_PASS', $pass);
+if (!preg_match('/^FTP_HOST=/m', $envContent)) {
+    $envContent = $setEnvVar($envContent, 'FTP_HOST', '');
+}
+if (!preg_match('/^FTP_USER=/m', $envContent)) {
+    $envContent = $setEnvVar($envContent, 'FTP_USER', '');
+}
+if (!preg_match('/^FTP_PASS=/m', $envContent)) {
+    $envContent = $setEnvVar($envContent, 'FTP_PASS', '');
+}
+if (!preg_match('/^FTP_PATH=/m', $envContent)) {
+    $envContent = $setEnvVar($envContent, 'FTP_PATH', '/public_html');
+}
+file_put_contents($envPath, $envContent);
+ok('Variables DB_* y APP_* actualizadas en .env (app/config/database.php usa .env)');
 
 $dirs = [
     $basePath . $ds . 'storage' . $ds . 'pdfs',

@@ -24,7 +24,7 @@
     </script>
     <link rel="stylesheet" href="<?= e(url('/assets/css/app.css')) ?>">
     <script>
-        window.APP_BASE_URL = <?= json_encode(defined('BASE_URL') ? BASE_URL : '', JSON_UNESCAPED_SLASHES) ?>;
+        window.APP_BASE_URL = <?= json_encode(defined('BASE_URL_PATH') ? BASE_URL_PATH : (defined('BASE_URL') ? BASE_URL : ''), JSON_UNESCAPED_SLASHES) ?>;
     </script>
 </head>
 <body class="bg-[#F3F4F6] text-[#111827] font-sans antialiased" x-data="{ sidebarOpen: false }">

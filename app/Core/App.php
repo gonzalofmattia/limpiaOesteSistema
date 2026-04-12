@@ -8,6 +8,9 @@ final class App
 {
     public static function run(): void
     {
+        require_once APP_PATH . '/Helpers/Env.php';
+        \App\Helpers\Env::load(BASE_PATH . '/.env');
+
         $config = require APP_PATH . '/config/app.php';
         date_default_timezone_set($config['timezone'] ?? 'America/Argentina/Buenos_Aires');
         session_name($config['session_name'] ?? 'limpia_oeste_session');

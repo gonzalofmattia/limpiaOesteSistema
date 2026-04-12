@@ -1,7 +1,8 @@
 /vendor/
 /storage/pdfs/*.pdf
 /storage/logs/*.log
-/app/config/database.php
+.env
+/database/export_*.sql
 .DS_Store
 Thumbs.db
 *.swp

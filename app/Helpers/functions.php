@@ -5,12 +5,20 @@ declare(strict_types=1);
 use App\Helpers\SettingsCache;
 
 /**
- * URL absoluta respecto del sitio (incluye subcarpeta si existe).
- * Ej.: url('/login') → /limpiaoestesistema/public/login
+ * URL absoluta del sitio (esquema + host + prefijo de la app), desde APP_URL en .env.
+ */
+function baseUrl(string $path = ''): string
+{
+    return rtrim(\App\Helpers\Env::get('APP_URL', ''), '/') . '/' . ltrim($path, '/');
+}
+
+/**
+ * Ruta relativa al dominio (incluye subcarpeta /public si existe).
+ * Ej.: url('/login') → /limpiaOesteSistema/public/login
  */
 function url(string $path = '/'): string
 {
-    $base = defined('BASE_URL') ? (string) BASE_URL : '';
+    $base = defined('BASE_URL_PATH') ? (string) BASE_URL_PATH : (defined('BASE_URL') ? (string) BASE_URL : '');
     $base = rtrim($base, '/');
     $path = trim($path, '/');
     if ($path === '') {
@@ -97,7 +105,7 @@ function isActive(string $path): bool
     if (($q = strpos($current, '?')) !== false) {
         $current = substr($current, 0, $q);
     }
-    $base = defined('BASE_URL') ? rtrim((string) BASE_URL, '/') : '';
+    $base = defined('BASE_URL_PATH') ? rtrim((string) BASE_URL_PATH, '/') : (defined('BASE_URL') ? rtrim((string) BASE_URL, '/') : '');
     if ($base !== '' && str_starts_with($current, $base)) {
         $current = substr($current, strlen($base)) ?: '/';
     }

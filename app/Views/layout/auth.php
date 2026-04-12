@@ -9,7 +9,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>
     <link rel="stylesheet" href="<?= e(url('/assets/css/app.css')) ?>">
-    <script>window.APP_BASE_URL = <?= json_encode(defined('BASE_URL') ? BASE_URL : '', JSON_UNESCAPED_SLASHES) ?>;</script>
+    <script>window.APP_BASE_URL = <?= json_encode(defined('BASE_URL_PATH') ? BASE_URL_PATH : (defined('BASE_URL') ? BASE_URL : ''), JSON_UNESCAPED_SLASHES) ?>;</script>
 </head>
 <body class="min-h-screen bg-[#F3F4F6] font-[Poppins,sans-serif] flex items-center justify-center p-4">
 <?php $flash = getFlash(); ?>
