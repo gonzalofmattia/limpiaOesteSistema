@@ -1,0 +1,7 @@
+/vendor/
+/storage/pdfs/*.pdf
+/storage/logs/*.log
+/app/config/database.php
+.DS_Store
+Thumbs.db
+*.swp

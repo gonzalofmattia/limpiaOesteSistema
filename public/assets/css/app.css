@@ -1,0 +1,4 @@
+/* LIMPIA OESTE — estilos mínimos complementarios a Tailwind */
+[x-cloak] {
+    display: none !important;
+}

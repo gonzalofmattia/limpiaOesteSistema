@@ -1,0 +1,7 @@
+RewriteEngine On
+# Si accedés como http://localhost/NOMBRE_CARPETA/public/ y las rutas dan 404, descomentá y poné la misma ruta:
+# RewriteBase /limpiaoestesistema/public/
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ index.php?url=$1 [QSA,L]
