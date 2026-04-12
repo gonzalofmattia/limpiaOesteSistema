@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Controller;
+use App\Helpers\CategoryHierarchy;
 use App\Helpers\PricingEngine;
 use App\Helpers\QuoteLinePricing;
 use App\Models\Database;
@@ -22,14 +23,29 @@ final class ApiController extends Controller
         $like = '%' . $q . '%';
         $rows = $db->fetchAll(
             'SELECT p.id, p.code, p.name, p.sale_unit_label, p.sale_unit_type, p.sale_unit_description,
-                    p.units_per_box, p.content, c.name AS category_name, c.slug AS category_slug
+                    p.units_per_box, p.content,
+                    c.name AS category_name, c.slug AS category_slug,
+                    pc.name AS parent_category_name,
+                    c.presentation_info AS category_presentation_info
              FROM products p
              JOIN categories c ON c.id = p.category_id
+             LEFT JOIN categories pc ON c.parent_id = pc.id
              WHERE p.is_active = 1 AND (p.code LIKE ? OR p.name LIKE ?)
              ORDER BY p.name
              LIMIT 30',
             [$like, $like]
         );
+        foreach ($rows as &$r) {
+            $parent = trim((string) ($r['parent_category_name'] ?? ''));
+            $leaf = trim((string) ($r['category_name'] ?? ''));
+            $pres = trim((string) ($r['category_presentation_info'] ?? ''));
+            $line = $parent !== '' ? $parent . ' > ' . $leaf : $leaf;
+            if ($pres !== '') {
+                $line .= ' — ' . $pres;
+            }
+            $r['category_context'] = $line;
+        }
+        unset($r);
         $this->json(['results' => $rows]);
     }
 
@@ -37,9 +53,15 @@ final class ApiController extends Controller
     {
         $db = Database::getInstance();
         $row = $db->fetch(
-            'SELECT p.*, c.slug AS category_slug, c.default_discount, c.default_markup AS category_default_markup
+            'SELECT p.*,
+                    COALESCE(pc.slug, c.slug) AS category_slug,
+                    c.default_discount,
+                    c.default_markup AS category_default_markup,
+                    pc.default_discount AS parent_discount,
+                    pc.default_markup AS parent_default_markup
              FROM products p
              JOIN categories c ON c.id = p.category_id
+             LEFT JOIN categories pc ON c.parent_id = pc.id
              WHERE p.id = ? AND p.is_active = 1',
             [(int) $id]
         );
@@ -56,7 +78,7 @@ final class ApiController extends Controller
         if ($unitMode !== 'unidad') {
             $unitMode = 'caja';
         }
-        $slug = (string) $row['category_slug'];
+        $slug = strtolower((string) $row['category_slug']);
         $resolved = QuoteLinePricing::resolveListaForQuote($row, $slug, $unitMode);
         $snap = QuoteLinePricing::snapshotLabels($row, $slug, $unitMode);
         $listaSeiq = $resolved['lista_seiq'];
@@ -81,9 +103,11 @@ final class ApiController extends Controller
     public function getCategoryProducts(string $id): void
     {
         $db = Database::getInstance();
+        $ids = CategoryHierarchy::expandFilterCategoryIds($db, (int) $id);
+        $marks = implode(',', array_fill(0, count($ids), '?'));
         $rows = $db->fetchAll(
-            'SELECT p.id, p.code, p.name FROM products p WHERE p.category_id = ? AND p.is_active = 1 ORDER BY p.sort_order, p.name',
-            [(int) $id]
+            "SELECT p.id, p.code, p.name FROM products p WHERE p.category_id IN ({$marks}) AND p.is_active = 1 ORDER BY p.sort_order, p.name",
+            $ids
         );
         $this->json(['products' => $rows]);
     }
@@ -115,19 +139,37 @@ final class ApiController extends Controller
             $cid = (int) ($data['category_id'] ?? 0);
             if ($cid > 0) {
                 $db = Database::getInstance();
-                $c = $db->fetch('SELECT slug, default_discount, default_markup FROM categories WHERE id = ?', [$cid]);
+                $c = $db->fetch(
+                    'SELECT COALESCE(pc.slug, c.slug) AS slug, c.default_discount, c.default_markup,
+                            pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup
+                     FROM categories c
+                     LEFT JOIN categories pc ON c.parent_id = pc.id
+                     WHERE c.id = ?',
+                    [$cid]
+                );
                 if ($c) {
                     $slug = (string) $c['slug'];
                     $data['default_discount'] = $c['default_discount'];
                     $data['category_default_markup'] = $c['default_markup'];
+                    $data['parent_discount'] = $c['parent_discount'];
+                    $data['parent_default_markup'] = $c['parent_default_markup'];
                 }
             }
         } else {
             $db = Database::getInstance();
-            $c = $db->fetch('SELECT default_discount, default_markup FROM categories WHERE slug = ?', [$slug]);
+            $c = $db->fetch(
+                'SELECT c.default_discount, c.default_markup,
+                        pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup
+                 FROM categories c
+                 LEFT JOIN categories pc ON c.parent_id = pc.id
+                 WHERE c.slug = ?',
+                [$slug]
+            );
             if ($c) {
                 $data['default_discount'] = $data['default_discount'] ?? $c['default_discount'];
                 $data['category_default_markup'] = $data['category_default_markup'] ?? $c['default_markup'];
+                $data['parent_discount'] = $data['parent_discount'] ?? $c['parent_discount'];
+                $data['parent_default_markup'] = $data['parent_default_markup'] ?? $c['parent_default_markup'];
             }
         }
         $field = (string) ($data['price_field'] ?? '');
@@ -145,7 +187,10 @@ final class ApiController extends Controller
             'markup_override' => isset($data['markup_override']) && $data['markup_override'] !== ''
                 ? (float) str_replace(',', '.', (string) $data['markup_override']) : null,
             'default_discount' => isset($data['default_discount']) ? (float) $data['default_discount'] : 0,
+            'parent_discount' => isset($data['parent_discount']) && $data['parent_discount'] !== '' && $data['parent_discount'] !== null
+                ? (float) str_replace(',', '.', (string) $data['parent_discount']) : null,
             'category_default_markup' => $data['category_default_markup'] ?? null,
+            'parent_default_markup' => $data['parent_default_markup'] ?? null,
             'precio_lista_unitario' => self::toFloat($data['precio_lista_unitario'] ?? null),
             'precio_lista_caja' => self::toFloat($data['precio_lista_caja'] ?? null),
             'precio_lista_bidon' => self::toFloat($data['precio_lista_bidon'] ?? null),

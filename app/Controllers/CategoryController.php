@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Controller;
+use App\Helpers\CategoryHierarchy;
 use App\Models\Database;
 
 final class CategoryController extends Controller
@@ -13,18 +14,28 @@ final class CategoryController extends Controller
     {
         $db = Database::getInstance();
         $rows = $db->fetchAll(
-            'SELECT c.*, COUNT(p.id) AS product_count
+            'SELECT c.*, COUNT(p.id) AS product_count, pc.name AS parent_name, pc.default_discount AS parent_default_discount
              FROM categories c
-             LEFT JOIN products p ON p.category_id = c.id
+             LEFT JOIN products p ON p.category_id = c.id AND p.is_active = 1
+             LEFT JOIN categories pc ON c.parent_id = pc.id
              GROUP BY c.id
-             ORDER BY c.sort_order, c.name'
+             ORDER BY COALESCE(c.parent_id, c.id), c.parent_id IS NOT NULL, c.sort_order, c.name'
         );
-        $this->view('categories/index', ['title' => 'Categorías', 'categories' => $rows]);
+        $tree = CategoryHierarchy::buildTree($rows);
+        $this->view('categories/index', ['title' => 'Categorías', 'categoryTree' => $tree]);
     }
 
     public function create(): void
     {
-        $this->view('categories/form', ['title' => 'Nueva categoría', 'category' => null]);
+        $db = Database::getInstance();
+        $rootCategories = $db->fetchAll(
+            'SELECT id, name FROM categories WHERE parent_id IS NULL ORDER BY sort_order, name'
+        );
+        $this->view('categories/form', [
+            'title' => 'Nueva categoría',
+            'category' => null,
+            'rootCategories' => $rootCategories,
+        ]);
     }
 
     public function store(): void
@@ -39,12 +50,18 @@ final class CategoryController extends Controller
             redirect('/categorias/crear');
         }
         $db = Database::getInstance();
+        $parentErr = $this->validateParentId($db, $data['parent_id'], null);
+        if ($parentErr) {
+            flash('error', $parentErr);
+            redirect('/categorias/crear');
+        }
         $slug = slugify($data['name']);
         $existing = $db->fetch('SELECT id FROM categories WHERE slug = ?', [$slug]);
         if ($existing) {
             $slug .= '-' . substr(uniqid(), -4);
         }
         $db->insert('categories', [
+            'parent_id' => $data['parent_id'],
             'name' => $data['name'],
             'slug' => $slug,
             'description' => $data['description'] ?: null,
@@ -66,7 +83,15 @@ final class CategoryController extends Controller
             flash('error', 'Categoría no encontrada.');
             redirect('/categorias');
         }
-        $this->view('categories/form', ['title' => 'Editar categoría', 'category' => $cat]);
+        $rootCategories = $db->fetchAll(
+            'SELECT id, name FROM categories WHERE parent_id IS NULL AND id != ? ORDER BY sort_order, name',
+            [(int) $id]
+        );
+        $this->view('categories/form', [
+            'title' => 'Editar categoría',
+            'category' => $cat,
+            'rootCategories' => $rootCategories,
+        ]);
     }
 
     public function update(string $id): void
@@ -86,12 +111,18 @@ final class CategoryController extends Controller
             flash('error', implode(' ', $data['errors']));
             redirect('/categorias/' . $id . '/editar');
         }
+        $parentErr = $this->validateParentId($db, $data['parent_id'], (int) $id);
+        if ($parentErr) {
+            flash('error', $parentErr);
+            redirect('/categorias/' . $id . '/editar');
+        }
         $slug = slugify($data['name']);
         $other = $db->fetch('SELECT id FROM categories WHERE slug = ? AND id != ?', [$slug, (int) $id]);
         if ($other) {
             $slug .= '-' . substr(uniqid(), -4);
         }
         $db->update('categories', [
+            'parent_id' => $data['parent_id'],
             'name' => $data['name'],
             'slug' => $slug,
             'description' => $data['description'] ?: null,
@@ -122,7 +153,7 @@ final class CategoryController extends Controller
         redirect('/categorias');
     }
 
-    /** @return array{errors: list<string>, name: string, description: string, default_discount: float, default_markup: ?float, presentation_info: string, sort_order: int, is_active: int} */
+    /** @return array{errors: list<string>, name: string, description: string, default_discount: float, default_markup: ?float, presentation_info: string, sort_order: int, is_active: int, parent_id: ?int} */
     private function validateCategoryInput(): array
     {
         $errors = [];
@@ -145,6 +176,8 @@ final class CategoryController extends Controller
         $pres = trim((string) $this->input('presentation_info', ''));
         $sort = (int) $this->input('sort_order', 0);
         $active = $this->input('is_active') ? 1 : 0;
+        $parentRaw = trim((string) $this->input('parent_id', ''));
+        $parentId = $parentRaw === '' ? null : (int) $parentRaw;
 
         return [
             'errors' => $errors,
@@ -155,6 +188,32 @@ final class CategoryController extends Controller
             'presentation_info' => $pres,
             'sort_order' => $sort,
             'is_active' => $active,
+            'parent_id' => $parentId,
         ];
+    }
+
+    private function validateParentId(Database $db, ?int $parentId, ?int $editingId): ?string
+    {
+        if ($parentId === null) {
+            return null;
+        }
+        if ($editingId !== null && $parentId === $editingId) {
+            return 'La categoría no puede ser padre de sí misma.';
+        }
+        $p = $db->fetch('SELECT id, parent_id FROM categories WHERE id = ?', [$parentId]);
+        if (!$p) {
+            return 'Categoría padre no válida.';
+        }
+        if ($p['parent_id'] !== null && $p['parent_id'] !== '') {
+            return 'Solo se puede elegir una categoría principal como padre (un nivel de subcategorías).';
+        }
+        if ($editingId !== null) {
+            $hasKids = $db->fetch('SELECT id FROM categories WHERE parent_id = ? LIMIT 1', [$editingId]);
+            if ($hasKids && $parentId !== null) {
+                return 'Una categoría con subcategorías no puede convertirse en subcategoría.';
+            }
+        }
+
+        return null;
     }
 }

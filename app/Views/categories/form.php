@@ -12,6 +12,16 @@ $c = $category ?? [];
                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#1a6b3c]">
         </div>
         <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Categoría padre (vacío = categoría principal)</label>
+            <select name="parent_id" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#1a6b3c]">
+                <option value="">— Ninguna (categoría raíz) —</option>
+                <?php foreach ($rootCategories as $rc): ?>
+                    <option value="<?= (int) $rc['id'] ?>" <?= (string) ($c['parent_id'] ?? '') === (string) $rc['id'] ? 'selected' : '' ?>><?= e($rc['name']) ?></option>
+                <?php endforeach; ?>
+            </select>
+            <p class="text-xs text-gray-500 mt-1">Solo categorías principales. No hay más de dos niveles.</p>
+        </div>
+        <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Descripción</label>
             <textarea name="description" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#1a6b3c]"><?= e($c['description'] ?? '') ?></textarea>
         </div>

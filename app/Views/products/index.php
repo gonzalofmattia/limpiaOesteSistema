@@ -8,9 +8,9 @@ $st = $filters['status'] ?? '';
         <div>
             <label class="block text-xs text-gray-500 mb-1">Categoría</label>
             <select name="category_id" class="border border-gray-300 rounded-lg text-sm px-3 py-2 focus:ring-2 focus:ring-[#1a6b3c]">
-                <option value="">Todas</option>
-                <?php foreach ($categories as $c): ?>
-                    <option value="<?= (int) $c['id'] ?>" <?= (string) $cat === (string) $c['id'] ? 'selected' : '' ?>><?= e($c['name']) ?></option>
+                <option value="">Todas las categorías</option>
+                <?php foreach ($categoryFilterOptions as $opt): ?>
+                    <option value="<?= (int) $opt['id'] ?>" <?= (string) $cat === (string) $opt['id'] ? 'selected' : '' ?>><?= e($opt['label']) ?><?= !empty($opt['is_parent']) ? ' (todos)' : '' ?></option>
                 <?php endforeach; ?>
             </select>
         </div>

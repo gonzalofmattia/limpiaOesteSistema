@@ -2,7 +2,7 @@
 /** @var string $listName */
 /** @var string $generatedAt */
 /** @var bool $includeIva */
-/** @var array<string, list<array<string,mixed>>> $grouped */
+/** @var list<array{parent:string,blocks:list<array{subtitle:?string,lines:list<array<string,mixed>>}>}> $pdfSections */
 $wa = setting('empresa_whatsapp', '');
 $ig = setting('empresa_instagram', '');
 $zona = setting('empresa_zona', '');
@@ -26,7 +26,8 @@ $leyendaIvaLista = priceIvaLegendLine($includeIva);
         th { background: #1a6b3c; color: #fff; padding: 6px 4px; text-align: left; font-size: 10px; }
         td { padding: 5px 4px; border-bottom: 1px solid #e5e7eb; }
         tr:nth-child(even) td { background: #f9fafb; }
-        .cat { background: #e5e7eb; font-weight: bold; padding: 6px 4px; margin-top: 8px; }
+        .cat { background: #e5e7eb; font-weight: bold; padding: 6px 4px; margin-top: 8px; font-size: 11px; }
+        .sub { font-weight: bold; padding: 4px 4px 2px 4px; margin-top: 6px; font-size: 10px; color: #374151; border-bottom: 1px solid #d1d5db; }
         .right { text-align: right; }
         .footer { margin-top: 20px; font-size: 9px; color: #6B7280; border-top: 1px solid #e5e7eb; padding-top: 8px; }
         .hdr { display: table; width: 100%; margin-bottom: 8px; }
@@ -50,40 +51,44 @@ $leyendaIvaLista = priceIvaLegendLine($includeIva);
         <?php if ($zona): ?><?= htmlspecialchars($zona) ?><?php endif; ?>
     </div>
     <h2 style="font-size:14px;color:#1a6b3c;"><?= htmlspecialchars($listName) ?></h2>
-    <?php foreach ($grouped as $catName => $lines): ?>
-        <div class="cat"><?= htmlspecialchars($catName) ?></div>
-        <table>
-            <thead>
-                <tr>
-                    <th style="width:12%">Código</th>
-                    <th style="width:34%">Producto</th>
-                    <th style="width:22%">Presentación</th>
-                    <th class="right" style="width:14%">P. unitario</th>
-                    <th class="right" style="width:18%">Precio venta</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php foreach ($lines as $line): ?>
-                    <?php
-                    $calc = $line['calc'];
-                    $p = $line['product'];
-                    $price = $includeIva && $calc['precio_con_iva'] !== null ? $calc['precio_con_iva'] : $calc['precio_venta'];
-                    $ind = (float) ($line['individual_venta'] ?? 0);
-                    ?>
+    <?php foreach ($pdfSections as $sec): ?>
+        <div class="cat"><?= htmlspecialchars(mb_strtoupper($sec['parent'])) ?></div>
+        <?php foreach ($sec['blocks'] as $block): ?>
+            <?php if (!empty($block['subtitle'])): ?>
+                <div class="sub"><?= htmlspecialchars($block['subtitle']) ?></div>
+            <?php endif; ?>
+            <table>
+                <thead>
                     <tr>
-                        <td><?= htmlspecialchars($p['code']) ?></td>
-                        <td><?= htmlspecialchars($p['name']) ?></td>
-                        <td><?= htmlspecialchars((string) ($p['presentation'] ?? $p['content'] ?? '')) ?></td>
-                        <td class="right">$ <?= number_format($ind, 2, ',', '.') ?></td>
-                        <td class="right">$ <?= number_format($price, 2, ',', '.') ?></td>
+                        <th style="width:12%">Código</th>
+                        <th style="width:34%">Producto</th>
+                        <th style="width:22%">Presentación</th>
+                        <th class="right" style="width:14%">P. unitario</th>
+                        <th class="right" style="width:18%">Precio caja/bulto</th>
                     </tr>
-                <?php endforeach; ?>
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                    <?php foreach ($block['lines'] as $line): ?>
+                        <?php
+                        $p = $line['product'];
+                        $price = (float) ($line['pack_venta'] ?? 0);
+                        $ind = (float) ($line['individual_venta'] ?? 0);
+                        ?>
+                        <tr>
+                            <td><?= htmlspecialchars($p['code']) ?></td>
+                            <td><?= htmlspecialchars($p['name']) ?></td>
+                            <td><?= htmlspecialchars(productListPresentation($p)) ?></td>
+                            <td class="right">$ <?= number_format($ind, 2, ',', '.') ?></td>
+                            <td class="right">$ <?= number_format($price, 2, ',', '.') ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endforeach; ?>
     <?php endforeach; ?>
     <div class="footer">
         <p style="font-style:italic;color:#4B5563;margin-bottom:6px;"><?= htmlspecialchars($leyendaIvaLista) ?></p>
-        Entrega en 24hs — <?= htmlspecialchars($zona ?: 'Zona Oeste GBA') ?>.
+        Entrega prioritaria — <?= htmlspecialchars($zona ?: 'Zona Oeste GBA') ?>.
     </div>
 </body>
 </html>

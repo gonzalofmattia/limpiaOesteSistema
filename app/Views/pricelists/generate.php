@@ -5,7 +5,11 @@ $allFields = [
     'precio_lista_litro', 'precio_lista_bulto', 'precio_lista_sobre',
 ];
 ?>
-<div class="max-w-3xl bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+<div class="max-w-3xl bg-white rounded-xl border border-gray-200 shadow-sm p-6" x-data="{
+    toggleChildren(rootId, checked) {
+        document.querySelectorAll('input[type=checkbox][data-pl-parent=\'' + rootId + '\']').forEach(function (el) { el.checked = checked; });
+    }
+}">
     <form method="post" action="<?= e(url('/listas/preview')) ?>" class="space-y-6">
         <?= csrfField() ?>
         <div>
@@ -19,14 +23,25 @@ $allFields = [
         </div>
         <div>
             <p class="text-sm font-medium text-gray-700 mb-2">Categorías a incluir</p>
-            <div class="grid sm:grid-cols-2 gap-2">
-                <?php foreach ($categories as $c): ?>
-                    <label class="inline-flex items-center gap-2 text-sm">
-                        <input type="checkbox" name="category_ids[]" value="<?= (int) $c['id'] ?>" checked>
-                        <?= e($c['name']) ?>
-                    </label>
+            <div class="space-y-2 text-sm border border-gray-100 rounded-lg p-3 bg-gray-50/50">
+                <?php foreach ($categoryTree as $root): ?>
+                    <div class="pl-0">
+                        <label class="inline-flex items-center gap-2 font-medium text-gray-800">
+                            <input type="checkbox" name="category_ids[]" value="<?= (int) $root['id'] ?>" checked
+                                   @change="toggleChildren(<?= (int) $root['id'] ?>, $event.target.checked)">
+                            <?= e($root['name']) ?>
+                        </label>
+                        <?php foreach ($root['children'] as $ch): ?>
+                            <label class="flex items-center gap-2 ml-6 text-gray-700">
+                                <input type="checkbox" name="category_ids[]" value="<?= (int) $ch['id'] ?>" checked
+                                       data-pl-parent="<?= (int) $root['id'] ?>">
+                                <?= e($ch['name']) ?>
+                            </label>
+                        <?php endforeach; ?>
+                    </div>
                 <?php endforeach; ?>
             </div>
+            <p class="text-xs text-gray-500 mt-1">Al marcar o desmarcar una categoría principal se actualizan sus subcategorías; podés ajustar cada subcategoría por separado.</p>
         </div>
         <div class="grid sm:grid-cols-2 gap-4">
             <div>

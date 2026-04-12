@@ -46,7 +46,7 @@ $waMeta = [
                 <th class="text-left px-4 py-2">Producto</th>
                 <th class="text-right px-4 py-2">Lista base</th>
                 <th class="text-right px-4 py-2">Costo LO</th>
-                <th class="text-right px-4 py-2">Venta</th>
+                <th class="text-right px-4 py-2">Precio caja/bulto</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
@@ -58,13 +58,13 @@ $waMeta = [
                     <td class="px-4 py-2 text-right"><?= formatPrice((float) $it['precio_base_usado']) ?></td>
                     <td class="px-4 py-2 text-right"><?= formatPrice((float) $it['costo_limpia_oeste']) ?></td>
                     <td class="px-4 py-2 text-right font-medium">
-                        <?= formatPrice((float) ($list['include_iva'] && $it['precio_venta_iva'] ? $it['precio_venta_iva'] : $it['precio_venta'])) ?>
+                        <?= formatPrice((float) (((int) $list['include_iva'] === 1) && $it['precio_venta_iva'] ? $it['precio_venta_iva'] : $it['precio_venta'])) ?>
                     </td>
                 </tr>
             <?php endforeach; ?>
         </tbody>
     </table>
-    <p class="text-xs text-gray-500 mt-4 px-4 pb-4"><?= e(priceIvaLegendLine(!empty($list['include_iva']))) ?></p>
+    <p class="text-xs text-gray-500 mt-4 px-4 pb-4"><?= e(priceIvaLegendLine((int) $list['include_iva'] === 1)) ?></p>
 </div>
 
 <script>
@@ -81,7 +81,7 @@ function compartirListaWhatsApp() {
         mensaje += '\n';
     });
     mensaje += '_' + meta.ivaLine + '_';
-    mensaje += '\n_Entrega en 24hs — Zona Oeste GBA_';
+    mensaje += '\n_Entrega prioritaria — <?= e(setting('empresa_zona', 'Zona Oeste GBA')) ?>_';
     mensaje += '\n\nLIMPIA OESTE';
     if (meta.wa) { mensaje += '\nWhatsApp: ' + meta.wa; }
     if (meta.ig) { mensaje += '\nIG: ' + meta.ig; }

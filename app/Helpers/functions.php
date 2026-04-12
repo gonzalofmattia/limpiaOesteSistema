@@ -99,6 +99,24 @@ function e(?string $value): string
     return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
+/**
+ * Texto de presentación para listas de precios / PDF (el operador ?? no sustituye strings vacíos).
+ *
+ * @param array<string, mixed> $product Fila producto; puede incluir category_presentation_info (join a categories).
+ */
+function productListPresentation(array $product): string
+{
+    foreach (['presentation', 'content', 'sale_unit_description'] as $k) {
+        $t = trim((string) ($product[$k] ?? ''));
+        if ($t !== '') {
+            return $t;
+        }
+    }
+    $c = trim((string) ($product['category_presentation_info'] ?? ''));
+
+    return $c !== '' ? $c : '—';
+}
+
 function isActive(string $path): bool
 {
     $current = $_SERVER['REQUEST_URI'] ?? '/';

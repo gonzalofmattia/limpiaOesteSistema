@@ -13,7 +13,16 @@ final class PricingEngine
             && $product['discount_override'] !== '') {
             return (float) $product['discount_override'];
         }
-        return (float) ($product['default_discount'] ?? 0);
+        if (isset($product['default_discount']) && (float) $product['default_discount'] > 0) {
+            return (float) $product['default_discount'];
+        }
+        if (array_key_exists('parent_discount', $product)
+            && $product['parent_discount'] !== null
+            && $product['parent_discount'] !== '') {
+            return (float) $product['parent_discount'];
+        }
+
+        return 0.0;
     }
 
     public static function getEffectiveMarkup(array $product, ?float $overrideMarkup = null): float
@@ -31,8 +40,28 @@ final class PricingEngine
             && $product['category_default_markup'] !== '') {
             return (float) $product['category_default_markup'];
         }
+        if (array_key_exists('parent_default_markup', $product)
+            && $product['parent_default_markup'] !== null
+            && $product['parent_default_markup'] !== '') {
+            return (float) $product['parent_default_markup'];
+        }
         $g = setting('default_markup', '60');
         return (float) ($g ?? 60);
+    }
+
+    /**
+     * Slug de categoría para reglas de precio (bidón, aerosol, etc.): el del padre si es subcategoría.
+     *
+     * @param array<string, mixed> $product Debe incluir category_slug y opcionalmente parent_slug
+     */
+    public static function getEffectiveCategorySlug(array $product): string
+    {
+        $p = $product['parent_slug'] ?? null;
+        if ($p !== null && $p !== '') {
+            return (string) $p;
+        }
+
+        return (string) ($product['category_slug'] ?? '');
     }
 
     public static function calculateCost(float $precioLista, float $discount): float

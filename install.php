@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS admin_users (
 
 CREATE TABLE IF NOT EXISTS categories (
     id INT AUTO_INCREMENT PRIMARY KEY,
+    parent_id INT DEFAULT NULL,
     name VARCHAR(100) NOT NULL,
     slug VARCHAR(100) UNIQUE NOT NULL,
     description TEXT,
@@ -95,7 +96,9 @@ CREATE TABLE IF NOT EXISTS categories (
     sort_order INT DEFAULT 0,
     is_active TINYINT(1) DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_parent (parent_id),
+    FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS products (
@@ -249,6 +252,21 @@ $installColumnExists = static function (PDO $pdo, string $table, string $column)
 };
 
 try {
+    if (!$installColumnExists($pdo, 'categories', 'parent_id')) {
+        $pdo->exec('ALTER TABLE categories ADD COLUMN parent_id INT DEFAULT NULL AFTER id');
+        $pdo->exec('ALTER TABLE categories ADD INDEX idx_parent (parent_id)');
+        try {
+            $pdo->exec('ALTER TABLE categories ADD CONSTRAINT fk_categories_parent FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE SET NULL');
+        } catch (PDOException $e) {
+            warn('FK fk_categories_parent: ' . $e->getMessage());
+        }
+        ok('Columna categories.parent_id');
+    }
+} catch (PDOException $e) {
+    warn('Migración parent_id categorías: ' . $e->getMessage());
+}
+
+try {
     if (!$installColumnExists($pdo, 'products', 'sale_unit_type')) {
         $pdo->exec("ALTER TABLE products ADD COLUMN sale_unit_type ENUM('caja','unidad') NOT NULL DEFAULT 'caja' AFTER ean13");
     }
@@ -329,6 +347,107 @@ foreach ($categoriesSeed as $c) {
     }
 }
 ok('Categorías seed');
+
+$bidonesSubsSeed = [
+    ['Limpiadores y Aromatizantes', 'bidones-limpiadores-aromatizantes', 35.0, 'Caja 4x5 Litros', 1],
+    ['Cuidado de Manos', 'bidones-cuidado-manos', 35.0, 'Caja 4x5 Litros', 2],
+    ['Limpiadores Desengrasantes', 'bidones-desengrasantes', 35.0, 'Caja 4x5 Litros', 3],
+    ['Cuidado de la Cocina', 'bidones-cocina', 35.0, 'Caja 4x5 Litros', 4],
+    ['Lavandería', 'bidones-lavanderia', 35.0, 'Caja 4x5 Litros', 5],
+    ['Limpieza y Tratamiento de Pisos', 'bidones-pisos', 35.0, 'Caja 4x5 Litros', 6],
+    ['Ceras', 'bidones-ceras', 35.0, 'Caja 4x5 Litros', 7],
+    ['Curadores Hidrofugos', 'bidones-curadores', 35.0, 'Caja 4x5 Litros', 8],
+    ['Limpieza de Alfombras', 'bidones-alfombras', 35.0, 'Caja 4x5 Litros', 9],
+    ['Limpiadores Desinfectantes', 'bidones-desinfectantes', 35.0, 'Caja 4x5 Litros', 10],
+    ['Cosmética del Automotor', 'bidones-automotor', 35.0, 'Caja 4x5 Litros', 11],
+    ['Productos para Piletas', 'bidones-piletas', 35.0, 'Caja 4x5 Litros', 12],
+    ['Insecticidas', 'bidones-insecticidas', 35.0, 'Caja 4x5 Litros', 13],
+];
+$bidonesProductMoves = [
+    'bidones-limpiadores-aromatizantes' => [
+        '861002', '861003', '861004', '861005', '861006', '861007', '861008',
+        '329201', '334345', '399329', '861010', '861600',
+    ],
+    'bidones-cuidado-manos' => [
+        '861008 A', '861022', '861023', '861023 A', '291920',
+        '260001', '100000', '260000',
+    ],
+    'bidones-desengrasantes' => [
+        '861013', '382018', '861401', '2045', '2046', '8256',
+        '2048', '250070', '861015', '250066', '250067',
+    ],
+    'bidones-cocina' => [
+        '861017', '2026F', '861008 B', '861009', '861007 A', '220060',
+        '398120', '861018', '861020', '861024', '261011', '28014',
+        '262200', '260065', '262205', '262210', '250060', '250065',
+    ],
+    'bidones-lavanderia' => [
+        '861080', '18187', '28186A', '28186Z',
+        '8116A', '8116D', '8116E', '8116B',
+        '261030', '261021', '1001', '260046',
+        '250040', '250020', '250010', '250015', '250050',
+    ],
+    'bidones-pisos' => [
+        '861100', '2060', '861101', '2061', '260032', '260033',
+        '26034', '26035', '26035 A', '861102', '861103', '861104',
+        '861105', '861106', '861145', '262190', '861014', '861017 A',
+        '861107',
+    ],
+    'bidones-ceras' => [
+        '861200', '861204', '861205', '861206',
+        '14001B', '14003', '14002A',
+        '240011', '240031', '240021',
+        '861250', '262215',
+    ],
+    'bidones-curadores' => ['861900', '861901', '861902'],
+    'bidones-alfombras' => ['861009 A'],
+    'bidones-desinfectantes' => [
+        '260089', '861000', '861016', '861019', '861621', '861122',
+        '861012', '2062', '261000', '464656', '260071', '260072',
+        '260073', '260070', 'ECHL1',
+    ],
+    'bidones-automotor' => [
+        '861620', '1609.40', '262100', '262120', '262140',
+        '26159', '452710', '162910', '262175',
+    ],
+    'bidones-piletas' => ['200055', '260050'],
+    'bidones-insecticidas' => ['861650', '861652'],
+];
+
+try {
+    $chkSub = $pdo->prepare('SELECT id FROM categories WHERE slug = ?');
+    $chkSub->execute(['bidones-limpiadores-aromatizantes']);
+    if (!$chkSub->fetch()) {
+        $stB = $pdo->prepare('SELECT id FROM categories WHERE slug = ?');
+        $stB->execute(['bidones']);
+        $bidonesId = (int) $stB->fetchColumn();
+        if ($bidonesId <= 0) {
+            throw new RuntimeException('Categoría bidones no encontrada');
+        }
+        $insSub = $pdo->prepare(
+            'INSERT INTO categories (parent_id, name, slug, default_discount, presentation_info, sort_order, is_active) VALUES (?,?,?,?,?,?,1)'
+        );
+        foreach ($bidonesSubsSeed as $s) {
+            $insSub->execute([$bidonesId, $s[0], $s[1], $s[2], $s[3], $s[4]]);
+        }
+        ok('Subcategorías Bidones creadas');
+        foreach ($bidonesProductMoves as $slug => $codes) {
+            $stId = $pdo->prepare('SELECT id FROM categories WHERE slug = ?');
+            $stId->execute([$slug]);
+            $sid = $stId->fetchColumn();
+            if (!$sid) {
+                continue;
+            }
+            $sid = (int) $sid;
+            $placeholders = implode(',', array_fill(0, count($codes), '?'));
+            $sql = "UPDATE products SET category_id = ? WHERE code IN ({$placeholders})";
+            $pdo->prepare($sql)->execute(array_merge([$sid], $codes));
+        }
+        ok('Productos reasignados a subcategorías Bidones');
+    }
+} catch (Throwable $e) {
+    warn('Seed subcategorías Bidones: ' . $e->getMessage());
+}
 
 function catId(PDO $pdo, string $slug): int
 {

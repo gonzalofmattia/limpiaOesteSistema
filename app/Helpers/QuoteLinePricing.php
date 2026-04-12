@@ -170,6 +170,65 @@ final class QuoteLinePricing
     }
 
     /**
+     * Para listas de precios: P. unitario (venta) y precio caja/bulto = unitario × units_per_box.
+     * Si no hay lista unitaria (p. ej. solo precio caja en Seiq), se deriva del cálculo por campo de lista.
+     *
+     * @param array<string, mixed> $p Producto + category_slug
+     * @param array<string, mixed> $calcListaPrincipal Resultado de PricingEngine::calculate() con el campo de lista elegido
+     * @return array{individual_venta: float, pack_net: float, pack_con_iva: ?float, pack_display: float, units_in_pack: int}
+     */
+    public static function priceListUnitAndPack(
+        array $p,
+        string $slug,
+        ?float $customMarkup,
+        bool $includeIva,
+        array $calcListaPrincipal
+    ): array {
+        $slug = strtolower($slug);
+        $n = max(1, (int) ($p['units_per_box'] ?? 1));
+        $unitLista = self::individualListaSeiq($p, $slug);
+
+        $net = static fn (float $lista): array => PricingEngine::calculateWithListaSeiq($lista, $p, $customMarkup, false);
+        $iva = static fn (float $lista): array => PricingEngine::calculateWithListaSeiq($lista, $p, $customMarkup, true);
+
+        if ($unitLista > 0) {
+            $cn = $net($unitLista);
+            $ci = $iva($unitLista);
+            $unitNet = (float) $cn['precio_venta'];
+            $unitIva = $ci['precio_con_iva'] !== null ? (float) $ci['precio_con_iva'] : null;
+            $individualVenta = $includeIva && $unitIva !== null ? $unitIva : $unitNet;
+            $packNet = round($unitNet * $n, 2);
+            $packIva = $unitIva !== null ? round($unitIva * $n, 2) : null;
+            $packDisplay = $includeIva && $packIva !== null ? $packIva : $packNet;
+
+            return [
+                'individual_venta' => $individualVenta,
+                'pack_net' => $packNet,
+                'pack_con_iva' => $packIva,
+                'pack_display' => $packDisplay,
+                'units_in_pack' => $n,
+            ];
+        }
+
+        $pv = (float) $calcListaPrincipal['precio_venta'];
+        $pc = $calcListaPrincipal['precio_con_iva'] !== null ? (float) $calcListaPrincipal['precio_con_iva'] : null;
+        $packNet = round($pv, 2);
+        $packIva = $pc !== null ? round($pc, 2) : null;
+        $packDisplay = $includeIva && $packIva !== null ? $packIva : $packNet;
+        $individualVenta = $n > 0
+            ? round(($includeIva && $packIva !== null ? $packIva : $packNet) / $n, 2)
+            : $packDisplay;
+
+        return [
+            'individual_venta' => $individualVenta,
+            'pack_net' => $packNet,
+            'pack_con_iva' => $packIva,
+            'pack_display' => $packDisplay,
+            'units_in_pack' => $n,
+        ];
+    }
+
+    /**
      * Precio de venta de 1 unidad individual (mismo descuento, markup e IVA que la línea del presupuesto).
      *
      * @param array<string, mixed> $p Producto con datos de categoría para PricingEngine

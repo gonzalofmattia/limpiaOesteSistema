@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Controller;
+use App\Helpers\CategoryHierarchy;
 use App\Helpers\PricingEngine;
 use App\Helpers\QuoteLinePricing;
 use App\Models\Database;
@@ -24,7 +25,12 @@ final class PriceListController extends Controller
     {
         $db = Database::getInstance();
         $categories = $db->fetchAll('SELECT * FROM categories WHERE is_active = 1 ORDER BY sort_order, name');
-        $this->view('pricelists/generate', ['title' => 'Generar lista', 'categories' => $categories]);
+        $categoryTree = CategoryHierarchy::buildTree($categories);
+        $this->view('pricelists/generate', [
+            'title' => 'Generar lista',
+            'categories' => $categories,
+            'categoryTree' => $categoryTree,
+        ]);
     }
 
     public function preview(): void
@@ -61,12 +67,13 @@ final class PriceListController extends Controller
             'name' => $bundle['name'],
             'description' => $bundle['description'] ?: null,
             'custom_markup' => $bundle['markup'],
-            'include_iva' => $bundle['include_iva'],
+            'include_iva' => ((int) ($bundle['include_iva'] ?? 0) === 1) ? 1 : 0,
             'category_filter' => $catFilter,
             'status' => 'active',
             'generated_at' => date('Y-m-d H:i:s'),
         ]);
 
+        $listIva = (int) ($bundle['include_iva'] ?? 0) === 1;
         foreach ($bundle['lines'] as $line) {
             $calc = $line['calc'];
             $db->insert('price_list_items', [
@@ -74,8 +81,8 @@ final class PriceListController extends Controller
                 'product_id' => $line['product_id'],
                 'precio_base_usado' => $calc['precio_lista_seiq'],
                 'costo_limpia_oeste' => $calc['costo'],
-                'precio_venta' => $calc['precio_venta'],
-                'precio_venta_iva' => $calc['precio_con_iva'],
+                'precio_venta' => $line['pack_venta_net'],
+                'precio_venta_iva' => $listIva ? ($line['pack_venta_iva'] ?? null) : null,
                 'markup_applied' => $calc['markup_percent'],
                 'discount_applied' => $calc['discount_percent'],
                 'price_field_used' => $line['field'],
@@ -98,7 +105,8 @@ final class PriceListController extends Controller
             redirect('/listas');
         }
         $items = $db->fetchAll(
-            'SELECT pli.*, p.code, p.name, p.presentation, p.content, c.name AS category_name, c.slug AS category_slug
+            'SELECT pli.*, p.code, p.name, p.presentation, p.content, p.sale_unit_description,
+                    c.name AS category_name, c.slug AS category_slug, c.presentation_info AS category_presentation_info
              FROM price_list_items pli
              JOIN products p ON p.id = pli.product_id
              JOIN categories c ON c.id = p.category_id
@@ -128,38 +136,58 @@ final class PriceListController extends Controller
         exit;
     }
 
-    /** @return array{name:string,description:string,category_ids:list<int>,markup:?float,include_iva:bool,price_field:string,lines:list<array<string,mixed>>,error:?string} */
+    /** @return array{name:string,description:string,category_ids:list<int>,markup:?float,include_iva:int,price_field:string,lines:list<array<string,mixed>>,error:?string} */
     private function collectGenerateInput(): array
     {
         $name = trim((string) $this->input('name', ''));
         if ($name === '') {
-            return ['error' => 'El nombre es obligatorio.', 'name' => '', 'description' => '', 'category_ids' => [], 'markup' => null, 'include_iva' => false, 'price_field' => '', 'lines' => []];
+            return ['error' => 'El nombre es obligatorio.', 'name' => '', 'description' => '', 'category_ids' => [], 'markup' => null, 'include_iva' => 0, 'price_field' => '', 'lines' => []];
         }
         $desc = trim((string) $this->input('description', ''));
         $cats = $_POST['category_ids'] ?? [];
         if (!is_array($cats)) {
             $cats = [];
         }
-        $categoryIds = array_values(array_filter(array_map('intval', $cats)));
-        if ($categoryIds === []) {
-            return ['error' => 'Seleccioná al menos una categoría.', 'name' => $name, 'description' => $desc, 'category_ids' => [], 'markup' => null, 'include_iva' => false, 'price_field' => '', 'lines' => []];
+        $categoryIdsRaw = array_values(array_filter(array_map('intval', $cats)));
+        if ($categoryIdsRaw === []) {
+            return ['error' => 'Seleccioná al menos una categoría.', 'name' => $name, 'description' => $desc, 'category_ids' => [], 'markup' => null, 'include_iva' => 0, 'price_field' => '', 'lines' => []];
         }
         $markRaw = trim((string) $this->input('custom_markup', ''));
         $markup = $markRaw === '' ? null : (float) str_replace(',', '.', $markRaw);
-        $includeIva = isset($_POST['include_iva']) && (string) $_POST['include_iva'] === '1';
+        $ivaPost = $_POST['include_iva'] ?? '0';
+        $includeIva = (string) $ivaPost === '1';
         $priceField = trim((string) $this->input('price_field', ''));
         if ($priceField === '') {
-            return ['error' => 'Elegí el campo de precio.', 'name' => $name, 'description' => $desc, 'category_ids' => $categoryIds, 'markup' => $markup, 'include_iva' => $includeIva, 'price_field' => '', 'lines' => []];
+            return ['error' => 'Elegí el campo de precio.', 'name' => $name, 'description' => $desc, 'category_ids' => $categoryIdsRaw, 'markup' => $markup, 'include_iva' => $includeIva ? 1 : 0, 'price_field' => '', 'lines' => []];
         }
 
         $db = Database::getInstance();
+        $expanded = [];
+        foreach ($categoryIdsRaw as $cid) {
+            foreach (CategoryHierarchy::expandFilterCategoryIds($db, $cid) as $xid) {
+                $expanded[$xid] = true;
+            }
+        }
+        $categoryIds = array_keys($expanded);
+
         $in = implode(',', array_fill(0, count($categoryIds), '?'));
         $products = $db->fetchAll(
-            "SELECT p.*, c.slug AS category_slug, c.name AS category_name, c.default_discount, c.default_markup AS category_default_markup
+            "SELECT p.*,
+                    COALESCE(pc.slug, c.slug) AS category_slug,
+                    c.name AS category_name,
+                    c.presentation_info AS category_presentation_info,
+                    pc.name AS parent_category_name,
+                    COALESCE(pc.sort_order, c.sort_order) AS chain_parent_sort,
+                    c.sort_order AS category_sort,
+                    c.default_discount,
+                    c.default_markup AS category_default_markup,
+                    pc.default_discount AS parent_discount,
+                    pc.default_markup AS parent_default_markup
              FROM products p
              JOIN categories c ON c.id = p.category_id
+             LEFT JOIN categories pc ON c.parent_id = pc.id
              WHERE p.is_active = 1 AND p.category_id IN ({$in})
-             ORDER BY c.sort_order, p.sort_order, p.name",
+             ORDER BY chain_parent_sort, c.parent_id IS NOT NULL, c.sort_order, p.sort_order, p.name",
             $categoryIds
         );
 
@@ -167,53 +195,97 @@ final class PriceListController extends Controller
         foreach ($products as $p) {
             $field = $priceField;
             if (empty($p[$field])) {
-                $field = PricingEngine::getPrimaryPriceField($p['category_slug']);
+                $field = PricingEngine::getPrimaryPriceField((string) $p['category_slug']);
             }
             if (empty($p[$field])) {
                 continue;
             }
             $calc = PricingEngine::calculate($p, $field, $markup, $includeIva);
-            $individualVenta = QuoteLinePricing::individualUnitSellingPrice(
+            $pp = QuoteLinePricing::priceListUnitAndPack(
                 $p,
                 (string) $p['category_slug'],
                 $markup,
-                $includeIva
+                $includeIva,
+                $calc
             );
             $lines[] = [
                 'product_id' => (int) $p['id'],
                 'product' => $p,
                 'field' => $field,
                 'calc' => $calc,
-                'individual_venta' => $individualVenta,
+                'individual_venta' => $pp['individual_venta'],
+                'pack_venta' => $pp['pack_display'],
+                'pack_venta_net' => $pp['pack_net'],
+                'pack_venta_iva' => $pp['pack_con_iva'],
             ];
         }
 
         return [
             'name' => $name,
             'description' => $desc,
-            'category_ids' => $categoryIds,
+            'category_ids' => $categoryIdsRaw,
             'markup' => $markup,
-            'include_iva' => $includeIva,
+            'include_iva' => $includeIva ? 1 : 0,
             'price_field' => $priceField,
             'lines' => $lines,
+            'pdf_sections' => $this->buildPricelistPdfSections($lines),
             'error' => null,
         ];
+    }
+
+    /**
+     * @param list<array<string,mixed>> $lines
+     * @return list<array{parent:string,blocks:list<array{subtitle:?string,lines:list<array<string,mixed>>}>}>
+     */
+    private function buildPricelistPdfSections(array $lines): array
+    {
+        if ($lines === []) {
+            return [];
+        }
+        $byParent = [];
+        $order = [];
+        foreach ($lines as $line) {
+            /** @var array<string,mixed> $pr */
+            $pr = $line['product'];
+            $hasParent = !empty($pr['parent_category_name']);
+            $parentTitle = $hasParent ? (string) $pr['parent_category_name'] : (string) $pr['category_name'];
+            $subKey = $hasParent ? (string) $pr['category_name'] : '';
+            if (!isset($byParent[$parentTitle])) {
+                $order[] = $parentTitle;
+                $byParent[$parentTitle] = ['_subs' => [], '_direct' => []];
+            }
+            if ($subKey !== '') {
+                $byParent[$parentTitle]['_subs'][$subKey][] = $line;
+            } else {
+                $byParent[$parentTitle]['_direct'][] = $line;
+            }
+        }
+        $out = [];
+        foreach ($order as $pTitle) {
+            $blk = $byParent[$pTitle];
+            $blocks = [];
+            foreach ($blk['_subs'] as $subTitle => $subLines) {
+                $blocks[] = ['subtitle' => $subTitle, 'lines' => $subLines];
+            }
+            if ($blk['_direct'] !== []) {
+                $blocks[] = ['subtitle' => null, 'lines' => $blk['_direct']];
+            }
+            $out[] = ['parent' => $pTitle, 'blocks' => $blocks];
+        }
+
+        return $out;
     }
 
     /** @param array<string,mixed> $bundle */
     private function renderPdf(int $listId, array $bundle): string
     {
-        $grouped = [];
-        foreach ($bundle['lines'] as $line) {
-            $cat = $line['product']['category_name'];
-            $grouped[$cat][] = $line;
-        }
+        $pdfSections = $bundle['pdf_sections'] ?? $this->buildPricelistPdfSections($bundle['lines']);
         ob_start();
         extract([
             'listName' => $bundle['name'],
             'generatedAt' => date('d/m/Y H:i'),
-            'includeIva' => $bundle['include_iva'],
-            'grouped' => $grouped,
+            'includeIva' => ((int) ($bundle['include_iva'] ?? 0) === 1),
+            'pdfSections' => $pdfSections,
         ]);
         require APP_PATH . '/Views/pdf/pricelist.php';
         $html = ob_get_clean();

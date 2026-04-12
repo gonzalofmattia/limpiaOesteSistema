@@ -81,12 +81,18 @@ window.__quoteForm = {
                             <label class="block text-xs text-gray-500 mb-1">Buscar producto</label>
                             <input type="text" x-model="line.query" @input.debounce.300ms="search(idx)" placeholder="Código o nombre…"
                                    class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
-                            <div x-show="line.results && line.results.length" class="mt-1 border border-gray-200 rounded bg-white max-h-36 overflow-y-auto text-sm shadow">
+                            <div x-show="line.results && line.results.length" class="mt-1 border border-gray-200 rounded bg-white max-h-40 overflow-y-auto text-sm shadow">
                                 <template x-for="r in line.results" :key="r.id">
-                                    <button type="button" class="block w-full text-left px-2 py-1 hover:bg-gray-50" @click="pick(idx, r)" x-text="r.code + ' — ' + r.name"></button>
+                                    <button type="button" class="block w-full text-left px-2 py-1.5 hover:bg-gray-50 border-b border-gray-50 last:border-0" @click="pick(idx, r)">
+                                        <span class="block font-medium text-gray-900" x-text="r.code + ' — ' + r.name"></span>
+                                        <span class="block text-xs text-gray-500 mt-0.5" x-show="r.category_context" x-text="r.category_context"></span>
+                                    </button>
                                 </template>
                             </div>
-                            <p class="text-xs text-gray-600 mt-1" x-show="line.product_id" x-text="line.name"></p>
+                            <p class="text-xs text-gray-600 mt-1" x-show="line.product_id">
+                                <span class="block font-medium text-gray-800" x-text="line.name"></span>
+                                <span class="block text-gray-500 mt-0.5" x-show="line.category_context" x-text="line.category_context"></span>
+                            </p>
                         </div>
                         <div class="md:col-span-2">
                             <label class="block text-xs text-gray-500 mb-1">Cantidad</label>
@@ -126,6 +132,7 @@ function quoteForm() {
                 product_id: l.product_id || 0,
                 code: l.code || '',
                 name: l.name || '',
+                category_context: l.category_context || '',
                 quantity: l.quantity || 1,
                 unit_type: l.unit_type || 'caja',
                 pack_label: l.pack_label || 'Caja',
@@ -137,7 +144,7 @@ function quoteForm() {
         },
         addLine() {
             this.lines.push({
-                product_id: 0, code: '', name: '', quantity: 1, unit_type: 'caja',
+                product_id: 0, code: '', name: '', category_context: '', quantity: 1, unit_type: 'caja',
                 pack_label: 'Caja', sale_unit_default: 'caja', query: '', results: []
             });
         },
@@ -155,6 +162,7 @@ function quoteForm() {
             line.product_id = r.id;
             line.code = r.code;
             line.name = r.name;
+            line.category_context = r.category_context || '';
             line.pack_label = (r.sale_unit_label && String(r.sale_unit_label).trim()) ? r.sale_unit_label.trim() : 'Caja';
             line.sale_unit_default = (r.sale_unit_type === 'unidad') ? 'unidad' : 'caja';
             line.unit_type = line.sale_unit_default;

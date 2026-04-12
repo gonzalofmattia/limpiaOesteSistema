@@ -65,11 +65,13 @@ final class QuoteController extends Controller
             'SELECT qi.*, p.code, p.name, p.presentation, p.content, p.sale_unit_description,
                     p.precio_lista_unitario, p.precio_lista_bidon, p.precio_lista_sobre,
                     p.discount_override, p.markup_override,
-                    c.slug AS category_slug, c.default_discount,
-                    c.default_markup AS category_default_markup
+                    COALESCE(pc.slug, c.slug) AS category_slug, c.default_discount,
+                    c.default_markup AS category_default_markup,
+                    pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup
              FROM quote_items qi
              JOIN products p ON p.id = qi.product_id
              JOIN categories c ON c.id = p.category_id
+             LEFT JOIN categories pc ON c.parent_id = pc.id
              WHERE qi.quote_id = ? ORDER BY qi.sort_order, qi.id',
             [(int) $id]
         );
@@ -91,10 +93,11 @@ final class QuoteController extends Controller
         }
         $items = $db->fetchAll(
             'SELECT qi.*, p.code, p.name, p.category_id, p.sale_unit_label, p.sale_unit_type, p.content,
-                    p.sale_unit_description, c.slug AS category_slug
+                    p.sale_unit_description, COALESCE(pc.slug, c.slug) AS category_slug
              FROM quote_items qi
              JOIN products p ON p.id = qi.product_id
              JOIN categories c ON c.id = p.category_id
+             LEFT JOIN categories pc ON c.parent_id = pc.id
              WHERE qi.quote_id = ? ORDER BY qi.sort_order, qi.id',
             [(int) $id]
         );
@@ -138,11 +141,13 @@ final class QuoteController extends Controller
             'SELECT qi.*, p.code, p.name, p.presentation, p.content, p.sale_unit_description,
                     p.precio_lista_unitario, p.precio_lista_bidon, p.precio_lista_sobre,
                     p.discount_override, p.markup_override,
-                    c.slug AS category_slug, c.default_discount,
-                    c.default_markup AS category_default_markup
+                    COALESCE(pc.slug, c.slug) AS category_slug, c.default_discount,
+                    c.default_markup AS category_default_markup,
+                    pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup
              FROM quote_items qi
              JOIN products p ON p.id = qi.product_id
              JOIN categories c ON c.id = p.category_id
+             LEFT JOIN categories pc ON c.parent_id = pc.id
              WHERE qi.quote_id = ? ORDER BY qi.sort_order, qi.id',
             [(int) $id]
         );
@@ -245,14 +250,19 @@ final class QuoteController extends Controller
                     continue;
                 }
                 $p = $db->fetch(
-                    'SELECT p.*, c.slug AS category_slug, c.default_discount, c.default_markup AS category_default_markup
-                     FROM products p JOIN categories c ON c.id = p.category_id WHERE p.id = ?',
+                    'SELECT p.*, COALESCE(pc.slug, c.slug) AS category_slug, c.default_discount,
+                            c.default_markup AS category_default_markup,
+                            pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup
+                     FROM products p
+                     JOIN categories c ON c.id = p.category_id
+                     LEFT JOIN categories pc ON c.parent_id = pc.id
+                     WHERE p.id = ?',
                     [$pid]
                 );
                 if (!$p) {
                     continue;
                 }
-                $slug = (string) $p['category_slug'];
+                $slug = strtolower((string) $p['category_slug']);
                 $resolved = QuoteLinePricing::resolveListaForQuote($p, $slug, $unitMode);
                 $listaSeiq = $resolved['lista_seiq'];
                 if ($listaSeiq <= 0) {

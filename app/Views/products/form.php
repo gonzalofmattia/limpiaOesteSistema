@@ -7,16 +7,24 @@ $p = $product ?? [];
 
 $fieldsBySlug = [];
 foreach ($categories as $c) {
-    $fieldsBySlug[$c['slug']] = PricingEngine::getAvailablePriceFields($c['slug']);
+    $eff = $c['effective_slug'] ?? $c['slug'];
+    if (!isset($fieldsBySlug[$eff])) {
+        $fieldsBySlug[$eff] = PricingEngine::getAvailablePriceFields((string) $eff);
+    }
 }
 $fieldsJson = json_encode($fieldsBySlug, JSON_UNESCAPED_UNICODE);
 $catsJson = json_encode(array_map(function ($c) {
+    $eff = $c['effective_slug'] ?? $c['slug'];
+
     return [
         'id' => (int) $c['id'],
         'name' => $c['name'],
         'slug' => $c['slug'],
+        'effective_slug' => $eff,
         'default_discount' => (float) $c['default_discount'],
         'default_markup' => $c['default_markup'],
+        'parent_discount' => !empty($c['parent_slug']) && isset($c['parent_default_discount']) ? (float) $c['parent_default_discount'] : null,
+        'parent_default_markup' => !empty($c['parent_slug']) ? $c['parent_default_markup'] : null,
     ];
 }, $categories), JSON_UNESCAPED_UNICODE);
 
@@ -44,7 +52,7 @@ window.__productFormCfg = {
                             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#1a6b3c]">
                         <?php foreach ($categories as $c): ?>
                             <option value="<?= (int) $c['id'] ?>"
-                                <?= (int) ($p['category_id'] ?? 0) === (int) $c['id'] ? 'selected' : '' ?>><?= e($c['name']) ?></option>
+                                <?= (int) ($p['category_id'] ?? 0) === (int) $c['id'] ? 'selected' : '' ?>><?= !empty($c['parent_id']) ? '  └ ' : '' ?><?= e($c['name']) ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
@@ -256,7 +264,7 @@ function productForm() {
             const sel = document.querySelector('select[name=category_id]');
             if (sel) this.categoryId = sel.value;
             const cat = this.categories.find(c => String(c.id) === String(this.categoryId));
-            this.slug = cat ? cat.slug : '';
+            this.slug = cat ? (cat.effective_slug || cat.slug) : '';
         },
         showField(field) {
             if (!this.slug || !this.fieldsBySlug[this.slug]) return true;
@@ -299,6 +307,8 @@ function productForm() {
             if (cat) {
                 body.default_discount = cat.default_discount;
                 body.category_default_markup = cat.default_markup;
+                if (cat.parent_discount != null) body.parent_discount = cat.parent_discount;
+                if (cat.parent_default_markup != null && cat.parent_default_markup !== '') body.parent_default_markup = cat.parent_default_markup;
             }
             try {
                 const res = await fetch(window.appUrl('/api/pricing/preview'), {

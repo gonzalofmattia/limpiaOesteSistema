@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Controller;
+use App\Helpers\CategoryHierarchy;
 use App\Helpers\PricingEngine;
 use App\Models\Database;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
@@ -25,8 +26,14 @@ final class ProductController extends Controller
         $where = ['1=1'];
         $params = [];
         if ($catFilter !== '' && is_numeric($catFilter)) {
-            $where[] = 'p.category_id = :cid';
-            $params['cid'] = (int) $catFilter;
+            $ids = CategoryHierarchy::expandFilterCategoryIds($db, (int) $catFilter);
+            $marks = [];
+            foreach ($ids as $i => $cid) {
+                $key = 'cf' . $i;
+                $marks[] = ':' . $key;
+                $params[$key] = $cid;
+            }
+            $where[] = 'p.category_id IN (' . implode(',', $marks) . ')';
         }
         if ($q !== '') {
             $where[] = '(p.code LIKE :q OR p.name LIKE :q2)';
@@ -50,31 +57,39 @@ final class ProductController extends Controller
         }
         $offset = ($page - 1) * self::PER_PAGE;
 
-        $sql = "SELECT p.*, c.slug AS category_slug, c.name AS category_name, c.default_discount,
-                       c.default_markup AS category_default_markup
+        $sql = "SELECT p.*,
+                       COALESCE(pc.slug, c.slug) AS category_slug,
+                       c.name AS category_name,
+                       c.default_discount,
+                       c.default_markup AS category_default_markup,
+                       pc.default_discount AS parent_discount,
+                       pc.default_markup AS parent_default_markup
                 FROM products p
                 JOIN categories c ON c.id = p.category_id
+                LEFT JOIN categories pc ON c.parent_id = pc.id
                 WHERE {$whereSql}
-                ORDER BY c.sort_order, p.sort_order, p.name
+                ORDER BY COALESCE(pc.sort_order, c.sort_order), c.parent_id IS NOT NULL, c.sort_order, p.sort_order, p.name
                 LIMIT " . self::PER_PAGE . " OFFSET " . (int) $offset;
 
         $rows = $db->fetchAll($sql, $params);
 
         $rowsWithPricing = [];
         foreach ($rows as $row) {
-            $field = PricingEngine::getPrimaryPriceField($row['category_slug']);
+            $field = PricingEngine::getPrimaryPriceField((string) $row['category_slug']);
             $calc = PricingEngine::calculate($row, $field, null, false);
             $row['_pricing'] = $calc;
             $row['_price_field'] = $field;
             $rowsWithPricing[] = $row;
         }
 
-        $categories = $db->fetchAll('SELECT id, name FROM categories ORDER BY sort_order, name');
+        $allCats = $db->fetchAll('SELECT * FROM categories ORDER BY sort_order, name');
+        $categoryTree = CategoryHierarchy::buildTree($allCats);
+        $categoryFilterOptions = CategoryHierarchy::flatOptionsForSelect($categoryTree);
 
         $this->view('products/index', [
             'title' => 'Productos',
             'products' => $rowsWithPricing,
-            'categories' => $categories,
+            'categoryFilterOptions' => $categoryFilterOptions,
             'page' => $page,
             'pages' => $pages,
             'total' => $total,
@@ -89,7 +104,17 @@ final class ProductController extends Controller
     public function create(): void
     {
         $db = Database::getInstance();
-        $categories = $db->fetchAll('SELECT * FROM categories WHERE is_active = 1 ORDER BY sort_order, name');
+        $categories = $db->fetchAll(
+            'SELECT c.*, pc.slug AS parent_slug, pc.default_discount AS parent_default_discount, pc.default_markup AS parent_default_markup
+             FROM categories c
+             LEFT JOIN categories pc ON c.parent_id = pc.id
+             WHERE c.is_active = 1
+             ORDER BY COALESCE(c.parent_id, c.id), c.parent_id IS NOT NULL, c.sort_order, c.name'
+        );
+        foreach ($categories as &$catRow) {
+            $catRow['effective_slug'] = !empty($catRow['parent_slug']) ? (string) $catRow['parent_slug'] : (string) $catRow['slug'];
+        }
+        unset($catRow);
         $this->view('products/form', [
             'title' => 'Nuevo producto',
             'product' => null,
@@ -119,8 +144,13 @@ final class ProductController extends Controller
     {
         $db = Database::getInstance();
         $product = $db->fetch(
-            'SELECT p.*, c.slug AS category_slug, c.default_markup AS category_default_markup, c.default_discount
-             FROM products p JOIN categories c ON c.id = p.category_id
+            'SELECT p.*, COALESCE(pc.slug, c.slug) AS category_slug, c.slug AS category_leaf_slug,
+                    c.default_markup AS category_default_markup, c.default_discount,
+                    pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup,
+                    pc.slug AS parent_slug
+             FROM products p
+             JOIN categories c ON c.id = p.category_id
+             LEFT JOIN categories pc ON c.parent_id = pc.id
              WHERE p.id = ?',
             [(int) $id]
         );
@@ -128,7 +158,17 @@ final class ProductController extends Controller
             flash('error', 'Producto no encontrado.');
             redirect('/productos');
         }
-        $categories = $db->fetchAll('SELECT * FROM categories WHERE is_active = 1 ORDER BY sort_order, name');
+        $categories = $db->fetchAll(
+            'SELECT c.*, pc.slug AS parent_slug, pc.default_discount AS parent_default_discount, pc.default_markup AS parent_default_markup
+             FROM categories c
+             LEFT JOIN categories pc ON c.parent_id = pc.id
+             WHERE c.is_active = 1
+             ORDER BY COALESCE(c.parent_id, c.id), c.parent_id IS NOT NULL, c.sort_order, c.name'
+        );
+        foreach ($categories as &$catRow) {
+            $catRow['effective_slug'] = !empty($catRow['parent_slug']) ? (string) $catRow['parent_slug'] : (string) $catRow['slug'];
+        }
+        unset($catRow);
         $this->view('products/form', [
             'title' => 'Editar producto',
             'product' => $product,
