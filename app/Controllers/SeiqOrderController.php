@@ -15,6 +15,9 @@ final class SeiqOrderController extends Controller
     public function index(): void
     {
         $db = Database::getInstance();
+        if (!$this->ensureSeiqSchema($db)) {
+            return;
+        }
         $rows = $db->fetchAll('SELECT * FROM seiq_orders ORDER BY created_at DESC');
         $this->view('pedido-seiq/index', ['title' => 'Pedido a Seiq', 'orders' => $rows]);
     }
@@ -22,6 +25,9 @@ final class SeiqOrderController extends Controller
     public function generate(): void
     {
         $db = Database::getInstance();
+        if (!$this->ensureSeiqSchema($db)) {
+            return;
+        }
         $built = SeiqOrderBuilder::buildFromDatabase($db);
         if ($built['error'] === 'empty') {
             flash('info', 'No hay presupuestos aceptados para generar pedido.');
@@ -49,6 +55,9 @@ final class SeiqOrderController extends Controller
             redirect('/pedido-seiq/generar');
         }
         $db = Database::getInstance();
+        if (!$this->ensureSeiqSchema($db)) {
+            return;
+        }
         $built = SeiqOrderBuilder::buildFromDatabase($db);
         if ($built['bundle'] === null) {
             flash('error', 'No hay datos para generar el pedido.');
@@ -109,6 +118,9 @@ final class SeiqOrderController extends Controller
     public function show(string $id): void
     {
         $db = Database::getInstance();
+        if (!$this->ensureSeiqSchema($db)) {
+            return;
+        }
         $order = $db->fetch('SELECT * FROM seiq_orders WHERE id = ?', [(int) $id]);
         if (!$order) {
             flash('error', 'Pedido no encontrado.');
@@ -162,6 +174,9 @@ final class SeiqOrderController extends Controller
     public function downloadPdf(string $id): void
     {
         $db = Database::getInstance();
+        if (!$this->ensureSeiqSchema($db)) {
+            return;
+        }
         $order = $db->fetch('SELECT * FROM seiq_orders WHERE id = ?', [(int) $id]);
         if (!$order) {
             flash('error', 'Pedido no encontrado.');
@@ -224,6 +239,9 @@ final class SeiqOrderController extends Controller
             return;
         }
         $db = Database::getInstance();
+        if (!$this->ensureSeiqSchema($db)) {
+            return;
+        }
         $exists = $db->fetch('SELECT id FROM seiq_orders WHERE id = ?', [(int) $id]);
         if (!$exists) {
             flash('error', 'Pedido no encontrado.');
@@ -250,6 +268,9 @@ final class SeiqOrderController extends Controller
             return;
         }
         $db = Database::getInstance();
+        if (!$this->ensureSeiqSchema($db)) {
+            return;
+        }
         $order = $db->fetch('SELECT * FROM seiq_orders WHERE id = ?', [(int) $id]);
         if (!$order || empty($order['included_quotes'])) {
             flash('error', 'No hay presupuestos asociados.');
@@ -290,6 +311,23 @@ final class SeiqOrderController extends Controller
         $next = (int) ($last ?? 0) + 1;
 
         return sprintf('PS-%s-%04d', $year, $next);
+    }
+
+    private function ensureSeiqSchema(Database $db): bool
+    {
+        try {
+            $hasOrders = (bool) $db->fetchColumn("SHOW TABLES LIKE 'seiq_orders'");
+            $hasItems = (bool) $db->fetchColumn("SHOW TABLES LIKE 'seiq_order_items'");
+            if ($hasOrders && $hasItems) {
+                return true;
+            }
+        } catch (\Throwable) {
+            // Continúa al mismo manejo de error.
+        }
+
+        flash('error', 'Falta migrar base de datos para Pedido a Seiq. Ejecutá install.php o la migración 2026_04_12_pedido_seiq.sql en producción.');
+        redirect('/');
+        return false;
     }
 
     /**
