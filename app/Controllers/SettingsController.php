@@ -14,7 +14,6 @@ final class SettingsController extends Controller
         'empresa_nombre', 'empresa_tagline', 'empresa_instagram', 'empresa_whatsapp', 'empresa_zona',
         'default_markup', 'iva_rate', 'lista_seiq_numero', 'lista_seiq_fecha', 'moneda',
         'mostrar_iva', 'quote_prefix', 'quote_validity_days',
-        'seiq_cliente_id', 'seiq_cliente_nombre', 'seiq_condicion_pago', 'seiq_observaciones',
     ];
 
     public function index(): void
@@ -25,7 +24,8 @@ final class SettingsController extends Controller
         foreach ($rows as $r) {
             $settings[$r['setting_key']] = $r;
         }
-        $this->view('settings/index', ['title' => 'Configuración', 'settings' => $settings]);
+        $suppliers = $db->fetchAll('SELECT * FROM suppliers ORDER BY name');
+        $this->view('settings/index', ['title' => 'Configuración', 'settings' => $settings, 'suppliers' => $suppliers]);
     }
 
     public function update(): void
@@ -44,6 +44,16 @@ final class SettingsController extends Controller
                 'UPDATE settings SET setting_value = ? WHERE setting_key = ?',
                 [$val, $key]
             );
+        }
+        $supplierRows = $db->fetchAll('SELECT id FROM suppliers');
+        foreach ($supplierRows as $row) {
+            $sid = (int) $row['id'];
+            $db->update('suppliers', [
+                'cliente_id' => trim((string) $this->input('supplier_' . $sid . '_cliente_id', '')),
+                'cliente_nombre' => trim((string) $this->input('supplier_' . $sid . '_cliente_nombre', '')),
+                'condicion_pago' => trim((string) $this->input('supplier_' . $sid . '_condicion_pago', '')),
+                'observaciones' => trim((string) $this->input('supplier_' . $sid . '_observaciones', '')),
+            ], 'id = :id', ['id' => $sid]);
         }
         SettingsCache::forget();
         flash('success', 'Configuración guardada.');

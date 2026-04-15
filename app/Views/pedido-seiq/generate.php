@@ -1,12 +1,12 @@
 <?php
 /** @var list<array<string,mixed>> $acceptedQuotes */
 /** @var array{consolidated: list<array<string,mixed>>, total_products: int, total_boxes: int} $bundle */
-$rows = $bundle['consolidated'];
+/** @var list<array{supplier: array<string,mixed>, bundle: array{consolidated: list<array<string,mixed>>, total_products: int, total_boxes: int}}> $supplierBundles */
 ?>
 <div class="max-w-6xl space-y-6">
     <div>
-        <h2 class="text-lg font-semibold text-gray-900">Generar pedido a Seiq</h2>
-        <p class="text-sm text-gray-600 mt-1">Se consolidan todos los presupuestos en estado <strong>accepted</strong> y se redondea a cajas completas.</p>
+        <h2 class="text-lg font-semibold text-gray-900">Generar pedidos a proveedores</h2>
+        <p class="text-sm text-gray-600 mt-1">Se consolidan todos los presupuestos en estado <strong>accepted</strong>, se agrupan por proveedor y se redondea a cajas completas.</p>
     </div>
 
     <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
@@ -22,9 +22,11 @@ $rows = $bundle['consolidated'];
         </ul>
     </div>
 
+    <?php foreach ($supplierBundles as $supplierBundle): ?>
+    <?php $supplier = $supplierBundle['supplier']; $rows = $supplierBundle['bundle']['consolidated']; ?>
     <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div class="px-4 py-3 border-b border-gray-100 bg-gray-50">
-            <h3 class="text-sm font-semibold text-gray-800">Consolidado de productos</h3>
+            <h3 class="text-sm font-semibold text-gray-800">Pedido a <?= e((string) $supplier['name']) ?></h3>
         </div>
         <div class="overflow-x-auto">
             <table class="min-w-full text-sm">
@@ -74,22 +76,26 @@ $rows = $bundle['consolidated'];
                 </tbody>
             </table>
         </div>
+        <div class="px-4 py-3 border-t border-gray-100 text-sm text-gray-700">
+            Subtotal <?= e((string) $supplier['name']) ?>: <strong><?= (int) $supplierBundle['bundle']['total_boxes'] ?></strong> cajas/packs
+        </div>
     </div>
+    <?php endforeach; ?>
 
     <p class="text-sm text-gray-700">
         <strong>Total:</strong> <?= (int) $bundle['total_products'] ?> productos distintos —
         <strong><?= (int) $bundle['total_boxes'] ?></strong> cajas/packs a pedir
     </p>
 
-    <form method="post" action="<?= e(url('/pedido-seiq')) ?>" class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-4">
+    <form method="post" action="<?= e(url('/pedidos-proveedor')) ?>" class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-4">
         <?= csrfField() ?>
         <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Notas (opcional)</label>
             <textarea name="notes" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#1a6b3c]" placeholder="Observaciones internas del pedido"></textarea>
         </div>
         <div class="flex flex-wrap gap-3">
-            <button type="submit" class="px-5 py-2.5 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium">Generar pedido y PDF</button>
-            <a href="<?= e(url('/pedido-seiq')) ?>" class="px-5 py-2.5 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50">Volver</a>
+            <button type="submit" class="px-5 py-2.5 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium">Generar pedidos y PDFs (<?= count($supplierBundles) ?>)</button>
+            <a href="<?= e(url('/pedidos-proveedor')) ?>" class="px-5 py-2.5 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50">Volver</a>
         </div>
     </form>
 </div>

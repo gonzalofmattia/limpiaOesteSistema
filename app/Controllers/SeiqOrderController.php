@@ -18,8 +18,13 @@ final class SeiqOrderController extends Controller
         if (!$this->ensureSeiqSchema($db)) {
             return;
         }
-        $rows = $db->fetchAll('SELECT * FROM seiq_orders ORDER BY created_at DESC');
-        $this->view('pedido-seiq/index', ['title' => 'Pedido a Seiq', 'orders' => $rows]);
+        $rows = $db->fetchAll(
+            'SELECT so.*, s.name AS supplier_name, s.slug AS supplier_slug
+             FROM seiq_orders so
+             LEFT JOIN suppliers s ON s.id = so.supplier_id
+             ORDER BY so.created_at DESC'
+        );
+        $this->view('pedido-seiq/index', ['title' => 'Pedidos a Proveedores', 'orders' => $rows]);
     }
 
     public function generate(): void
@@ -31,20 +36,22 @@ final class SeiqOrderController extends Controller
         $built = SeiqOrderBuilder::buildFromDatabase($db);
         if ($built['error'] === 'empty') {
             flash('info', 'No hay presupuestos aceptados para generar pedido.');
-            redirect('/pedido-seiq');
+            redirect('/pedidos-proveedor');
             return;
         }
         if ($built['error'] === 'no_items') {
             flash('info', 'Los presupuestos aceptados no tienen ítems.');
-            redirect('/pedido-seiq');
+            redirect('/pedidos-proveedor');
             return;
         }
         /** @var array{consolidated: list<array<string,mixed>>, total_products: int, total_boxes: int} $bundle */
         $bundle = $built['bundle'];
+        $supplierBundles = SeiqOrderBuilder::groupConsolidatedBySupplier($bundle['consolidated']);
         $this->view('pedido-seiq/generate', [
-            'title' => 'Generar pedido a Seiq',
+            'title' => 'Generar pedidos a proveedores',
             'acceptedQuotes' => $built['acceptedQuotes'],
             'bundle' => $bundle,
+            'supplierBundles' => $supplierBundles,
         ]);
     }
 
@@ -52,7 +59,7 @@ final class SeiqOrderController extends Controller
     {
         if (!verifyCsrf()) {
             flash('error', 'Token inválido.');
-            redirect('/pedido-seiq/generar');
+            redirect('/pedidos-proveedor/generar');
         }
         $db = Database::getInstance();
         if (!$this->ensureSeiqSchema($db)) {
@@ -61,58 +68,73 @@ final class SeiqOrderController extends Controller
         $built = SeiqOrderBuilder::buildFromDatabase($db);
         if ($built['bundle'] === null) {
             flash('error', 'No hay datos para generar el pedido.');
-            redirect('/pedido-seiq/generar');
+            redirect('/pedidos-proveedor/generar');
         }
         $notes = trim((string) $this->input('notes', ''));
         $bundle = $built['bundle'];
         $acceptedQuotes = $built['acceptedQuotes'];
         $quoteIds = array_map(static fn ($q) => (int) $q['id'], $acceptedQuotes);
 
-        $orderNumber = $this->nextOrderNumber($db);
         $includedJson = json_encode($quoteIds, JSON_THROW_ON_ERROR);
+        $supplierBundles = SeiqOrderBuilder::groupConsolidatedBySupplier($bundle['consolidated']);
+        if ($supplierBundles === []) {
+            flash('error', 'No se encontraron proveedores asociados a los productos.');
+            redirect('/pedidos-proveedor/generar');
+            return;
+        }
 
         $db->getPdo()->beginTransaction();
         try {
-            $orderId = $db->insert('seiq_orders', [
-                'order_number' => $orderNumber,
-                'notes' => $notes !== '' ? $notes : null,
-                'included_quotes' => $includedJson,
-                'total_products' => $bundle['total_products'],
-                'total_boxes' => $bundle['total_boxes'],
-                'status' => 'draft',
-                'sent_at' => null,
-                'received_at' => null,
-                'pdf_path' => null,
-            ]);
-
-            $sort = 0;
-            foreach ($bundle['consolidated'] as $row) {
-                $db->insert('seiq_order_items', [
-                    'seiq_order_id' => $orderId,
-                    'product_id' => (int) $row['product_id'],
-                    'qty_units_sold' => (int) $row['qty_units_sold'],
-                    'qty_boxes_sold' => (int) $row['qty_boxes_sold'],
-                    'total_units_needed' => (int) $row['total_units_needed'],
-                    'units_per_box' => (int) $row['units_per_box'],
-                    'boxes_to_order' => (int) $row['boxes_to_order'],
-                    'units_remainder' => (int) $row['units_remainder'],
-                    'sort_order' => $sort++,
+            $lastOrderId = 0;
+            $numbers = [];
+            foreach ($supplierBundles as $entry) {
+                $supplier = $entry['supplier'];
+                $supplierId = (int) ($supplier['id'] ?? 0);
+                $sb = $entry['bundle'];
+                $orderNumber = $this->nextOrderNumber($db, (string) ($supplier['slug'] ?? ''));
+                $orderId = $db->insert('seiq_orders', [
+                    'supplier_id' => $supplierId,
+                    'order_number' => $orderNumber,
+                    'notes' => $notes !== '' ? $notes : null,
+                    'included_quotes' => $includedJson,
+                    'total_products' => $sb['total_products'],
+                    'total_boxes' => $sb['total_boxes'],
+                    'status' => 'draft',
+                    'sent_at' => null,
+                    'received_at' => null,
+                    'pdf_path' => null,
                 ]);
-            }
 
-            $pdfFile = $this->renderSeiqOrderPdf($orderId, $orderNumber, $bundle['consolidated']);
-            $db->update('seiq_orders', ['pdf_path' => $pdfFile], 'id = :id', ['id' => $orderId]);
+                $sort = 0;
+                foreach ($sb['consolidated'] as $row) {
+                    $db->insert('seiq_order_items', [
+                        'seiq_order_id' => $orderId,
+                        'product_id' => (int) $row['product_id'],
+                        'qty_units_sold' => (int) $row['qty_units_sold'],
+                        'qty_boxes_sold' => (int) $row['qty_boxes_sold'],
+                        'total_units_needed' => (int) $row['total_units_needed'],
+                        'units_per_box' => (int) $row['units_per_box'],
+                        'boxes_to_order' => (int) $row['boxes_to_order'],
+                        'units_remainder' => (int) $row['units_remainder'],
+                        'sort_order' => $sort++,
+                    ]);
+                }
+                $pdfFile = $this->renderSeiqOrderPdf($orderId, $orderNumber, $sb['consolidated'], $supplier);
+                $db->update('seiq_orders', ['pdf_path' => $pdfFile], 'id = :id', ['id' => $orderId]);
+                $lastOrderId = $orderId;
+                $numbers[] = $orderNumber;
+            }
 
             $db->getPdo()->commit();
         } catch (\Throwable $e) {
             $db->getPdo()->rollBack();
             flash('error', 'Error al guardar: ' . $e->getMessage());
-            redirect('/pedido-seiq/generar');
+            redirect('/pedidos-proveedor/generar');
             return;
         }
 
-        flash('success', "Pedido {$orderNumber} generado.");
-        redirect('/pedido-seiq/' . $orderId);
+        flash('success', 'Pedidos generados: ' . implode(', ', $numbers));
+        redirect('/pedidos-proveedor/' . $lastOrderId);
     }
 
     public function show(string $id): void
@@ -121,10 +143,17 @@ final class SeiqOrderController extends Controller
         if (!$this->ensureSeiqSchema($db)) {
             return;
         }
-        $order = $db->fetch('SELECT * FROM seiq_orders WHERE id = ?', [(int) $id]);
+        $order = $db->fetch(
+            'SELECT so.*, s.name AS supplier_name, s.slug AS supplier_slug,
+                    s.cliente_id, s.cliente_nombre, s.condicion_pago, s.observaciones
+             FROM seiq_orders so
+             LEFT JOIN suppliers s ON s.id = so.supplier_id
+             WHERE so.id = ?',
+            [(int) $id]
+        );
         if (!$order) {
             flash('error', 'Pedido no encontrado.');
-            redirect('/pedido-seiq');
+            redirect('/pedidos-proveedor');
             return;
         }
         $items = $db->fetchAll(
@@ -177,10 +206,17 @@ final class SeiqOrderController extends Controller
         if (!$this->ensureSeiqSchema($db)) {
             return;
         }
-        $order = $db->fetch('SELECT * FROM seiq_orders WHERE id = ?', [(int) $id]);
+        $order = $db->fetch(
+            'SELECT so.*, s.name AS supplier_name, s.slug AS supplier_slug,
+                    s.cliente_id, s.cliente_nombre, s.condicion_pago, s.observaciones
+             FROM seiq_orders so
+             LEFT JOIN suppliers s ON s.id = so.supplier_id
+             WHERE so.id = ?',
+            [(int) $id]
+        );
         if (!$order) {
             flash('error', 'Pedido no encontrado.');
-            redirect('/pedido-seiq');
+            redirect('/pedidos-proveedor');
             return;
         }
         $items = $db->fetchAll(
@@ -207,6 +243,11 @@ final class SeiqOrderController extends Controller
             'order_number' => (string) $order['order_number'],
             'created_at' => (string) $order['created_at'],
             'total_boxes' => (int) $order['total_boxes'],
+            'supplier_name' => (string) ($order['supplier_name'] ?? ''),
+            'cliente_id' => (string) ($order['cliente_id'] ?? ''),
+            'cliente_nombre' => (string) ($order['cliente_nombre'] ?? ''),
+            'condicion_pago' => (string) ($order['condicion_pago'] ?? ''),
+            'observaciones' => (string) ($order['observaciones'] ?? ''),
         ];
         $order = $orderForPdf;
         ob_start();
@@ -229,13 +270,13 @@ final class SeiqOrderController extends Controller
     {
         if (!verifyCsrf()) {
             flash('error', 'Token inválido.');
-            redirect('/pedido-seiq/' . $id);
+            redirect('/pedidos-proveedor/' . $id);
             return;
         }
         $status = (string) $this->input('status', '');
         if (!in_array($status, ['draft', 'sent', 'received'], true)) {
             flash('error', 'Estado inválido.');
-            redirect('/pedido-seiq/' . $id);
+            redirect('/pedidos-proveedor/' . $id);
             return;
         }
         $db = Database::getInstance();
@@ -245,7 +286,7 @@ final class SeiqOrderController extends Controller
         $exists = $db->fetch('SELECT id FROM seiq_orders WHERE id = ?', [(int) $id]);
         if (!$exists) {
             flash('error', 'Pedido no encontrado.');
-            redirect('/pedido-seiq');
+            redirect('/pedidos-proveedor');
             return;
         }
         $data = ['status' => $status];
@@ -257,14 +298,14 @@ final class SeiqOrderController extends Controller
         }
         $db->update('seiq_orders', $data, 'id = :id', ['id' => (int) $id]);
         flash('success', 'Estado actualizado.');
-        redirect('/pedido-seiq/' . $id);
+        redirect('/pedidos-proveedor/' . $id);
     }
 
     public function markQuotesDelivered(string $id): void
     {
         if (!verifyCsrf()) {
             flash('error', 'Token inválido.');
-            redirect('/pedido-seiq/' . $id);
+            redirect('/pedidos-proveedor/' . $id);
             return;
         }
         $db = Database::getInstance();
@@ -274,20 +315,20 @@ final class SeiqOrderController extends Controller
         $order = $db->fetch('SELECT * FROM seiq_orders WHERE id = ?', [(int) $id]);
         if (!$order || empty($order['included_quotes'])) {
             flash('error', 'No hay presupuestos asociados.');
-            redirect('/pedido-seiq/' . $id);
+            redirect('/pedidos-proveedor/' . $id);
             return;
         }
         $decoded = json_decode((string) $order['included_quotes'], true);
         if (!is_array($decoded) || $decoded === []) {
             flash('error', 'Lista de presupuestos vacía.');
-            redirect('/pedido-seiq/' . $id);
+            redirect('/pedidos-proveedor/' . $id);
             return;
         }
         $ids = array_map(static fn ($x) => (int) $x, $decoded);
         $ids = array_filter($ids, static fn ($x) => $x > 0);
         if ($ids === []) {
             flash('error', 'IDs inválidos.');
-            redirect('/pedido-seiq/' . $id);
+            redirect('/pedidos-proveedor/' . $id);
             return;
         }
         $ph = implode(',', array_fill(0, count($ids), '?'));
@@ -296,21 +337,22 @@ final class SeiqOrderController extends Controller
             $ids
         );
         flash('success', 'Presupuestos marcados como entregados.');
-        redirect('/pedido-seiq/' . $id);
+        redirect('/pedidos-proveedor/' . $id);
     }
 
-    private function nextOrderNumber(Database $db): string
+    private function nextOrderNumber(Database $db, string $supplierSlug = ''): string
     {
         $year = date('Y');
+        $prefix = $supplierSlug === 'higienik' ? 'PH' : 'PS';
         $last = $db->fetchColumn(
             "SELECT MAX(CAST(SUBSTRING(order_number, 9) AS UNSIGNED))
              FROM seiq_orders
              WHERE order_number LIKE ?",
-            ['PS-' . $year . '-%']
+            [$prefix . '-' . $year . '-%']
         );
         $next = (int) ($last ?? 0) + 1;
 
-        return sprintf('PS-%s-%04d', $year, $next);
+        return sprintf('%s-%s-%04d', $prefix, $year, $next);
     }
 
     private function ensureSeiqSchema(Database $db): bool
@@ -318,14 +360,15 @@ final class SeiqOrderController extends Controller
         try {
             $hasOrders = (bool) $db->fetchColumn("SHOW TABLES LIKE 'seiq_orders'");
             $hasItems = (bool) $db->fetchColumn("SHOW TABLES LIKE 'seiq_order_items'");
-            if ($hasOrders && $hasItems) {
+            $hasSuppliers = (bool) $db->fetchColumn("SHOW TABLES LIKE 'suppliers'");
+            if ($hasOrders && $hasItems && $hasSuppliers) {
                 return true;
             }
         } catch (\Throwable) {
             // Continúa al mismo manejo de error.
         }
 
-        flash('error', 'Falta migrar base de datos para Pedido a Seiq. Ejecutá install.php o la migración 2026_04_12_pedido_seiq.sql en producción.');
+        flash('error', 'Falta migrar base de datos para pedidos de proveedores. Ejecutá install.php o la migración multi-proveedor en producción.');
         redirect('/');
         return false;
     }
@@ -333,7 +376,7 @@ final class SeiqOrderController extends Controller
     /**
      * @param list<array<string,mixed>> $consolidated
      */
-    private function renderSeiqOrderPdf(int $orderId, string $orderNumber, array $consolidated): string
+    private function renderSeiqOrderPdf(int $orderId, string $orderNumber, array $consolidated, array $supplier = []): string
     {
         $lines = [];
         foreach ($consolidated as $row) {
@@ -351,6 +394,11 @@ final class SeiqOrderController extends Controller
             'order_number' => $orderNumber,
             'created_at' => date('Y-m-d H:i:s'),
             'total_boxes' => array_sum(array_column($lines, 'boxes_to_order')),
+            'supplier_name' => (string) ($supplier['name'] ?? ''),
+            'cliente_id' => (string) ($supplier['cliente_id'] ?? ''),
+            'cliente_nombre' => (string) ($supplier['cliente_nombre'] ?? ''),
+            'condicion_pago' => (string) ($supplier['condicion_pago'] ?? ''),
+            'observaciones' => (string) ($supplier['observaciones'] ?? ''),
         ];
         ob_start();
         require APP_PATH . '/Views/pdf/seiq-order.php';
@@ -382,8 +430,10 @@ final class SeiqOrderController extends Controller
         $lines[] = 'N°: ' . ($order['order_number'] ?? '');
         $created = isset($order['created_at']) ? strtotime((string) $order['created_at']) : false;
         $lines[] = 'Fecha: ' . ($created ? date('d/m/Y', $created) : date('d/m/Y'));
-        $cid = setting('seiq_cliente_id') ?? '';
-        $nom = setting('seiq_cliente_nombre') ?? '';
+        $cid = (string) ($order['cliente_id'] ?? '');
+        $nom = (string) ($order['cliente_nombre'] ?? '');
+        $supplierName = (string) ($order['supplier_name'] ?? 'PROVEEDOR');
+        $lines[] = 'Proveedor: ' . $supplierName;
         $lines[] = 'Cliente: ' . $cid . ' - ' . $nom;
         $lines[] = '';
         foreach ($items as $it) {
@@ -391,7 +441,7 @@ final class SeiqOrderController extends Controller
         }
         $lines[] = '';
         $lines[] = '*Total: ' . $totalBoxes . ' cajas/bultos*';
-        $lines[] = 'Condición: ' . (setting('seiq_condicion_pago') ?? '');
+        $lines[] = 'Condición: ' . ((string) ($order['condicion_pago'] ?? ''));
 
         return implode("\n", $lines);
     }

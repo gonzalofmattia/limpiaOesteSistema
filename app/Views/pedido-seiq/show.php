@@ -13,19 +13,20 @@ $remainderRows = array_values(array_filter($items, static fn ($it) => (int) ($it
 <div class="max-w-6xl space-y-6">
     <div class="flex flex-wrap justify-between gap-4 items-start">
         <div>
-            <p class="text-sm text-gray-500">Pedido Seiq</p>
+            <p class="text-sm text-gray-500">Pedido a proveedor</p>
             <h2 class="text-xl font-semibold text-gray-900"><?= e($order['order_number']) ?></h2>
+            <p class="text-sm text-gray-700"><?= e((string) ($order['supplier_name'] ?? '—')) ?></p>
             <p class="text-sm text-gray-600 mt-1"><?= e($order['created_at']) ?></p>
         </div>
         <div class="flex flex-wrap gap-2">
             <span class="inline-flex px-2 py-1 rounded-full text-xs <?= $statusBadge[$order['status']] ?? 'bg-gray-100' ?>"><?= e($order['status']) ?></span>
-            <a href="<?= e(url('/pedido-seiq/' . (int) $order['id'] . '/pdf')) ?>" class="px-3 py-1.5 rounded-lg bg-[#1a6b3c] text-white text-sm">PDF</a>
+            <a href="<?= e(url('/pedidos-proveedor/' . (int) $order['id'] . '/pdf')) ?>" class="px-3 py-1.5 rounded-lg bg-[#1a6b3c] text-white text-sm">PDF</a>
             <button type="button" onclick="enviarPedidoWhatsApp()" class="inline-flex items-center gap-2 px-3 py-1.5 bg-[#25D366] text-white rounded-lg hover:bg-[#1fb855] text-sm">Enviar por WhatsApp</button>
-            <a href="<?= e(url('/pedido-seiq')) ?>" class="px-3 py-1.5 rounded-lg border border-gray-300 text-sm">Volver</a>
+            <a href="<?= e(url('/pedidos-proveedor')) ?>" class="px-3 py-1.5 rounded-lg border border-gray-300 text-sm">Volver</a>
         </div>
     </div>
 
-    <form method="post" action="<?= e(url('/pedido-seiq/' . (int) $order['id'] . '/status')) ?>" class="flex flex-wrap gap-2 items-center bg-white p-4 rounded-xl border border-gray-200">
+    <form method="post" action="<?= e(url('/pedidos-proveedor/' . (int) $order['id'] . '/status')) ?>" class="flex flex-wrap gap-2 items-center bg-white p-4 rounded-xl border border-gray-200">
         <?= csrfField() ?>
         <span class="text-sm text-gray-600">Estado del pedido:</span>
         <?php foreach (['draft', 'sent', 'received'] as $s): ?>
@@ -45,7 +46,7 @@ $remainderRows = array_values(array_filter($items, static fn ($it) => (int) ($it
                     </li>
                 <?php endforeach; ?>
             </ul>
-            <form method="post" action="<?= e(url('/pedido-seiq/' . (int) $order['id'] . '/quotes-delivered')) ?>" class="mt-4">
+            <form method="post" action="<?= e(url('/pedidos-proveedor/' . (int) $order['id'] . '/quotes-delivered')) ?>" class="mt-4">
                 <?= csrfField() ?>
                 <button type="submit" class="text-sm px-3 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100">
                     Marcar presupuestos como entregados

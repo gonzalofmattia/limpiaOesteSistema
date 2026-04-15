@@ -14,12 +14,8 @@ $labels = [
     'mostrar_iva' => ['Sistema', 'Mostrar IVA en listados (0/1)'],
     'quote_prefix' => ['Sistema', 'Prefijo presupuestos'],
     'quote_validity_days' => ['Sistema', 'Validez presupuesto default (días)'],
-    'seiq_cliente_id' => ['Seiq', 'ID Cliente Seiq'],
-    'seiq_cliente_nombre' => ['Seiq', 'Nombre en Seiq'],
-    'seiq_condicion_pago' => ['Seiq', 'Condición de pago'],
-    'seiq_observaciones' => ['Seiq', 'Observaciones (pedido)'],
 ];
-$groups = ['Empresa' => [], 'Pricing' => [], 'Sistema' => [], 'Seiq' => []];
+$groups = ['Empresa' => [], 'Pricing' => [], 'Sistema' => []];
 foreach ($labels as $key => $meta) {
     $groups[$meta[0]][$key] = $meta[1];
 }
@@ -45,6 +41,34 @@ foreach ($labels as $key => $meta) {
                 </div>
             </section>
         <?php endforeach; ?>
+        <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+            <h2 class="text-sm font-semibold text-gray-800 border-b border-gray-100 pb-2 mb-4">Proveedores</h2>
+            <div class="space-y-6">
+                <?php foreach (($suppliers ?? []) as $supplier): ?>
+                    <div class="border border-gray-100 rounded-lg p-4">
+                        <h3 class="text-sm font-semibold text-gray-900 mb-3"><?= e((string) $supplier['name']) ?></h3>
+                        <div class="grid sm:grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs text-gray-600 mb-1">ID Cliente</label>
+                                <input type="text" name="supplier_<?= (int) $supplier['id'] ?>_cliente_id" value="<?= e((string) ($supplier['cliente_id'] ?? '')) ?>" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-600 mb-1">Nombre Cliente</label>
+                                <input type="text" name="supplier_<?= (int) $supplier['id'] ?>_cliente_nombre" value="<?= e((string) ($supplier['cliente_nombre'] ?? '')) ?>" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-600 mb-1">Condición de pago</label>
+                                <input type="text" name="supplier_<?= (int) $supplier['id'] ?>_condicion_pago" value="<?= e((string) ($supplier['condicion_pago'] ?? '')) ?>" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-600 mb-1">Observaciones</label>
+                                <input type="text" name="supplier_<?= (int) $supplier['id'] ?>_observaciones" value="<?= e((string) ($supplier['observaciones'] ?? '')) ?>" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                            </div>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </section>
         <button type="submit" class="px-5 py-2.5 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium">Guardar configuración</button>
     </form>
 </div>

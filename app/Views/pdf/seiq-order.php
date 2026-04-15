@@ -1,5 +1,5 @@
 <?php
-/** @var array{order_number:string,created_at:string,total_boxes:int} $order */
+/** @var array{order_number:string,created_at:string,total_boxes:int,supplier_name?:string,cliente_id?:string,cliente_nombre?:string,condicion_pago?:string,observaciones?:string} $order */
 /** @var list<array{code:string,name:string,presentation?:string,content?:string,sale_unit_description?:string,boxes_to_order:int}> $lines */
 $logoPath = defined('PUBLIC_PATH') ? realpath(PUBLIC_PATH . '/assets/img/logoLimpiaOeste.png') : false;
 $logoSrc = '';
@@ -39,10 +39,11 @@ $wa = setting('empresa_whatsapp', '');
         <strong>Fecha:</strong> <?= htmlspecialchars($fecha) ?>
     </p>
     <p class="meta">
-        <strong>Cliente Seiq:</strong> <?= htmlspecialchars((string) (setting('seiq_cliente_id') ?? '')) ?><br>
-        <strong>Nombre:</strong> <?= htmlspecialchars((string) (setting('seiq_cliente_nombre') ?? '')) ?><br>
-        <strong>Condición:</strong> <?= htmlspecialchars((string) (setting('seiq_condicion_pago') ?? '')) ?><br>
-        <strong>Observaciones:</strong> <?= htmlspecialchars((string) (setting('seiq_observaciones') ?? '')) ?>
+        <strong>Proveedor:</strong> <?= htmlspecialchars((string) ($order['supplier_name'] ?? '')) ?><br>
+        <strong>Cliente ID:</strong> <?= htmlspecialchars((string) ($order['cliente_id'] ?? '')) ?><br>
+        <strong>Nombre:</strong> <?= htmlspecialchars((string) ($order['cliente_nombre'] ?? '')) ?><br>
+        <strong>Condición:</strong> <?= htmlspecialchars((string) ($order['condicion_pago'] ?? '')) ?><br>
+        <strong>Observaciones:</strong> <?= htmlspecialchars((string) ($order['observaciones'] ?? '')) ?>
     </p>
     <table>
         <thead>

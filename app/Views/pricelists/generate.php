@@ -6,8 +6,12 @@ $allFields = [
 ];
 ?>
 <div class="max-w-3xl bg-white rounded-xl border border-gray-200 shadow-sm p-6" x-data="{
+    supplier: '',
     toggleChildren(rootId, checked) {
         document.querySelectorAll('input[type=checkbox][data-pl-parent=\'' + rootId + '\']').forEach(function (el) { el.checked = checked; });
+    },
+    isVisible(nodeSupplier) {
+        return this.supplier === '' || this.supplier === nodeSupplier;
     }
 }">
     <form method="post" action="<?= e(url('/listas/preview')) ?>" class="space-y-6">
@@ -22,17 +26,30 @@ $allFields = [
             <textarea name="description" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></textarea>
         </div>
         <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Proveedor</label>
+            <select name="supplier" x-model="supplier" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                <option value="">Todos los proveedores</option>
+                <?php foreach (($suppliers ?? []) as $s): ?>
+                    <option value="<?= e((string) $s['slug']) ?>"><?= e($s['name']) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div>
             <p class="text-sm font-medium text-gray-700 mb-2">Categorías a incluir</p>
             <div class="space-y-2 text-sm border border-gray-100 rounded-lg p-3 bg-gray-50/50">
                 <?php foreach ($categoryTree as $root): ?>
-                    <div class="pl-0">
+                    <?php $rootSupplier = (string) ($root['supplier_slug'] ?? ''); ?>
+                    <div class="pl-0" x-show="isVisible('<?= e($rootSupplier) ?>')">
                         <label class="inline-flex items-center gap-2 font-medium text-gray-800">
                             <input type="checkbox" name="category_ids[]" value="<?= (int) $root['id'] ?>" checked
                                    @change="toggleChildren(<?= (int) $root['id'] ?>, $event.target.checked)">
                             <?= e($root['name']) ?>
+                            <?php if (!empty($root['supplier_name'])): ?>
+                                <span class="text-xs text-gray-500">(<?= e((string) $root['supplier_name']) ?>)</span>
+                            <?php endif; ?>
                         </label>
                         <?php foreach ($root['children'] as $ch): ?>
-                            <label class="flex items-center gap-2 ml-6 text-gray-700">
+                            <label class="flex items-center gap-2 ml-6 text-gray-700" x-show="isVisible('<?= e((string) ($ch['supplier_slug'] ?? $rootSupplier)) ?>')">
                                 <input type="checkbox" name="category_ids[]" value="<?= (int) $ch['id'] ?>" checked
                                        data-pl-parent="<?= (int) $root['id'] ?>">
                                 <?= e($ch['name']) ?>

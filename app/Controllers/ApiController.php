@@ -26,10 +26,13 @@ final class ApiController extends Controller
                     p.units_per_box, p.content,
                     c.name AS category_name, c.slug AS category_slug,
                     pc.name AS parent_category_name,
+                    s.name AS supplier_name,
+                    s.slug AS supplier_slug,
                     c.presentation_info AS category_presentation_info
              FROM products p
              JOIN categories c ON c.id = p.category_id
              LEFT JOIN categories pc ON c.parent_id = pc.id
+             LEFT JOIN suppliers s ON s.id = COALESCE(c.supplier_id, pc.supplier_id)
              WHERE p.is_active = 1 AND (p.code LIKE ? OR p.name LIKE ?)
              ORDER BY p.name
              LIMIT 30',
@@ -42,6 +45,10 @@ final class ApiController extends Controller
             $line = $parent !== '' ? $parent . ' > ' . $leaf : $leaf;
             if ($pres !== '') {
                 $line .= ' — ' . $pres;
+            }
+            $supplier = trim((string) ($r['supplier_name'] ?? ''));
+            if ($supplier !== '') {
+                $line = $supplier . ' > ' . $line;
             }
             $r['category_context'] = $line;
         }

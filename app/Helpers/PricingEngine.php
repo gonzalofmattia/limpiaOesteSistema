@@ -103,9 +103,19 @@ final class PricingEngine
         ?float $overrideMarkup = null,
         bool $includeIVA = false
     ): array {
-        $lista = isset($product[$priceField]) && $product[$priceField] !== null && $product[$priceField] !== ''
-            ? (float) $product[$priceField]
+        $field = $priceField;
+        $lista = isset($product[$field]) && $product[$field] !== null && $product[$field] !== ''
+            ? (float) $product[$field]
             : 0.0;
+        if ($lista <= 0) {
+            foreach (['precio_lista_caja', 'precio_lista_unitario', 'precio_lista_bidon'] as $alt) {
+                if (isset($product[$alt]) && $product[$alt] !== null && $product[$alt] !== '' && (float) $product[$alt] > 0) {
+                    $field = $alt;
+                    $lista = (float) $product[$alt];
+                    break;
+                }
+            }
+        }
 
         return self::calculateWithListaSeiq($lista, $product, $overrideMarkup, $includeIVA);
     }
@@ -154,7 +164,8 @@ final class PricingEngine
             'masivo' => 'precio_lista_unitario',
             'sobres' => 'precio_lista_sobre',
             'alimenticia' => 'precio_lista_caja',
-            default => 'precio_lista_unitario',
+            'hig-toallas-intercaladas', 'fac-toallas-intercaladas' => 'precio_lista_unitario',
+            default => 'precio_lista_caja',
         };
     }
 

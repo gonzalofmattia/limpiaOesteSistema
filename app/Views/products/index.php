@@ -1,6 +1,7 @@
 <?php
 $q = $filters['q'] ?? '';
 $cat = $filters['category_id'] ?? '';
+$supplier = $filters['supplier'] ?? '';
 $st = $filters['status'] ?? '';
 ?>
 <div class="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4 mb-6">
@@ -11,6 +12,15 @@ $st = $filters['status'] ?? '';
                 <option value="">Todas las categorías</option>
                 <?php foreach ($categoryFilterOptions as $opt): ?>
                     <option value="<?= (int) $opt['id'] ?>" <?= (string) $cat === (string) $opt['id'] ? 'selected' : '' ?>><?= e($opt['label']) ?><?= !empty($opt['is_parent']) ? ' (todos)' : '' ?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div>
+            <label class="block text-xs text-gray-500 mb-1">Proveedor</label>
+            <select name="supplier" class="border border-gray-300 rounded-lg text-sm px-3 py-2 focus:ring-2 focus:ring-[#1a6b3c]">
+                <option value="">Todos los proveedores</option>
+                <?php foreach (($suppliers ?? []) as $s): ?>
+                    <option value="<?= e((string) $s['slug']) ?>" <?= (string) $supplier === (string) $s['slug'] ? 'selected' : '' ?>><?= e($s['name']) ?></option>
                 <?php endforeach; ?>
             </select>
         </div>
@@ -44,6 +54,7 @@ $st = $filters['status'] ?? '';
                 <th class="text-left px-3 py-2">Código</th>
                 <th class="text-left px-3 py-2">Nombre</th>
                 <th class="text-left px-3 py-2">Cat.</th>
+                <th class="text-left px-3 py-2">Proveedor</th>
                 <th class="text-right px-3 py-2">Lista</th>
                 <th class="text-right px-3 py-2">Costo LO</th>
                 <th class="text-right px-3 py-2">Venta</th>
@@ -59,6 +70,7 @@ $st = $filters['status'] ?? '';
                     <td class="px-3 py-2 font-mono text-xs"><?= e($p['code']) ?></td>
                     <td class="px-3 py-2 max-w-[200px] truncate" title="<?= e($p['name']) ?>"><?= e($p['name']) ?></td>
                     <td class="px-3 py-2 text-gray-600"><?= e($p['category_name']) ?></td>
+                    <td class="px-3 py-2 text-gray-600"><?= e((string) ($p['supplier_name'] ?? '—')) ?></td>
                     <td class="px-3 py-2 text-right"><?= formatPrice($calc['precio_lista_seiq']) ?></td>
                     <td class="px-3 py-2 text-right"><?= formatPrice($calc['costo']) ?></td>
                     <td class="px-3 py-2 text-right font-medium"><?= formatPrice($calc['precio_venta']) ?></td>

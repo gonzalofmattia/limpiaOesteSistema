@@ -40,11 +40,15 @@ final class SeiqOrderBuilder
                     p.sale_unit_label, p.presentation, p.sale_unit_description,
                     qi.unit_type,
                     c.name AS category_name, c.slug AS category_slug,
-                    pc.name AS parent_category_name
+                    pc.name AS parent_category_name,
+                    COALESCE(c.supplier_id, pc.supplier_id) AS supplier_id,
+                    s.name AS supplier_name,
+                    s.slug AS supplier_slug
              FROM quote_items qi
              JOIN products p ON qi.product_id = p.id
              JOIN categories c ON p.category_id = c.id
              LEFT JOIN categories pc ON c.parent_id = pc.id
+             LEFT JOIN suppliers s ON s.id = COALESCE(c.supplier_id, pc.supplier_id)
              WHERE qi.quote_id IN ({$placeholders})
              ORDER BY p.code",
             $quoteIds
@@ -82,6 +86,9 @@ final class SeiqOrderBuilder
                     'units_per_box' => max(1, (int) ($item['units_per_box'] ?? 1) ?: 1),
                     'category_name' => $catName,
                     'parent_category_name' => $parent !== null && $parent !== '' ? (string) $parent : null,
+                    'supplier_id' => isset($item['supplier_id']) ? (int) $item['supplier_id'] : null,
+                    'supplier_name' => (string) ($item['supplier_name'] ?? ''),
+                    'supplier_slug' => (string) ($item['supplier_slug'] ?? ''),
                     'sort_group' => $parent !== null && $parent !== '' ? (string) $parent : $catName,
                     'subcategory' => $parent !== null && $parent !== '' ? $catName : null,
                     'qty_units_sold' => 0,
@@ -138,6 +145,46 @@ final class SeiqOrderBuilder
             'total_products' => count($list),
             'total_boxes' => $totalBoxes,
         ];
+    }
+
+    /**
+     * @param list<array<string,mixed>> $consolidated
+     * @return list<array{supplier: array<string,mixed>, bundle: array{consolidated: list<array<string,mixed>>, total_products: int, total_boxes: int}}>
+     */
+    public static function groupConsolidatedBySupplier(array $consolidated): array
+    {
+        $groups = [];
+        foreach ($consolidated as $row) {
+            $supplierId = (int) ($row['supplier_id'] ?? 0);
+            if ($supplierId <= 0) {
+                continue;
+            }
+            if (!isset($groups[$supplierId])) {
+                $groups[$supplierId] = [
+                    'supplier' => [
+                        'id' => $supplierId,
+                        'name' => (string) ($row['supplier_name'] ?? 'Proveedor'),
+                        'slug' => (string) ($row['supplier_slug'] ?? ''),
+                    ],
+                    'items' => [],
+                ];
+            }
+            $groups[$supplierId]['items'][] = $row;
+        }
+        $result = [];
+        foreach ($groups as $group) {
+            $items = $group['items'];
+            $result[] = [
+                'supplier' => $group['supplier'],
+                'bundle' => [
+                    'consolidated' => $items,
+                    'total_products' => count($items),
+                    'total_boxes' => (int) array_sum(array_map(static fn (array $x): int => (int) ($x['boxes_to_order'] ?? 0), $items)),
+                ],
+            ];
+        }
+
+        return $result;
     }
 
     /**

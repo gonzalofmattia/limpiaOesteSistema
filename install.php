@@ -335,6 +335,53 @@ try {
 
 try {
     $pdo->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS suppliers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    slug VARCHAR(50) UNIQUE NOT NULL,
+    contact_name VARCHAR(255),
+    phone VARCHAR(50),
+    email VARCHAR(255),
+    address TEXT,
+    notes TEXT,
+    cliente_id VARCHAR(50),
+    cliente_nombre VARCHAR(255),
+    condicion_pago VARCHAR(100),
+    observaciones VARCHAR(255),
+    is_active TINYINT(1) DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+SQL);
+    ok('Tabla suppliers');
+} catch (PDOException $e) {
+    warn('Tabla suppliers: ' . $e->getMessage());
+}
+
+try {
+    if (!$installColumnExists($pdo, 'categories', 'supplier_id')) {
+        $pdo->exec('ALTER TABLE categories ADD COLUMN supplier_id INT DEFAULT NULL AFTER parent_id');
+        try {
+            $pdo->exec('ALTER TABLE categories ADD CONSTRAINT fk_supplier_category FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE SET NULL');
+        } catch (PDOException $e) {
+            warn('FK categories.supplier_id: ' . $e->getMessage());
+        }
+    }
+    if (!$installColumnExists($pdo, 'seiq_orders', 'supplier_id')) {
+        $pdo->exec('ALTER TABLE seiq_orders ADD COLUMN supplier_id INT DEFAULT NULL AFTER id');
+        try {
+            $pdo->exec('ALTER TABLE seiq_orders ADD CONSTRAINT fk_order_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(id)');
+        } catch (PDOException $e) {
+            warn('FK seiq_orders.supplier_id: ' . $e->getMessage());
+        }
+    }
+    ok('Migración columnas supplier_id');
+} catch (PDOException $e) {
+    warn('Migración supplier_id: ' . $e->getMessage());
+}
+
+try {
+    $pdo->exec(<<<'SQL'
 CREATE TABLE IF NOT EXISTS seiq_orders (
     id INT AUTO_INCREMENT PRIMARY KEY,
     order_number VARCHAR(20) UNIQUE NOT NULL,
@@ -386,10 +433,6 @@ $settingsSeed = [
     ['mostrar_iva', '0', null],
     ['quote_prefix', 'LO', null],
     ['quote_validity_days', '7', null],
-    ['seiq_cliente_id', '15487', 'ID de cliente en Seiq'],
-    ['seiq_cliente_nombre', 'MATTIA GONZALO FRANCISCO', 'Nombre registrado en Seiq'],
-    ['seiq_condicion_pago', 'CONTADO CTA CTE', 'Condición de pago con Seiq'],
-    ['seiq_observaciones', 'HAEDO - 29', 'Observaciones para el pedido'],
 ];
 
 $insSetting = $pdo->prepare(
@@ -400,6 +443,32 @@ foreach ($settingsSeed as $row) {
     $insSetting->execute([$row[0], $row[1], $row[2]]);
 }
 ok('Settings seed');
+
+try {
+    $pdo->exec("DELETE FROM settings WHERE setting_key IN ('seiq_cliente_id','seiq_cliente_nombre','seiq_condicion_pago','seiq_observaciones')");
+} catch (PDOException $e) {
+    warn('Limpieza settings Seiq legacy: ' . $e->getMessage());
+}
+
+$suppliersSeed = [
+    ['Seiq', 'seiq', 'Rodrigo', null, '15487', 'MATTIA GONZALO FRANCISCO', 'CONTADO CTA CTE', 'HAEDO - 29'],
+    ['Higienik', 'higienik', 'Rodrigo', null, '15487', 'MATTIA GONZALO FRANCISCO', 'CONTADO CTA CTE', 'HAEDO - 29'],
+];
+$insSupplier = $pdo->prepare(
+    'INSERT INTO suppliers (name, slug, contact_name, phone, cliente_id, cliente_nombre, condicion_pago, observaciones)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       contact_name = VALUES(contact_name),
+       phone = VALUES(phone),
+       cliente_id = VALUES(cliente_id),
+       cliente_nombre = VALUES(cliente_nombre),
+       condicion_pago = VALUES(condicion_pago),
+       observaciones = VALUES(observaciones)'
+);
+foreach ($suppliersSeed as $srow) {
+    $insSupplier->execute($srow);
+}
+ok('Suppliers seed');
 
 $st = $pdo->prepare('SELECT COUNT(*) FROM admin_users WHERE username = ?');
 $st->execute(['admin']);
@@ -530,6 +599,23 @@ try {
     }
 } catch (Throwable $e) {
     warn('Seed subcategorías Bidones: ' . $e->getMessage());
+}
+
+try {
+    $seiqId = (int) $pdo->query("SELECT id FROM suppliers WHERE slug = 'seiq'")->fetchColumn();
+    $higId = (int) $pdo->query("SELECT id FROM suppliers WHERE slug = 'higienik'")->fetchColumn();
+    if ($seiqId > 0) {
+        $pdo->exec("UPDATE categories SET supplier_id = {$seiqId} WHERE slug IN ('aerosoles','bidones','masivo','sobres','alimenticia','insecticidas-concentrados','pouches-y-dispenser')");
+        $pdo->exec("UPDATE categories c JOIN categories parent ON c.parent_id = parent.id SET c.supplier_id = {$seiqId} WHERE parent.slug = 'bidones'");
+        $pdo->exec("UPDATE seiq_orders SET supplier_id = {$seiqId} WHERE supplier_id IS NULL");
+    }
+    if ($higId > 0) {
+        $pdo->exec("UPDATE categories SET supplier_id = {$higId} WHERE slug LIKE 'hig-%' OR slug LIKE 'fac-%' OR slug IN ('papelera-higienik','papelera-factory')");
+        $pdo->exec("UPDATE categories c JOIN categories parent ON c.parent_id = parent.id SET c.supplier_id = {$higId} WHERE parent.slug IN ('papelera-higienik','papelera-factory')");
+    }
+    ok('Asignación proveedores por categoría');
+} catch (PDOException $e) {
+    warn('Asignación proveedores: ' . $e->getMessage());
 }
 
 function catId(PDO $pdo, string $slug): int

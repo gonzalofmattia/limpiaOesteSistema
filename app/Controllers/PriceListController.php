@@ -24,12 +24,21 @@ final class PriceListController extends Controller
     public function generateForm(): void
     {
         $db = Database::getInstance();
-        $categories = $db->fetchAll('SELECT * FROM categories WHERE is_active = 1 ORDER BY sort_order, name');
+        $categories = $db->fetchAll(
+            'SELECT c.*, COALESCE(c.supplier_id, pc.supplier_id) AS resolved_supplier_id, s.name AS supplier_name, s.slug AS supplier_slug
+             FROM categories c
+             LEFT JOIN categories pc ON c.parent_id = pc.id
+             LEFT JOIN suppliers s ON s.id = COALESCE(c.supplier_id, pc.supplier_id)
+             WHERE c.is_active = 1
+             ORDER BY s.name, c.sort_order, c.name'
+        );
         $categoryTree = CategoryHierarchy::buildTree($categories);
+        $suppliers = $db->fetchAll('SELECT id, name, slug FROM suppliers WHERE is_active = 1 ORDER BY name');
         $this->view('pricelists/generate', [
             'title' => 'Generar lista',
             'categories' => $categories,
             'categoryTree' => $categoryTree,
+            'suppliers' => $suppliers,
         ]);
     }
 
@@ -149,11 +158,9 @@ final class PriceListController extends Controller
             $cats = [];
         }
         $categoryIdsRaw = array_values(array_filter(array_map('intval', $cats)));
-        if ($categoryIdsRaw === []) {
-            return ['error' => 'Seleccioná al menos una categoría.', 'name' => $name, 'description' => $desc, 'category_ids' => [], 'markup' => null, 'include_iva' => 0, 'price_field' => '', 'lines' => []];
-        }
         $markRaw = trim((string) $this->input('custom_markup', ''));
         $markup = $markRaw === '' ? null : (float) str_replace(',', '.', $markRaw);
+        $supplierSlug = trim((string) $this->input('supplier', ''));
         $ivaPost = $_POST['include_iva'] ?? '0';
         $includeIva = (string) $ivaPost === '1';
         $priceField = trim((string) $this->input('price_field', ''));
@@ -162,6 +169,20 @@ final class PriceListController extends Controller
         }
 
         $db = Database::getInstance();
+        if ($categoryIdsRaw === [] && $supplierSlug !== '') {
+            $autoCats = $db->fetchAll(
+                'SELECT c.id
+                 FROM categories c
+                 LEFT JOIN categories pc ON c.parent_id = pc.id
+                 LEFT JOIN suppliers s ON s.id = COALESCE(c.supplier_id, pc.supplier_id)
+                 WHERE c.is_active = 1 AND s.slug = ?',
+                [$supplierSlug]
+            );
+            $categoryIdsRaw = array_map(static fn (array $r): int => (int) $r['id'], $autoCats);
+        }
+        if ($categoryIdsRaw === []) {
+            return ['error' => 'Seleccioná al menos una categoría.', 'name' => $name, 'description' => $desc, 'category_ids' => [], 'markup' => null, 'include_iva' => 0, 'price_field' => '', 'lines' => []];
+        }
         $expanded = [];
         foreach ($categoryIdsRaw as $cid) {
             foreach (CategoryHierarchy::expandFilterCategoryIds($db, $cid) as $xid) {
@@ -182,10 +203,14 @@ final class PriceListController extends Controller
                     c.default_discount,
                     c.default_markup AS category_default_markup,
                     pc.default_discount AS parent_discount,
-                    pc.default_markup AS parent_default_markup
+                    pc.default_markup AS parent_default_markup,
+                    COALESCE(c.supplier_id, pc.supplier_id) AS supplier_id,
+                    s.name AS supplier_name,
+                    s.slug AS supplier_slug
              FROM products p
              JOIN categories c ON c.id = p.category_id
              LEFT JOIN categories pc ON c.parent_id = pc.id
+             LEFT JOIN suppliers s ON s.id = COALESCE(c.supplier_id, pc.supplier_id)
              WHERE p.is_active = 1 AND p.category_id IN ({$in})
              ORDER BY chain_parent_sort, c.parent_id IS NOT NULL, c.sort_order, p.sort_order, p.name",
             $categoryIds
@@ -227,6 +252,7 @@ final class PriceListController extends Controller
             'markup' => $markup,
             'include_iva' => $includeIva ? 1 : 0,
             'price_field' => $priceField,
+            'supplier' => $supplierSlug,
             'lines' => $lines,
             'pdf_sections' => $this->buildPricelistPdfSections($lines),
             'error' => null,

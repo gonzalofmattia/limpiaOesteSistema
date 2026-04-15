@@ -20,6 +20,7 @@ final class ProductController extends Controller
         $db = Database::getInstance();
         $page = max(1, (int) $this->query('page', 1));
         $catFilter = $this->query('category_id', '');
+        $supplierFilter = trim((string) $this->query('supplier', ''));
         $q = trim((string) $this->query('q', ''));
         $status = $this->query('status', '');
 
@@ -45,10 +46,19 @@ final class ProductController extends Controller
         } elseif ($status === '0') {
             $where[] = 'p.is_active = 0';
         }
+        if ($supplierFilter !== '') {
+            $where[] = 's.slug = :supplier_slug';
+            $params['supplier_slug'] = $supplierFilter;
+        }
 
         $whereSql = implode(' AND ', $where);
         $total = (int) $db->fetchColumn(
-            "SELECT COUNT(*) FROM products p WHERE {$whereSql}",
+            "SELECT COUNT(*)
+             FROM products p
+             JOIN categories c ON c.id = p.category_id
+             LEFT JOIN categories pc ON c.parent_id = pc.id
+             LEFT JOIN suppliers s ON s.id = COALESCE(c.supplier_id, pc.supplier_id)
+             WHERE {$whereSql}",
             $params
         );
         $pages = max(1, (int) ceil($total / self::PER_PAGE));
@@ -63,10 +73,14 @@ final class ProductController extends Controller
                        c.default_discount,
                        c.default_markup AS category_default_markup,
                        pc.default_discount AS parent_discount,
-                       pc.default_markup AS parent_default_markup
+                       pc.default_markup AS parent_default_markup,
+                       COALESCE(c.supplier_id, pc.supplier_id) AS supplier_id,
+                       s.name AS supplier_name,
+                       s.slug AS supplier_slug
                 FROM products p
                 JOIN categories c ON c.id = p.category_id
                 LEFT JOIN categories pc ON c.parent_id = pc.id
+                LEFT JOIN suppliers s ON s.id = COALESCE(c.supplier_id, pc.supplier_id)
                 WHERE {$whereSql}
                 ORDER BY COALESCE(pc.sort_order, c.sort_order), c.parent_id IS NOT NULL, c.sort_order, p.sort_order, p.name
                 LIMIT " . self::PER_PAGE . " OFFSET " . (int) $offset;
@@ -85,6 +99,7 @@ final class ProductController extends Controller
         $allCats = $db->fetchAll('SELECT * FROM categories ORDER BY sort_order, name');
         $categoryTree = CategoryHierarchy::buildTree($allCats);
         $categoryFilterOptions = CategoryHierarchy::flatOptionsForSelect($categoryTree);
+        $suppliers = $db->fetchAll('SELECT id, name, slug FROM suppliers WHERE is_active = 1 ORDER BY name');
 
         $this->view('products/index', [
             'title' => 'Productos',
@@ -95,9 +110,11 @@ final class ProductController extends Controller
             'total' => $total,
             'filters' => [
                 'category_id' => $catFilter,
+                'supplier' => $supplierFilter,
                 'q' => $q,
                 'status' => $status,
             ],
+            'suppliers' => $suppliers,
         ]);
     }
 
