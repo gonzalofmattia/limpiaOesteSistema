@@ -165,7 +165,7 @@ $env = deployLoadEnv($baseDir . '/.env');
 $host = $env['FTP_HOST'] ?? '';
 $user = $env['FTP_USER'] ?? '';
 $pass = $env['FTP_PASS'] ?? '';
-$remotePath = $env['FTP_PATH'] ?? '/public_html';
+$remotePath = $env['FTP_PATH'] ?? '/public_html/sistema';
 
 $dryRun = in_array('--dry-run', $argv, true);
 $noVendor = in_array('--no-vendor', $argv, true);

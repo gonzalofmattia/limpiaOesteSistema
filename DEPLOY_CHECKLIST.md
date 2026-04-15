@@ -23,8 +23,10 @@ El panel a veces no muestra la ruta con una etiqueta clara. Hacelo así:
    - `sistema`
    - u otra que hayas creado al dar de alta el subdominio
 5. **Regla para `FTP_PATH` en tu `.env` local:** es la ruta **desde la raíz FTP** hasta la carpeta donde tiene que quedar el proyecto (misma carpeta que el **document root** del subdominio, o su padre si subís todo el repo).
+   - Si separaste el sistema dentro de `public_html` (recomendado en este setup):  
+    `FTP_PATH=/public_html/sistema`
    - Si el subdominio sirve archivos **directamente** desde `public_html` (sin subcarpeta):  
-     `FTP_PATH=/public_html`
+    `FTP_PATH=/public_html`
    - Si el sitio del subdominio está en `public_html/sistema.limpiaoeste.com.ar`:  
      `FTP_PATH=/public_html/sistema.limpiaoeste.com.ar`
    - Si está en `public_html/sistema`:  
