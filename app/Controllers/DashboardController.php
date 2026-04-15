@@ -16,6 +16,26 @@ final class DashboardController extends Controller
         $categoriesCount = (int) $db->fetchColumn('SELECT COUNT(*) FROM categories');
         $clientsCount = (int) $db->fetchColumn('SELECT COUNT(*) FROM clients WHERE is_active = 1');
         $quotesCount = (int) $db->fetchColumn('SELECT COUNT(*) FROM quotes');
+        $accountsTable = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
+        $receivable = 0.0;
+        $clientsWithDebt = 0;
+        $supplierDebts = [];
+        if ($accountsTable) {
+            $receivable = (float) $db->fetchColumn('SELECT COALESCE(SUM(balance), 0) FROM clients WHERE balance > 0');
+            $clientsWithDebt = (int) $db->fetchColumn('SELECT COUNT(*) FROM clients WHERE COALESCE(balance, 0) > 0');
+            $supplierDebts = $db->fetchAll(
+                "SELECT s.id, s.name,
+                        COALESCE(SUM(CASE WHEN at.transaction_type = 'invoice' THEN at.amount ELSE 0 END), 0) -
+                        COALESCE(SUM(CASE WHEN at.transaction_type = 'payment' THEN at.amount ELSE 0 END), 0) +
+                        COALESCE(SUM(CASE WHEN at.transaction_type = 'adjustment' THEN at.amount ELSE 0 END), 0) AS debt
+                 FROM suppliers s
+                 LEFT JOIN account_transactions at
+                    ON at.account_type = 'supplier' AND at.account_id = s.id
+                 WHERE s.is_active = 1
+                 GROUP BY s.id, s.name
+                 ORDER BY s.name"
+            );
+        }
 
         $catStats = $db->fetchAll(
             'SELECT c.id, c.name, c.slug, c.default_discount, c.is_active,
@@ -42,6 +62,10 @@ final class DashboardController extends Controller
             'quotesCount' => $quotesCount,
             'catStats' => $catStats,
             'recentQuotes' => $recentQuotes,
+            'accountsEnabled' => $accountsTable,
+            'receivable' => $receivable,
+            'clientsWithDebt' => $clientsWithDebt,
+            'supplierDebts' => $supplierDebts,
         ]);
     }
 }

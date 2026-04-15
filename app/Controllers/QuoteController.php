@@ -17,7 +17,10 @@ final class QuoteController extends Controller
     {
         $db = Database::getInstance();
         $rows = $db->fetchAll(
-            'SELECT q.*, c.name AS client_name FROM quotes q LEFT JOIN clients c ON c.id = q.client_id ORDER BY q.created_at DESC'
+            'SELECT q.*, c.name AS client_name
+             FROM quotes q
+             LEFT JOIN clients c ON c.id = q.client_id
+             ORDER BY q.created_at DESC'
         );
         $this->view('quotes/index', ['title' => 'Presupuestos', 'quotes' => $rows]);
     }
@@ -173,13 +176,85 @@ final class QuoteController extends Controller
             redirect('/presupuestos/' . $id);
         }
         $db = Database::getInstance();
+        $quote = $db->fetch('SELECT * FROM quotes WHERE id = ?', [(int) $id]);
+        if (!$quote) {
+            flash('error', 'Presupuesto no encontrado.');
+            redirect('/presupuestos');
+            return;
+        }
+        $oldStatus = (string) ($quote['status'] ?? 'draft');
         $extra = [];
         if ($status === 'sent') {
             $extra['sent_at'] = date('Y-m-d H:i:s');
         }
         $db->update('quotes', array_merge(['status' => $status], $extra), 'id = :id', ['id' => (int) $id]);
+
+        try {
+            $hasAccountTable = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
+            if ($hasAccountTable && $oldStatus !== 'accepted' && $status === 'accepted') {
+                $existing = $db->fetch(
+                    "SELECT id FROM account_transactions
+                     WHERE reference_type = 'quote' AND reference_id = ? AND transaction_type = 'invoice'
+                     LIMIT 1",
+                    [(int) $id]
+                );
+                if (!$existing) {
+                    $clientId = (int) ($quote['client_id'] ?? 0);
+                    $amount = round((float) ($quote['total'] ?? 0), 2);
+                    if ($clientId > 0 && $amount > 0) {
+                        $db->insert('account_transactions', [
+                            'account_type' => 'client',
+                            'account_id' => $clientId,
+                            'transaction_type' => 'invoice',
+                            'reference_type' => 'quote',
+                            'reference_id' => (int) $id,
+                            'amount' => $amount,
+                            'description' => 'Presupuesto ' . (string) ($quote['quote_number'] ?? ('#' . $id)),
+                            'transaction_date' => date('Y-m-d'),
+                        ]);
+                    }
+                }
+                $this->recalculateClientBalance((int) ($quote['client_id'] ?? 0));
+            }
+
+            if ($hasAccountTable && $oldStatus === 'accepted' && in_array($status, ['draft', 'rejected'], true)) {
+                $db->query(
+                    "DELETE FROM account_transactions
+                     WHERE reference_type = 'quote' AND reference_id = ? AND transaction_type = 'invoice'",
+                    [(int) $id]
+                );
+                $this->recalculateClientBalance((int) ($quote['client_id'] ?? 0));
+            }
+        } catch (\Throwable) {
+            // No bloquea el cambio de estado si la tabla no existe.
+        }
         flash('success', 'Estado actualizado.');
         redirect('/presupuestos/' . $id);
+    }
+
+    private function recalculateClientBalance(int $clientId): void
+    {
+        if ($clientId <= 0) {
+            return;
+        }
+        $db = Database::getInstance();
+        $invoices = (float) $db->fetchColumn(
+            "SELECT COALESCE(SUM(amount), 0) FROM account_transactions
+             WHERE account_type = 'client' AND account_id = ? AND transaction_type = 'invoice'",
+            [$clientId]
+        );
+        $payments = (float) $db->fetchColumn(
+            "SELECT COALESCE(SUM(amount), 0) FROM account_transactions
+             WHERE account_type = 'client' AND account_id = ? AND transaction_type = 'payment'",
+            [$clientId]
+        );
+        $adjustments = (float) $db->fetchColumn(
+            "SELECT COALESCE(SUM(amount), 0) FROM account_transactions
+             WHERE account_type = 'client' AND account_id = ? AND transaction_type = 'adjustment'",
+            [$clientId]
+        );
+        $balance = $invoices - $payments + $adjustments;
+        $db->query('UPDATE clients SET balance = ? WHERE id = ?', [round($balance, 2), $clientId]);
     }
 
     /** @return array{id?:int,error:?string} */

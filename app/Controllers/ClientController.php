@@ -12,7 +12,47 @@ final class ClientController extends Controller
     public function index(): void
     {
         $db = Database::getInstance();
-        $rows = $db->fetchAll('SELECT * FROM clients ORDER BY name');
+        try {
+            $hasAccountTable = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
+            if ($hasAccountTable) {
+                $rows = $db->fetchAll(
+                    "SELECT c.*,
+                            COALESCE((
+                                SELECT SUM(q.total)
+                                FROM quotes q
+                                WHERE q.client_id = c.id
+                                  AND q.status IN ('accepted', 'delivered')
+                            ), 0) AS quotes_accepted_total,
+                            COALESCE((
+                                SELECT SUM(at.amount)
+                                FROM account_transactions at
+                                WHERE at.account_type = 'client'
+                                  AND at.account_id = c.id
+                                  AND at.transaction_type = 'payment'
+                            ), 0) AS account_payments_total,
+                            COALESCE((
+                                SELECT SUM(at.amount)
+                                FROM account_transactions at
+                                WHERE at.account_type = 'client'
+                                  AND at.account_id = c.id
+                                  AND at.transaction_type = 'adjustment'
+                            ), 0) AS account_adjustments_total
+                     FROM clients c
+                     ORDER BY c.name"
+                );
+                foreach ($rows as &$row) {
+                    $effective = (float) $row['quotes_accepted_total']
+                        - (float) $row['account_payments_total']
+                        + (float) $row['account_adjustments_total'];
+                    $row['effective_balance'] = round($effective, 2);
+                }
+                unset($row);
+            } else {
+                $rows = $db->fetchAll('SELECT * FROM clients ORDER BY name');
+            }
+        } catch (\Throwable) {
+            $rows = $db->fetchAll('SELECT * FROM clients ORDER BY name');
+        }
         $this->view('clients/index', ['title' => 'Clientes', 'clients' => $rows]);
     }
 
@@ -41,11 +81,45 @@ final class ClientController extends Controller
     public function edit(string $id): void
     {
         $db = Database::getInstance();
-        $c = $db->fetch('SELECT * FROM clients WHERE id = ?', [(int) $id]);
+        try {
+            $hasAccountTable = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
+            if ($hasAccountTable) {
+                $c = $db->fetch(
+                    "SELECT c.*,
+                            COALESCE((
+                                SELECT SUM(q.total) FROM quotes q
+                                WHERE q.client_id = c.id AND q.status IN ('accepted', 'delivered')
+                            ), 0) AS quotes_accepted_total,
+                            COALESCE((
+                                SELECT SUM(at.amount) FROM account_transactions at
+                                WHERE at.account_type = 'client' AND at.account_id = c.id AND at.transaction_type = 'payment'
+                            ), 0) AS account_payments_total,
+                            COALESCE((
+                                SELECT SUM(at.amount) FROM account_transactions at
+                                WHERE at.account_type = 'client' AND at.account_id = c.id AND at.transaction_type = 'adjustment'
+                            ), 0) AS account_adjustments_total
+                     FROM clients c
+                     WHERE c.id = ?",
+                    [(int) $id]
+                );
+            } else {
+                $c = $db->fetch('SELECT * FROM clients WHERE id = ?', [(int) $id]);
+            }
+        } catch (\Throwable) {
+            $c = $db->fetch('SELECT * FROM clients WHERE id = ?', [(int) $id]);
+        }
         if (!$c) {
             flash('error', 'No encontrado.');
             redirect('/clientes');
         }
+        $c['effective_balance'] = isset($c['quotes_accepted_total'])
+            ? round(
+                (float) ($c['quotes_accepted_total'] ?? 0)
+                - (float) ($c['account_payments_total'] ?? 0)
+                + (float) ($c['account_adjustments_total'] ?? 0),
+                2
+            )
+            : (float) ($c['balance'] ?? 0);
         $this->view('clients/form', ['title' => 'Editar cliente', 'client' => $c]);
     }
 

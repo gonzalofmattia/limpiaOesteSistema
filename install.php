@@ -150,6 +150,7 @@ CREATE TABLE IF NOT EXISTS clients (
     address TEXT,
     city VARCHAR(100),
     notes TEXT,
+    balance DECIMAL(12,2) DEFAULT 0,
     is_active TINYINT(1) DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -258,6 +259,26 @@ CREATE TABLE IF NOT EXISTS seiq_order_items (
     FOREIGN KEY (product_id) REFERENCES products(id),
     INDEX idx_order (seiq_order_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS account_transactions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    account_type ENUM('client', 'supplier') NOT NULL,
+    account_id INT NOT NULL,
+    transaction_type ENUM('invoice', 'payment', 'adjustment') NOT NULL,
+    reference_type VARCHAR(50) DEFAULT NULL,
+    reference_id INT DEFAULT NULL,
+    amount DECIMAL(12,2) NOT NULL,
+    payment_method ENUM('efectivo', 'transferencia', 'otro') DEFAULT NULL,
+    payment_reference VARCHAR(255) DEFAULT NULL,
+    description VARCHAR(255) NOT NULL,
+    notes TEXT,
+    transaction_date DATE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_account (account_type, account_id),
+    INDEX idx_type (transaction_type),
+    INDEX idx_date (transaction_date),
+    INDEX idx_reference (reference_type, reference_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 SQL;
 
 foreach (array_filter(array_map('trim', explode(';', $schema))) as $stmt) {
@@ -281,6 +302,15 @@ $installColumnExists = static function (PDO $pdo, string $table, string $column)
 
     return (int) $st->fetchColumn() > 0;
 };
+
+try {
+    if (!$installColumnExists($pdo, 'clients', 'balance')) {
+        $pdo->exec('ALTER TABLE clients ADD COLUMN balance DECIMAL(12,2) DEFAULT 0 AFTER notes');
+    }
+    ok('Migración clients.balance (si aplica)');
+} catch (PDOException $e) {
+    warn('Migración clients.balance: ' . $e->getMessage());
+}
 
 try {
     if (!$installColumnExists($pdo, 'categories', 'parent_id')) {

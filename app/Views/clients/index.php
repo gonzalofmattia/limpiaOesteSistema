@@ -10,6 +10,7 @@
                 <th class="text-left px-4 py-3">Razón social</th>
                 <th class="text-left px-4 py-3">Teléfono</th>
                 <th class="text-left px-4 py-3">Ciudad</th>
+                <th class="text-left px-4 py-3">Estado cuenta</th>
                 <th class="text-right px-4 py-3">Acciones</th>
             </tr>
         </thead>
@@ -20,7 +21,16 @@
                     <td class="px-4 py-3 text-gray-600"><?= e($c['business_name'] ?? '—') ?></td>
                     <td class="px-4 py-3"><?= e($c['phone'] ?? '—') ?></td>
                     <td class="px-4 py-3"><?= e($c['city'] ?? '—') ?></td>
-                    <td class="px-4 py-3 text-right">
+                    <td class="px-4 py-3">
+                        <?php $balance = isset($c['effective_balance']) ? (float) $c['effective_balance'] : (float) ($c['balance'] ?? 0); ?>
+                        <?php if ($balance > 0): ?>
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-800">Debe <?= formatPrice($balance) ?></span>
+                        <?php else: ?>
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-800">Al día</span>
+                        <?php endif; ?>
+                    </td>
+                    <td class="px-4 py-3 text-right whitespace-nowrap space-x-2">
+                        <a href="<?= e(url('/cuenta-corriente/cliente/' . (int) $c['id'])) ?>" class="text-[#1a6b3c] hover:underline">Ver cuenta</a>
                         <a href="<?= e(url('/clientes/' . (int) $c['id'] . '/editar')) ?>" class="text-[#1565C0] hover:underline">Editar</a>
                     </td>
                 </tr>

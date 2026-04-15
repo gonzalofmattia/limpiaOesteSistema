@@ -17,6 +17,25 @@
     </div>
 </div>
 
+<?php if (!empty($accountsEnabled)): ?>
+    <div class="grid sm:grid-cols-2 gap-4 mb-8">
+        <a href="<?= e(url('/cuenta-corriente/clientes')) ?>" class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm block hover:border-[#1a6b3c]">
+            <p class="text-sm text-gray-500">A cobrar</p>
+            <p class="text-2xl font-bold text-[#1a6b3c]"><?= formatPrice((float) $receivable) ?></p>
+            <p class="text-sm text-gray-600"><?= (int) $clientsWithDebt ?> clientes</p>
+        </a>
+        <div class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+            <p class="text-sm text-gray-500 mb-2">Deuda proveedores</p>
+            <?php foreach (($supplierDebts ?? []) as $supplier): ?>
+                <a href="<?= e(url('/cuenta-corriente/proveedor/' . (int) $supplier['id'])) ?>" class="flex justify-between text-sm py-1 hover:text-[#1565C0]">
+                    <span><?= e($supplier['name']) ?></span>
+                    <span class="font-medium"><?= formatPrice((float) $supplier['debt']) ?></span>
+                </a>
+            <?php endforeach; ?>
+        </div>
+    </div>
+<?php endif; ?>
+
 <div class="flex flex-wrap gap-3 mb-8">
     <a href="<?= e(url('/productos/crear')) ?>" class="inline-flex items-center px-4 py-2 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium hover:bg-[#2db368]">Nuevo producto</a>
     <a href="<?= e(url('/listas/generar')) ?>" class="inline-flex items-center px-4 py-2 rounded-lg bg-white border border-gray-300 text-sm font-medium hover:bg-gray-50">Generar lista</a>

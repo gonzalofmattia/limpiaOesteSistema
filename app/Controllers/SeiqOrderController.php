@@ -158,7 +158,7 @@ final class SeiqOrderController extends Controller
         }
         $items = $db->fetchAll(
             'SELECT soi.*, p.code, p.name AS product_name, p.presentation, p.content,
-                    p.sale_unit_label, p.sale_unit_description,
+                    p.sale_unit_label, p.sale_unit_description, p.precio_lista_caja, p.precio_lista_unitario,
                     c.name AS category_name, c.slug AS category_slug, pc.name AS parent_category_name
              FROM seiq_order_items soi
              JOIN products p ON p.id = soi.product_id
@@ -294,9 +294,19 @@ final class SeiqOrderController extends Controller
             $data['sent_at'] = date('Y-m-d H:i:s');
         }
         if ($status === 'received') {
+            $manualAmount = (float) str_replace(['.', ','], ['', '.'], (string) $this->input('received_amount', '0'));
+            if ($manualAmount <= 0) {
+                flash('error', 'Para recibir el pedido debés ingresar el monto del remito/factura.');
+                redirect('/pedidos-proveedor/' . $id);
+                return;
+            }
             $data['received_at'] = date('Y-m-d H:i:s');
         }
         $db->update('seiq_orders', $data, 'id = :id', ['id' => (int) $id]);
+
+        if ($status === 'received') {
+            $this->registerSupplierInvoiceOnReceive($db, (int) $id);
+        }
         flash('success', 'Estado actualizado.');
         redirect('/pedidos-proveedor/' . $id);
     }
@@ -371,6 +381,86 @@ final class SeiqOrderController extends Controller
         flash('error', 'Falta migrar base de datos para pedidos de proveedores. Ejecutá install.php o la migración multi-proveedor en producción.');
         redirect('/');
         return false;
+    }
+
+    private function registerSupplierInvoiceOnReceive(Database $db, int $orderId): void
+    {
+        try {
+            $hasAccountTable = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
+            if (!$hasAccountTable) {
+                return;
+            }
+            $existing = $db->fetch(
+                "SELECT id FROM account_transactions
+                 WHERE reference_type = 'seiq_order' AND reference_id = ? AND transaction_type = 'invoice'
+                 LIMIT 1",
+                [$orderId]
+            );
+            if ($existing) {
+                return;
+            }
+            $order = $db->fetch(
+                'SELECT so.order_number, so.supplier_id, s.slug AS supplier_slug
+                 FROM seiq_orders so
+                 LEFT JOIN suppliers s ON s.id = so.supplier_id
+                 WHERE so.id = ?',
+                [$orderId]
+            );
+            if (!$order) {
+                return;
+            }
+            $supplierId = (int) ($order['supplier_id'] ?? 0);
+            $manualAmount = (float) str_replace(['.', ','], ['', '.'], (string) $this->input('received_amount', '0'));
+            $amount = $manualAmount > 0 ? round($manualAmount, 2) : $this->calculateSeiqOrderTotal($orderId);
+            $receivedDate = (string) $this->input('received_date', date('Y-m-d'));
+            if ($amount <= 0) {
+                return;
+            }
+
+            $db->insert('account_transactions', [
+                'account_type' => 'supplier',
+                'account_id' => $supplierId,
+                'transaction_type' => 'invoice',
+                'reference_type' => 'seiq_order',
+                'reference_id' => $orderId,
+                'amount' => $amount,
+                'description' => 'Pedido ' . (string) ($order['order_number'] ?? ('#' . $orderId)),
+                'transaction_date' => $receivedDate,
+            ]);
+        } catch (\Throwable) {
+            // No bloquea actualización de estado por ausencia de esquema/migración.
+        }
+    }
+
+    private function calculateSeiqOrderTotal(int $orderId): float
+    {
+        $db = Database::getInstance();
+        $items = $db->fetchAll(
+            "SELECT soi.boxes_to_order, p.precio_lista_caja, p.precio_lista_unitario, p.units_per_box,
+                    c.slug AS category_slug, pc.slug AS parent_slug
+             FROM seiq_order_items soi
+             JOIN products p ON soi.product_id = p.id
+             JOIN categories c ON p.category_id = c.id
+             LEFT JOIN categories pc ON c.parent_id = pc.id
+             WHERE soi.seiq_order_id = ?",
+            [$orderId]
+        );
+        $total = 0.0;
+        foreach ($items as $item) {
+            $slug = (string) ($item['parent_slug'] ?? $item['category_slug'] ?? '');
+            $boxes = (int) ($item['boxes_to_order'] ?? 0);
+            if ($boxes <= 0) {
+                continue;
+            }
+            if ($slug === 'aerosoles') {
+                $units = (int) ($item['units_per_box'] ?: 12);
+                $pricePerBox = (float) ($item['precio_lista_unitario'] ?? 0) * $units;
+            } else {
+                $pricePerBox = (float) ($item['precio_lista_caja'] ?? 0);
+            }
+            $total += $pricePerBox * $boxes;
+        }
+        return round($total, 2);
     }
 
     /**

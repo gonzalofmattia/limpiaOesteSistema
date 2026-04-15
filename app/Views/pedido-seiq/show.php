@@ -26,9 +26,28 @@ $remainderRows = array_values(array_filter($items, static fn ($it) => (int) ($it
         </div>
     </div>
 
-    <form method="post" action="<?= e(url('/pedidos-proveedor/' . (int) $order['id'] . '/status')) ?>" class="flex flex-wrap gap-2 items-center bg-white p-4 rounded-xl border border-gray-200">
+    <?php
+    $suggestedReceivedAmount = 0.0;
+    foreach ($items as $it) {
+        $pricePerBox = (float) ($it['precio_lista_caja'] ?? 0);
+        if ($pricePerBox <= 0) {
+            $pricePerBox = (float) ($it['precio_lista_unitario'] ?? 0);
+        }
+        $suggestedReceivedAmount += $pricePerBox * (int) ($it['boxes_to_order'] ?? 0);
+    }
+    ?>
+    <form method="post" action="<?= e(url('/pedidos-proveedor/' . (int) $order['id'] . '/status')) ?>" class="flex flex-wrap gap-3 items-end bg-white p-4 rounded-xl border border-gray-200">
         <?= csrfField() ?>
-        <span class="text-sm text-gray-600">Estado del pedido:</span>
+        <div class="text-sm text-gray-600">Estado del pedido:</div>
+        <div class="min-w-[250px]">
+            <label class="block text-xs text-gray-500 mb-1">Monto real remito/factura (al recibir)</label>
+            <input type="text" name="received_amount" value="<?= e(number_format($suggestedReceivedAmount, 2, ',', '.')) ?>" class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm">
+            <p class="text-xs text-gray-500 mt-1">Monto sugerido: <?= formatPrice($suggestedReceivedAmount) ?></p>
+        </div>
+        <div class="min-w-[180px]">
+            <label class="block text-xs text-gray-500 mb-1">Fecha remito</label>
+            <input type="date" name="received_date" value="<?= e(date('Y-m-d')) ?>" class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm">
+        </div>
         <?php foreach (['draft', 'sent', 'received'] as $s): ?>
             <button type="submit" name="status" value="<?= e($s) ?>" class="px-3 py-1 rounded-lg text-xs border border-gray-200 hover:bg-gray-50"><?= e($s) ?></button>
         <?php endforeach; ?>

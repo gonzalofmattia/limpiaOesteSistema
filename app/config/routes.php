@@ -66,6 +66,17 @@ return [
     ['GET', 'settings', 'SettingsController@index', []],
     ['POST', 'settings', 'SettingsController@update', []],
 
+    ['GET', 'cuenta-corriente', 'AccountController@index', []],
+    ['GET', 'cuenta-corriente/clientes', 'AccountController@clients', []],
+    ['GET', 'cuenta-corriente/cliente/{id}', 'AccountController@clientDetail', []],
+    ['GET', 'cuenta-corriente/proveedor/{id}', 'AccountController@supplierDetail', []],
+    ['POST', 'cuenta-corriente/cobro', 'AccountController@registerCollection', []],
+    ['POST', 'cuenta-corriente/pago-proveedor', 'AccountController@registerSupplierPayment', []],
+    ['POST', 'cuenta-corriente/ajuste', 'AccountController@registerAdjustment', []],
+    ['POST', 'cuenta-corriente/movimiento/{id}/eliminar', 'AccountController@deleteMovement', []],
+    ['GET', 'cuenta-corriente/cliente/{id}/pdf', 'AccountController@clientStatementPdf', []],
+    ['GET', 'cuenta-corriente/proveedor/{id}/pdf', 'AccountController@supplierStatementPdf', []],
+
     ['GET', 'api/productos/buscar', 'ApiController@searchProducts', []],
     ['GET', 'api/productos/{id}/precio', 'ApiController@getProductPrice', []],
     ['GET', 'api/categorias/{id}/productos', 'ApiController@getCategoryProducts', []],

@@ -4,6 +4,16 @@ $action = url($isEdit ? '/clientes/' . (int) $client['id'] : '/clientes');
 $c = $client ?? [];
 ?>
 <div class="max-w-2xl bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+    <?php if ($isEdit): ?>
+        <?php $balance = isset($c['effective_balance']) ? (float) $c['effective_balance'] : (float) ($c['balance'] ?? 0); ?>
+        <div class="mb-4">
+            <?php if ($balance > 0): ?>
+                <span class="inline-flex px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-800">Saldo: <?= formatPrice($balance) ?> [debe]</span>
+            <?php else: ?>
+                <span class="inline-flex px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-800">Al día</span>
+            <?php endif; ?>
+        </div>
+    <?php endif; ?>
     <form method="post" action="<?= e($action) ?>" class="space-y-4">
         <?= csrfField() ?>
         <div>
