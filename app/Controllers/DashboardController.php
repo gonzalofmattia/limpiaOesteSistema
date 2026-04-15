@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Controller;
+use App\Helpers\ClientReceivableSummary;
 use App\Models\Database;
 
 final class DashboardController extends Controller
@@ -21,8 +22,8 @@ final class DashboardController extends Controller
         $clientsWithDebt = 0;
         $supplierDebts = [];
         if ($accountsTable) {
-            $receivable = (float) $db->fetchColumn('SELECT COALESCE(SUM(balance), 0) FROM clients WHERE balance > 0');
-            $clientsWithDebt = (int) $db->fetchColumn('SELECT COUNT(*) FROM clients WHERE COALESCE(balance, 0) > 0');
+            $receivable = ClientReceivableSummary::totalReceivable($db);
+            $clientsWithDebt = ClientReceivableSummary::countClientsWithDebt($db);
             $supplierDebts = $db->fetchAll(
                 "SELECT s.id, s.name,
                         COALESCE(SUM(CASE WHEN at.transaction_type = 'invoice' THEN at.amount ELSE 0 END), 0) -

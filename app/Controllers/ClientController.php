@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Controller;
+use App\Helpers\ClientReceivableSummary;
 use App\Models\Database;
 
 final class ClientController extends Controller
@@ -15,38 +16,13 @@ final class ClientController extends Controller
         try {
             $hasAccountTable = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
             if ($hasAccountTable) {
+                $netByClient = ClientReceivableSummary::sqlNetByClientSubquery();
                 $rows = $db->fetchAll(
-                    "SELECT c.*,
-                            COALESCE((
-                                SELECT SUM(q.total)
-                                FROM quotes q
-                                WHERE q.client_id = c.id
-                                  AND q.status IN ('accepted', 'delivered')
-                            ), 0) AS quotes_accepted_total,
-                            COALESCE((
-                                SELECT SUM(at.amount)
-                                FROM account_transactions at
-                                WHERE at.account_type = 'client'
-                                  AND at.account_id = c.id
-                                  AND at.transaction_type = 'payment'
-                            ), 0) AS account_payments_total,
-                            COALESCE((
-                                SELECT SUM(at.amount)
-                                FROM account_transactions at
-                                WHERE at.account_type = 'client'
-                                  AND at.account_id = c.id
-                                  AND at.transaction_type = 'adjustment'
-                            ), 0) AS account_adjustments_total
+                    "SELECT c.*, ROUND(COALESCE(cb.net, 0), 2) AS effective_balance
                      FROM clients c
+                     LEFT JOIN ({$netByClient}) cb ON cb.account_id = c.id
                      ORDER BY c.name"
                 );
-                foreach ($rows as &$row) {
-                    $effective = (float) $row['quotes_accepted_total']
-                        - (float) $row['account_payments_total']
-                        + (float) $row['account_adjustments_total'];
-                    $row['effective_balance'] = round($effective, 2);
-                }
-                unset($row);
             } else {
                 $rows = $db->fetchAll('SELECT * FROM clients ORDER BY name');
             }
@@ -81,23 +57,13 @@ final class ClientController extends Controller
     public function edit(string $id): void
     {
         $db = Database::getInstance();
+        $hasAccountTable = false;
         try {
             $hasAccountTable = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
             if ($hasAccountTable) {
+                $netExpr = ClientReceivableSummary::sqlCorrelatedNetForClientAlias('c');
                 $c = $db->fetch(
-                    "SELECT c.*,
-                            COALESCE((
-                                SELECT SUM(q.total) FROM quotes q
-                                WHERE q.client_id = c.id AND q.status IN ('accepted', 'delivered')
-                            ), 0) AS quotes_accepted_total,
-                            COALESCE((
-                                SELECT SUM(at.amount) FROM account_transactions at
-                                WHERE at.account_type = 'client' AND at.account_id = c.id AND at.transaction_type = 'payment'
-                            ), 0) AS account_payments_total,
-                            COALESCE((
-                                SELECT SUM(at.amount) FROM account_transactions at
-                                WHERE at.account_type = 'client' AND at.account_id = c.id AND at.transaction_type = 'adjustment'
-                            ), 0) AS account_adjustments_total
+                    "SELECT c.*, ({$netExpr}) AS effective_balance
                      FROM clients c
                      WHERE c.id = ?",
                     [(int) $id]
@@ -112,14 +78,11 @@ final class ClientController extends Controller
             flash('error', 'No encontrado.');
             redirect('/clientes');
         }
-        $c['effective_balance'] = isset($c['quotes_accepted_total'])
-            ? round(
-                (float) ($c['quotes_accepted_total'] ?? 0)
-                - (float) ($c['account_payments_total'] ?? 0)
-                + (float) ($c['account_adjustments_total'] ?? 0),
-                2
-            )
-            : (float) ($c['balance'] ?? 0);
+        if ($hasAccountTable) {
+            $c['effective_balance'] = round((float) ($c['effective_balance'] ?? 0), 2);
+        } else {
+            $c['effective_balance'] = (float) ($c['balance'] ?? 0);
+        }
         $this->view('clients/form', ['title' => 'Editar cliente', 'client' => $c]);
     }
 

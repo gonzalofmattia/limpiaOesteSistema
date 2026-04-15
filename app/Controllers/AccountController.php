@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Controller;
+use App\Helpers\ClientReceivableSummary;
 use App\Models\Database;
 use Dompdf\Dompdf;
 use Dompdf\Options;
@@ -18,12 +19,8 @@ final class AccountController extends Controller
             return;
         }
 
-        $totalReceivable = (float) $db->fetchColumn(
-            "SELECT COALESCE(SUM(balance), 0) FROM clients WHERE COALESCE(balance, 0) > 0"
-        );
-        $clientsWithDebt = (int) $db->fetchColumn(
-            "SELECT COUNT(*) FROM clients WHERE COALESCE(balance, 0) > 0"
-        );
+        $totalReceivable = ClientReceivableSummary::totalReceivable($db);
+        $clientsWithDebt = ClientReceivableSummary::countClientsWithDebt($db);
         $supplierDebts = $this->getSupplierDebts($db);
         $totalPayable = 0.0;
         foreach ($supplierDebts as $supplier) {
@@ -39,8 +36,13 @@ final class AccountController extends Controller
              LIMIT 20"
         );
 
+        $netByClient = ClientReceivableSummary::sqlNetByClientSubquery();
         $clientsForForm = $db->fetchAll(
-            "SELECT id, name, balance FROM clients WHERE is_active = 1 ORDER BY name"
+            "SELECT c.id, c.name, COALESCE(cb.net, 0) AS balance
+             FROM clients c
+             LEFT JOIN ({$netByClient}) cb ON cb.account_id = c.id
+             WHERE c.is_active = 1
+             ORDER BY c.name"
         );
         $suppliersForForm = $db->fetchAll(
             "SELECT id, name FROM suppliers WHERE is_active = 1 ORDER BY name"
@@ -77,6 +79,12 @@ final class AccountController extends Controller
              GROUP BY c.id
              ORDER BY c.name"
         );
+
+        foreach ($rows as &$row) {
+            $computed = (float) $row['total_invoiced'] - (float) $row['total_paid'] + (float) $row['total_adjustments'];
+            $row['balance'] = round($computed, 2);
+        }
+        unset($row);
 
         $totalReceivable = 0.0;
         foreach ($rows as $row) {
