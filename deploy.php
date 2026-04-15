@@ -12,6 +12,7 @@ declare(strict_types=1);
  *   php deploy.php --no-vendor     → No sube vendor/
  *   php deploy.php --only=app      → Solo carpeta app/
  *   php deploy.php --only=public   → Solo carpeta public/
+ *   php deploy.php --force-root    → Permite subir a /public_html (bloqueado por seguridad por defecto)
  *
  * Subdominio (sistema.limpiaoeste.com.ar): FTP_PATH = carpeta remota de ESE subdominio
  * (la que muestra el FTP/cPanel al abrir el sitio, no siempre es la misma que el dominio principal).
@@ -169,11 +170,19 @@ $remotePath = $env['FTP_PATH'] ?? '/public_html/sistema';
 
 $dryRun = in_array('--dry-run', $argv, true);
 $noVendor = in_array('--no-vendor', $argv, true);
+$forceRoot = in_array('--force-root', $argv, true);
 $only = null;
 foreach ($argv as $arg) {
     if (str_starts_with($arg, '--only=')) {
         $only = substr($arg, 7);
     }
+}
+
+if (rtrim($remotePath, '/') === '/public_html' && !$forceRoot) {
+    fwrite(STDERR, red("Error: FTP_PATH está en /public_html (raíz del dominio principal).\n"));
+    fwrite(STDERR, yellow("Para este proyecto usá /public_html/sistema en .env.\n"));
+    fwrite(STDERR, yellow("Si querés subir intencionalmente a /public_html, corré con --force-root.\n"));
+    exit(1);
 }
 
 if (!$dryRun) {
