@@ -7,15 +7,21 @@ namespace App\Helpers;
 use App\Models\Database;
 
 /**
- * Saldo cliente desde movimientos: facturas − cobros + ajustes.
- * No depende de la columna clients.balance (puede quedar desactualizada tras migraciones).
+ * Saldo a mostrar / totalizar para clientes:
+ * - Si hay cargos tipo invoice en CC: facturas − cobros + ajustes (solo movimientos).
+ * - Si no hay invoices (datos viejos o sin sincronizar): total presupuestos aceptados/entregados − cobros + ajustes.
+ *
+ * Los JOINs deben usar alias `tx` (agregado por cliente) y `q` (totales de presupuestos).
  */
 final class ClientReceivableSummary
 {
-    /** Subconsulta: una fila por cliente con saldo neto. */
-    public static function sqlNetByClientSubquery(): string
+    /** Columnas: account_id, inv, pay, adj, net (= inv − pay + adj). */
+    public static function sqlTxAggByClientSubquery(): string
     {
         return "SELECT account_id,
+                    SUM(CASE WHEN transaction_type = 'invoice' THEN amount ELSE 0 END) AS inv,
+                    SUM(CASE WHEN transaction_type = 'payment' THEN amount ELSE 0 END) AS pay,
+                    SUM(CASE WHEN transaction_type = 'adjustment' THEN amount ELSE 0 END) AS adj,
                     SUM(CASE WHEN transaction_type = 'invoice' THEN amount ELSE 0 END)
                   - SUM(CASE WHEN transaction_type = 'payment' THEN amount ELSE 0 END)
                   + SUM(CASE WHEN transaction_type = 'adjustment' THEN amount ELSE 0 END) AS net
@@ -24,33 +30,80 @@ final class ClientReceivableSummary
                 GROUP BY account_id";
     }
 
+    public static function sqlQuotesAcceptedByClientSubquery(): string
+    {
+        return "SELECT client_id, SUM(total) AS quotes_total
+                FROM quotes
+                WHERE status IN ('accepted', 'delivered')
+                GROUP BY client_id";
+    }
+
+    /**
+     * Expresión SQL (usa alias tx, q y c). Debe ir junto a:
+     * LEFT JOIN (sqlTxAgg...) tx ON tx.account_id = c.id
+     * LEFT JOIN (sqlQuotes...) q ON q.client_id = c.id
+     */
+    public static function sqlCaseHybridBalance(): string
+    {
+        return 'CASE WHEN COALESCE(tx.inv, 0) > 0 THEN COALESCE(tx.net, 0)
+                    ELSE COALESCE(q.quotes_total, 0) - COALESCE(tx.pay, 0) + COALESCE(tx.adj, 0) END';
+    }
+
     public static function totalReceivable(Database $db): float
     {
-        $sql = 'SELECT COALESCE(SUM(b.net), 0) FROM (' . self::sqlNetByClientSubquery() . ') b WHERE b.net > 0';
+        $tx = self::sqlTxAggByClientSubquery();
+        $q = self::sqlQuotesAcceptedByClientSubquery();
+        $case = self::sqlCaseHybridBalance();
+        $sql = "SELECT COALESCE(SUM(bal), 0) FROM (
+                    SELECT c.id, ({$case}) AS bal
+                    FROM clients c
+                    LEFT JOIN ({$tx}) tx ON tx.account_id = c.id
+                    LEFT JOIN ({$q}) q ON q.client_id = c.id
+                ) z WHERE z.bal > 0";
 
         return (float) $db->fetchColumn($sql);
     }
 
     public static function countClientsWithDebt(Database $db): int
     {
-        $sql = 'SELECT COUNT(*) FROM (' . self::sqlNetByClientSubquery() . ') b WHERE b.net > 0';
+        $tx = self::sqlTxAggByClientSubquery();
+        $q = self::sqlQuotesAcceptedByClientSubquery();
+        $case = self::sqlCaseHybridBalance();
+        $sql = "SELECT COUNT(*) FROM (
+                    SELECT c.id, ({$case}) AS bal
+                    FROM clients c
+                    LEFT JOIN ({$tx}) tx ON tx.account_id = c.id
+                    LEFT JOIN ({$q}) q ON q.client_id = c.id
+                ) z WHERE z.bal > 0";
 
         return (int) $db->fetchColumn($sql);
     }
 
-    /**
-     * Expresión correlacionada: saldo neto del cliente c (usar dentro de SELECT ... FROM clients c).
-     */
-    public static function sqlCorrelatedNetForClientAlias(string $clientAlias = 'c'): string
+    /** Misma regla híbrida que en listados (una consulta compacta por cliente). */
+    public static function hybridBalanceForClient(Database $db, int $clientId): float
     {
-        return '(SELECT COALESCE(
-                    SUM(CASE WHEN at.transaction_type = \'invoice\' THEN at.amount ELSE 0 END), 0
-                ) - COALESCE(
-                    SUM(CASE WHEN at.transaction_type = \'payment\' THEN at.amount ELSE 0 END), 0
-                ) + COALESCE(
-                    SUM(CASE WHEN at.transaction_type = \'adjustment\' THEN at.amount ELSE 0 END), 0
-                )
-                FROM account_transactions at
-                WHERE at.account_type = \'client\' AND at.account_id = ' . $clientAlias . '.id)';
+        $inv = (float) $db->fetchColumn(
+            "SELECT COALESCE(SUM(amount), 0) FROM account_transactions
+             WHERE account_type = 'client' AND account_id = ? AND transaction_type = 'invoice'",
+            [$clientId]
+        );
+        $pay = (float) $db->fetchColumn(
+            "SELECT COALESCE(SUM(amount), 0) FROM account_transactions
+             WHERE account_type = 'client' AND account_id = ? AND transaction_type = 'payment'",
+            [$clientId]
+        );
+        $adj = (float) $db->fetchColumn(
+            "SELECT COALESCE(SUM(amount), 0) FROM account_transactions
+             WHERE account_type = 'client' AND account_id = ? AND transaction_type = 'adjustment'",
+            [$clientId]
+        );
+        $quotes = (float) $db->fetchColumn(
+            "SELECT COALESCE(SUM(total), 0) FROM quotes
+             WHERE client_id = ? AND status IN ('accepted', 'delivered')",
+            [$clientId]
+        );
+        $net = $inv > 0.0 ? ($inv - $pay + $adj) : ($quotes - $pay + $adj);
+
+        return round($net, 2);
     }
 }

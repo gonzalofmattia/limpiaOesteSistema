@@ -36,11 +36,14 @@ final class AccountController extends Controller
              LIMIT 20"
         );
 
-        $netByClient = ClientReceivableSummary::sqlNetByClientSubquery();
+        $txAgg = ClientReceivableSummary::sqlTxAggByClientSubquery();
+        $qAgg = ClientReceivableSummary::sqlQuotesAcceptedByClientSubquery();
+        $hybrid = ClientReceivableSummary::sqlCaseHybridBalance();
         $clientsForForm = $db->fetchAll(
-            "SELECT c.id, c.name, COALESCE(cb.net, 0) AS balance
+            "SELECT c.id, c.name, ROUND({$hybrid}, 2) AS balance
              FROM clients c
-             LEFT JOIN ({$netByClient}) cb ON cb.account_id = c.id
+             LEFT JOIN ({$txAgg}) tx ON tx.account_id = c.id
+             LEFT JOIN ({$qAgg}) q ON q.client_id = c.id
              WHERE c.is_active = 1
              ORDER BY c.name"
         );
@@ -72,7 +75,11 @@ final class AccountController extends Controller
             "SELECT c.id, c.name, c.balance,
                     COALESCE(SUM(CASE WHEN at.transaction_type = 'invoice' THEN at.amount ELSE 0 END), 0) AS total_invoiced,
                     COALESCE(SUM(CASE WHEN at.transaction_type = 'payment' THEN at.amount ELSE 0 END), 0) AS total_paid,
-                    COALESCE(SUM(CASE WHEN at.transaction_type = 'adjustment' THEN at.amount ELSE 0 END), 0) AS total_adjustments
+                    COALESCE(SUM(CASE WHEN at.transaction_type = 'adjustment' THEN at.amount ELSE 0 END), 0) AS total_adjustments,
+                    COALESCE((
+                        SELECT SUM(q2.total) FROM quotes q2
+                        WHERE q2.client_id = c.id AND q2.status IN ('accepted', 'delivered')
+                    ), 0) AS quotes_accepted_total
              FROM clients c
              LEFT JOIN account_transactions at
                 ON at.account_type = 'client' AND at.account_id = c.id
@@ -81,7 +88,11 @@ final class AccountController extends Controller
         );
 
         foreach ($rows as &$row) {
-            $computed = (float) $row['total_invoiced'] - (float) $row['total_paid'] + (float) $row['total_adjustments'];
+            $inv = (float) $row['total_invoiced'];
+            $paid = (float) $row['total_paid'];
+            $adj = (float) $row['total_adjustments'];
+            $quotes = (float) $row['quotes_accepted_total'];
+            $computed = $inv > 0 ? ($inv - $paid + $adj) : ($quotes - $paid + $adj);
             $row['balance'] = round($computed, 2);
         }
         unset($row);
@@ -143,7 +154,7 @@ final class AccountController extends Controller
             'title' => 'Cuenta corriente - ' . $client['name'],
             'client' => $client,
             'transactions' => $transactions,
-            'balance' => round($running, 2),
+            'balance' => ClientReceivableSummary::hybridBalanceForClient($db, $clientId),
         ]);
     }
 

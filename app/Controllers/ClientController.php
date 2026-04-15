@@ -16,11 +16,14 @@ final class ClientController extends Controller
         try {
             $hasAccountTable = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
             if ($hasAccountTable) {
-                $netByClient = ClientReceivableSummary::sqlNetByClientSubquery();
+                $txAgg = ClientReceivableSummary::sqlTxAggByClientSubquery();
+                $qAgg = ClientReceivableSummary::sqlQuotesAcceptedByClientSubquery();
+                $hybrid = ClientReceivableSummary::sqlCaseHybridBalance();
                 $rows = $db->fetchAll(
-                    "SELECT c.*, ROUND(COALESCE(cb.net, 0), 2) AS effective_balance
+                    "SELECT c.*, ROUND({$hybrid}, 2) AS effective_balance
                      FROM clients c
-                     LEFT JOIN ({$netByClient}) cb ON cb.account_id = c.id
+                     LEFT JOIN ({$txAgg}) tx ON tx.account_id = c.id
+                     LEFT JOIN ({$qAgg}) q ON q.client_id = c.id
                      ORDER BY c.name"
                 );
             } else {
@@ -61,10 +64,14 @@ final class ClientController extends Controller
         try {
             $hasAccountTable = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
             if ($hasAccountTable) {
-                $netExpr = ClientReceivableSummary::sqlCorrelatedNetForClientAlias('c');
+                $txAgg = ClientReceivableSummary::sqlTxAggByClientSubquery();
+                $qAgg = ClientReceivableSummary::sqlQuotesAcceptedByClientSubquery();
+                $hybrid = ClientReceivableSummary::sqlCaseHybridBalance();
                 $c = $db->fetch(
-                    "SELECT c.*, ({$netExpr}) AS effective_balance
+                    "SELECT c.*, ROUND({$hybrid}, 2) AS effective_balance
                      FROM clients c
+                     LEFT JOIN ({$txAgg}) tx ON tx.account_id = c.id
+                     LEFT JOIN ({$qAgg}) q ON q.client_id = c.id
                      WHERE c.id = ?",
                     [(int) $id]
                 );
