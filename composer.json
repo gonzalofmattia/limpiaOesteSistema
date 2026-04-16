@@ -18,6 +18,7 @@
         "deploy:app": "php deploy.php --only=app",
         "deploy:public": "php deploy.php --only=public",
         "db:export": "php db_export.php",
-        "db:import": "php db_import.php"
+        "db:import": "php db_import.php",
+        "db:sync": "php sync_database.php"
     }
 }

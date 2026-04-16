@@ -65,6 +65,10 @@ return [
 
     ['GET', 'settings', 'SettingsController@index', []],
     ['POST', 'settings', 'SettingsController@update', []],
+    ['GET', 'sincronizacion', 'SyncController@index', []],
+    ['POST', 'sincronizacion', 'SyncController@run', []],
+    ['POST', 'sincronizacion/export-local', 'SyncController@exportLocalSql', []],
+    ['POST', 'sincronizacion/import-local', 'SyncController@importSqlToLocal', []],
 
     ['GET', 'cuenta-corriente', 'AccountController@index', []],
     ['GET', 'cuenta-corriente/clientes', 'AccountController@clients', []],
