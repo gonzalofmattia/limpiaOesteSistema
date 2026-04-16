@@ -117,6 +117,32 @@ function productListPresentation(array $product): string
     return $c !== '' ? $c : '—';
 }
 
+/**
+ * Cobros/pagos/ajustes cargados a mano (o registros viejos sin reference_type).
+ * No permite tocar facturas del sistema (presupuesto / pedido proveedor).
+ *
+ * @param array<string, mixed> $row Fila account_transactions
+ */
+function accountMovementIsEditable(array $row): bool
+{
+    $type = (string) ($row['transaction_type'] ?? '');
+    if (!in_array($type, ['payment', 'adjustment'], true)) {
+        return false;
+    }
+    $ref = $row['reference_type'] ?? null;
+    $refStr = $ref === null || $ref === '' ? '' : (string) $ref;
+    $refId = (int) ($row['reference_id'] ?? 0);
+
+    if ($refStr === 'manual') {
+        return true;
+    }
+    if ($refStr === '' && $refId === 0) {
+        return true;
+    }
+
+    return false;
+}
+
 function isActive(string $path): bool
 {
     $current = $_SERVER['REQUEST_URI'] ?? '/';

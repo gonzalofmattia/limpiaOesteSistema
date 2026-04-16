@@ -80,6 +80,8 @@ return [
     ['POST', 'cuenta-corriente/pago-proveedor', 'AccountController@registerSupplierPayment', []],
     ['POST', 'cuenta-corriente/ajuste', 'AccountController@registerAdjustment', []],
     ['POST', 'cuenta-corriente/movimiento/{id}/eliminar', 'AccountController@deleteMovement', []],
+    ['GET', 'cuenta-corriente/movimiento/{id}/editar', 'AccountController@editMovement', []],
+    ['POST', 'cuenta-corriente/movimiento/{id}/actualizar', 'AccountController@updateMovement', []],
     ['GET', 'cuenta-corriente/cliente/{id}/pdf', 'AccountController@clientStatementPdf', []],
     ['GET', 'cuenta-corriente/proveedor/{id}/pdf', 'AccountController@supplierStatementPdf', []],
 

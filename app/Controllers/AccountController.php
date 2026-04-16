@@ -381,8 +381,8 @@ final class AccountController extends Controller
             redirect('/cuenta-corriente');
             return;
         }
-        if ((string) ($movement['reference_type'] ?? '') !== 'manual') {
-            flash('error', 'Solo se pueden eliminar movimientos manuales.');
+        if (!accountMovementIsEditable($movement)) {
+            flash('error', 'Solo se pueden eliminar cobros, pagos o ajustes manuales (no facturas del sistema).');
             $this->redirectByMovement($movement);
             return;
         }
@@ -392,6 +392,124 @@ final class AccountController extends Controller
             $this->recalculateClientBalance((int) $movement['account_id']);
         }
         flash('success', 'Movimiento eliminado.');
+        $this->redirectByMovement($movement);
+    }
+
+    public function editMovement(string $id): void
+    {
+        $db = Database::getInstance();
+        if (!$this->ensureSchema($db)) {
+            return;
+        }
+        $movement = $db->fetch('SELECT * FROM account_transactions WHERE id = ?', [(int) $id]);
+        if (!$movement) {
+            flash('error', 'Movimiento no encontrado.');
+            redirect('/cuenta-corriente');
+            return;
+        }
+        if (!accountMovementIsEditable($movement)) {
+            flash('error', 'Este movimiento no se puede editar.');
+            $this->redirectByMovement($movement);
+            return;
+        }
+        $this->view('cuenta-corriente/movement-edit', [
+            'title' => 'Editar movimiento',
+            'movement' => $movement,
+        ]);
+    }
+
+    public function updateMovement(string $id): void
+    {
+        if (!verifyCsrf()) {
+            flash('error', 'Token inválido.');
+            redirect('/cuenta-corriente');
+            return;
+        }
+        $db = Database::getInstance();
+        if (!$this->ensureSchema($db)) {
+            return;
+        }
+        $movement = $db->fetch('SELECT * FROM account_transactions WHERE id = ?', [(int) $id]);
+        if (!$movement) {
+            flash('error', 'Movimiento no encontrado.');
+            redirect('/cuenta-corriente');
+            return;
+        }
+        if (!accountMovementIsEditable($movement)) {
+            flash('error', 'Este movimiento no se puede editar.');
+            $this->redirectByMovement($movement);
+            return;
+        }
+
+        $type = (string) ($movement['transaction_type'] ?? '');
+        $date = (string) $this->input('transaction_date', date('Y-m-d'));
+        $notes = trim((string) $this->input('notes', ''));
+
+        if ($type === 'payment') {
+            $amount = $this->parseAmount((string) $this->input('amount', '0'));
+            if ($amount <= 0) {
+                flash('error', 'El monto debe ser mayor a cero.');
+                redirect('/cuenta-corriente/movimiento/' . $id . '/editar');
+                return;
+            }
+            $method = (string) $this->input('payment_method', 'efectivo');
+            $reference = trim((string) $this->input('payment_reference', ''));
+            $isClient = (string) ($movement['account_type'] ?? '') === 'client';
+            $description = $isClient
+                ? ('Cobro ' . ($method === 'transferencia' ? 'transferencia' : 'efectivo'))
+                : ('Pago a proveedor ' . ($method === 'transferencia' ? 'transferencia' : 'efectivo'));
+            if ($reference !== '') {
+                $description .= ' (ref: ' . $reference . ')';
+            }
+            $db->update(
+                'account_transactions',
+                [
+                    'amount' => $amount,
+                    'transaction_date' => $date,
+                    'payment_method' => $method,
+                    'payment_reference' => $reference !== '' ? $reference : null,
+                    'description' => $description,
+                    'notes' => $notes !== '' ? $notes : null,
+                    'reference_type' => 'manual',
+                ],
+                'id = :id',
+                ['id' => (int) $id]
+            );
+        } elseif ($type === 'adjustment') {
+            $amount = $this->parseSignedAmount((string) $this->input('amount', '0'));
+            if ($amount === 0.0) {
+                flash('error', 'El ajuste no puede ser cero.');
+                redirect('/cuenta-corriente/movimiento/' . $id . '/editar');
+                return;
+            }
+            $description = trim((string) $this->input('description', ''));
+            if ($description === '') {
+                flash('error', 'La descripción del ajuste es obligatoria.');
+                redirect('/cuenta-corriente/movimiento/' . $id . '/editar');
+                return;
+            }
+            $db->update(
+                'account_transactions',
+                [
+                    'amount' => $amount,
+                    'transaction_date' => $date,
+                    'description' => $description,
+                    'notes' => $notes !== '' ? $notes : null,
+                    'reference_type' => 'manual',
+                ],
+                'id = :id',
+                ['id' => (int) $id]
+            );
+        } else {
+            flash('error', 'Tipo de movimiento no editable.');
+            $this->redirectByMovement($movement);
+            return;
+        }
+
+        if (($movement['account_type'] ?? '') === 'client') {
+            $this->recalculateClientBalance((int) $movement['account_id']);
+        }
+        flash('success', 'Movimiento actualizado.');
         $this->redirectByMovement($movement);
     }
 

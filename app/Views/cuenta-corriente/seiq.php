@@ -59,18 +59,19 @@
         </thead>
         <tbody class="divide-y divide-gray-100">
             <?php foreach ($transactions as $tx): ?>
-                <?php $canDelete = (($tx['reference_type'] ?? 'manual') === 'manual'); ?>
+                <?php $canEdit = accountMovementIsEditable($tx); ?>
                 <tr>
                     <td class="px-4 py-2"><?= e(date('d/m/Y', strtotime((string) $tx['transaction_date']))) ?></td>
                     <td class="px-4 py-2"><?= e((string) $tx['description']) ?></td>
                     <td class="px-4 py-2 text-right"><?= (float) $tx['cargo'] > 0 ? formatPrice((float) $tx['cargo']) : '' ?></td>
                     <td class="px-4 py-2 text-right"><?= (float) $tx['pago'] > 0 ? formatPrice((float) $tx['pago']) : '' ?></td>
                     <td class="px-4 py-2 text-right font-medium"><?= formatPrice((float) $tx['running_debt']) ?></td>
-                    <td class="px-4 py-2 text-right">
-                        <?php if ($canDelete): ?>
-                            <form method="post" action="<?= e(url('/cuenta-corriente/movimiento/' . (int) $tx['id'] . '/eliminar')) ?>" onsubmit="return confirm('¿Eliminar movimiento?');">
+                    <td class="px-4 py-2 text-right whitespace-nowrap space-x-2">
+                        <?php if ($canEdit): ?>
+                            <a href="<?= e(url('/cuenta-corriente/movimiento/' . (int) $tx['id'] . '/editar')) ?>" class="text-[#1565C0] hover:underline text-sm">Editar</a>
+                            <form method="post" action="<?= e(url('/cuenta-corriente/movimiento/' . (int) $tx['id'] . '/eliminar')) ?>" class="inline" onsubmit="return confirm('¿Eliminar movimiento?');">
                                 <?= csrfField() ?>
-                                <button type="submit" class="text-red-600 hover:underline">✕</button>
+                                <button type="submit" class="text-red-600 hover:underline text-sm">Eliminar</button>
                             </form>
                         <?php endif; ?>
                     </td>
