@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Controller;
+use App\Helpers\PricingEngine;
 use App\Helpers\SeiqOrderBuilder;
 use App\Models\Database;
 use Dompdf\Dompdf;
@@ -160,6 +161,7 @@ final class SeiqOrderController extends Controller
             'SELECT soi.*, p.code, p.name AS product_name, p.presentation, p.content,
                     p.sale_unit_label, p.sale_unit_description, p.precio_lista_caja, p.precio_lista_unitario,
                     c.name AS category_name, c.slug AS category_slug, pc.name AS parent_category_name
+                    , pc.slug AS parent_category_slug
              FROM seiq_order_items soi
              JOIN products p ON p.id = soi.product_id
              JOIN categories c ON p.category_id = c.id
@@ -190,6 +192,19 @@ final class SeiqOrderController extends Controller
         }
 
         $waMessage = $this->buildWhatsAppMessage($order, $items, (int) $order['total_boxes']);
+        $suggestedReceivedAmount = 0.0;
+        foreach ($items as $it) {
+            $suggestedReceivedAmount += $this->orderItemCostPerBox($it) * (int) ($it['boxes_to_order'] ?? 0);
+        }
+        $existingInvoice = $db->fetch(
+            "SELECT amount FROM account_transactions
+             WHERE reference_type = 'seiq_order' AND reference_id = ? AND transaction_type = 'invoice'
+             LIMIT 1",
+            [(int) $id]
+        );
+        if ($existingInvoice && (float) ($existingInvoice['amount'] ?? 0) > 0) {
+            $suggestedReceivedAmount = (float) $existingInvoice['amount'];
+        }
 
         $this->view('pedido-seiq/show', [
             'title' => 'Pedido ' . $order['order_number'],
@@ -197,6 +212,7 @@ final class SeiqOrderController extends Controller
             'items' => $items,
             'includedQuotes' => $includedQuotes,
             'waMessage' => $waMessage,
+            'suggestedReceivedAmount' => round($suggestedReceivedAmount, 2),
         ]);
     }
 
@@ -262,6 +278,84 @@ final class SeiqOrderController extends Controller
         $dompdf->render();
         header('Content-Type: application/pdf');
         header('Content-Disposition: attachment; filename="' . $order['order_number'] . '.pdf"');
+        echo $dompdf->output();
+        exit;
+    }
+
+    public function downloadPdfWithPrices(string $id): void
+    {
+        $db = Database::getInstance();
+        if (!$this->ensureSeiqSchema($db)) {
+            return;
+        }
+        $order = $db->fetch(
+            'SELECT so.*, s.name AS supplier_name, s.slug AS supplier_slug,
+                    s.cliente_id, s.cliente_nombre, s.condicion_pago, s.observaciones
+             FROM seiq_orders so
+             LEFT JOIN suppliers s ON s.id = so.supplier_id
+             WHERE so.id = ?',
+            [(int) $id]
+        );
+        if (!$order) {
+            flash('error', 'Pedido no encontrado.');
+            redirect('/pedidos-proveedor');
+            return;
+        }
+        $items = $db->fetchAll(
+            'SELECT soi.*, p.code, p.name AS product_name, p.presentation, p.content,
+                    p.sale_unit_label, p.sale_unit_description, p.precio_lista_caja, p.precio_lista_unitario,
+                    p.discount_override, c.default_discount, pc.default_discount AS parent_discount,
+                    c.slug AS category_slug, pc.slug AS parent_category_slug
+             FROM seiq_order_items soi
+             JOIN products p ON p.id = soi.product_id
+             JOIN categories c ON p.category_id = c.id
+             LEFT JOIN categories pc ON c.parent_id = pc.id
+             WHERE soi.seiq_order_id = ?
+             ORDER BY p.code',
+            [(int) $id]
+        );
+        $lines = [];
+        $totalAmount = 0.0;
+        foreach ($items as $it) {
+            $pricePerBox = $this->orderItemCostPerBox($it);
+            $boxes = (int) ($it['boxes_to_order'] ?? 0);
+            $lineTotal = round($pricePerBox * $boxes, 2);
+            $totalAmount += $lineTotal;
+            $lines[] = [
+                'code' => $it['code'],
+                'name' => $it['product_name'],
+                'presentation' => $it['presentation'],
+                'content' => $it['content'],
+                'sale_unit_description' => $it['sale_unit_description'],
+                'boxes_to_order' => $boxes,
+                'price_per_box' => round($pricePerBox, 2),
+                'line_total' => $lineTotal,
+            ];
+        }
+        $orderForPdf = [
+            'order_number' => (string) $order['order_number'],
+            'created_at' => (string) $order['created_at'],
+            'total_boxes' => (int) $order['total_boxes'],
+            'supplier_name' => (string) ($order['supplier_name'] ?? ''),
+            'cliente_id' => (string) ($order['cliente_id'] ?? ''),
+            'cliente_nombre' => (string) ($order['cliente_nombre'] ?? ''),
+            'condicion_pago' => (string) ($order['condicion_pago'] ?? ''),
+            'observaciones' => (string) ($order['observaciones'] ?? ''),
+            'total_amount' => round($totalAmount, 2),
+        ];
+        $order = $orderForPdf;
+        ob_start();
+        require APP_PATH . '/Views/pdf/seiq-order-prices.php';
+        $html = ob_get_clean();
+        $options = new Options();
+        $options->set('isRemoteEnabled', false);
+        $options->set('defaultFont', 'DejaVu Sans');
+        $dompdf = new Dompdf($options);
+        $dompdf->loadHtml($html);
+        $dompdf->setPaper('A4', 'portrait');
+        $dompdf->render();
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="' . $order['order_number'] . '-precios.pdf"');
         echo $dompdf->output();
         exit;
     }
@@ -396,9 +490,6 @@ final class SeiqOrderController extends Controller
                  LIMIT 1",
                 [$orderId]
             );
-            if ($existing) {
-                return;
-            }
             $order = $db->fetch(
                 'SELECT so.order_number, so.supplier_id, s.slug AS supplier_slug
                  FROM seiq_orders so
@@ -416,6 +507,15 @@ final class SeiqOrderController extends Controller
             if ($amount <= 0) {
                 return;
             }
+            $description = 'Pedido ' . (string) ($order['order_number'] ?? ('#' . $orderId));
+            if ($existing) {
+                $db->update('account_transactions', [
+                    'amount' => $amount,
+                    'description' => $description,
+                    'transaction_date' => $receivedDate,
+                ], 'id = :id', ['id' => (int) $existing['id']]);
+                return;
+            }
 
             $db->insert('account_transactions', [
                 'account_type' => 'supplier',
@@ -424,7 +524,7 @@ final class SeiqOrderController extends Controller
                 'reference_type' => 'seiq_order',
                 'reference_id' => $orderId,
                 'amount' => $amount,
-                'description' => 'Pedido ' . (string) ($order['order_number'] ?? ('#' . $orderId)),
+                'description' => $description,
                 'transaction_date' => $receivedDate,
             ]);
         } catch (\Throwable) {
@@ -436,8 +536,9 @@ final class SeiqOrderController extends Controller
     {
         $db = Database::getInstance();
         $items = $db->fetchAll(
-            "SELECT soi.boxes_to_order, p.precio_lista_caja, p.precio_lista_unitario, p.units_per_box,
-                    c.slug AS category_slug, pc.slug AS parent_slug
+            "SELECT soi.boxes_to_order, soi.units_per_box, p.precio_lista_caja, p.precio_lista_unitario,
+                    p.discount_override, c.default_discount, pc.default_discount AS parent_discount,
+                    c.slug AS category_slug, pc.slug AS parent_category_slug
              FROM seiq_order_items soi
              JOIN products p ON soi.product_id = p.id
              JOIN categories c ON p.category_id = c.id
@@ -447,20 +548,54 @@ final class SeiqOrderController extends Controller
         );
         $total = 0.0;
         foreach ($items as $item) {
-            $slug = (string) ($item['parent_slug'] ?? $item['category_slug'] ?? '');
             $boxes = (int) ($item['boxes_to_order'] ?? 0);
             if ($boxes <= 0) {
                 continue;
             }
-            if ($slug === 'aerosoles') {
-                $units = (int) ($item['units_per_box'] ?: 12);
-                $pricePerBox = (float) ($item['precio_lista_unitario'] ?? 0) * $units;
-            } else {
-                $pricePerBox = (float) ($item['precio_lista_caja'] ?? 0);
-            }
-            $total += $pricePerBox * $boxes;
+            $costPerBox = $this->orderItemCostPerBox($item);
+            $total += $costPerBox * $boxes;
         }
         return round($total, 2);
+    }
+
+    /** @param array<string,mixed> $item */
+    private function orderItemPricePerBox(array $item): float
+    {
+        $slug = (string) ($item['parent_slug'] ?? $item['parent_category_slug'] ?? $item['category_slug'] ?? '');
+        if ($slug === 'aerosoles') {
+            $units = (int) ($item['units_per_box'] ?? 12);
+            if ($units <= 0) {
+                $units = 12;
+            }
+            return round((float) ($item['precio_lista_unitario'] ?? 0) * $units, 2);
+        }
+        $priceBox = (float) ($item['precio_lista_caja'] ?? 0);
+        if ($priceBox > 0) {
+            return round($priceBox, 2);
+        }
+
+        return round((float) ($item['precio_lista_unitario'] ?? 0), 2);
+    }
+
+    /** @param array<string,mixed> $item */
+    private function orderItemCostPerBox(array $item): float
+    {
+        $slug = (string) ($item['parent_slug'] ?? $item['parent_category_slug'] ?? $item['category_slug'] ?? '');
+        if ($slug === 'aerosoles') {
+            $units = (int) ($item['units_per_box'] ?? 12);
+            if ($units <= 0) {
+                $units = 12;
+            }
+            $listaSeiq = (float) ($item['precio_lista_unitario'] ?? 0) * $units;
+        } else {
+            $listaSeiq = (float) ($item['precio_lista_caja'] ?? 0);
+            if ($listaSeiq <= 0) {
+                $listaSeiq = (float) ($item['precio_lista_unitario'] ?? 0);
+            }
+        }
+        $calc = PricingEngine::calculateWithListaSeiq($listaSeiq, $item);
+
+        return round((float) ($calc['costo'] ?? 0), 2);
     }
 
     /**

@@ -53,6 +53,7 @@ return [
     ['POST', 'pedido-seiq', 'SeiqOrderController@store', []],
     ['GET', 'pedido-seiq/{id}', 'SeiqOrderController@show', []],
     ['GET', 'pedido-seiq/{id}/pdf', 'SeiqOrderController@downloadPdf', []],
+    ['GET', 'pedido-seiq/{id}/pdf-precios', 'SeiqOrderController@downloadPdfWithPrices', []],
     ['POST', 'pedido-seiq/{id}/status', 'SeiqOrderController@changeStatus', []],
     ['POST', 'pedido-seiq/{id}/quotes-delivered', 'SeiqOrderController@markQuotesDelivered', []],
     ['GET', 'pedidos-proveedor', 'SeiqOrderController@index', []],
@@ -60,6 +61,7 @@ return [
     ['POST', 'pedidos-proveedor', 'SeiqOrderController@store', []],
     ['GET', 'pedidos-proveedor/{id}', 'SeiqOrderController@show', []],
     ['GET', 'pedidos-proveedor/{id}/pdf', 'SeiqOrderController@downloadPdf', []],
+    ['GET', 'pedidos-proveedor/{id}/pdf-precios', 'SeiqOrderController@downloadPdfWithPrices', []],
     ['POST', 'pedidos-proveedor/{id}/status', 'SeiqOrderController@changeStatus', []],
     ['POST', 'pedidos-proveedor/{id}/quotes-delivered', 'SeiqOrderController@markQuotesDelivered', []],
 

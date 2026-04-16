@@ -21,21 +21,12 @@ $remainderRows = array_values(array_filter($items, static fn ($it) => (int) ($it
         <div class="flex flex-wrap gap-2">
             <span class="inline-flex px-2 py-1 rounded-full text-xs <?= $statusBadge[$order['status']] ?? 'bg-gray-100' ?>"><?= e($order['status']) ?></span>
             <a href="<?= e(url('/pedidos-proveedor/' . (int) $order['id'] . '/pdf')) ?>" class="px-3 py-1.5 rounded-lg bg-[#1a6b3c] text-white text-sm">PDF</a>
+            <a href="<?= e(url('/pedidos-proveedor/' . (int) $order['id'] . '/pdf-precios')) ?>" class="px-3 py-1.5 rounded-lg bg-[#1565C0] text-white text-sm">PDF con precios</a>
             <button type="button" onclick="enviarPedidoWhatsApp()" class="inline-flex items-center gap-2 px-3 py-1.5 bg-[#25D366] text-white rounded-lg hover:bg-[#1fb855] text-sm">Enviar por WhatsApp</button>
             <a href="<?= e(url('/pedidos-proveedor')) ?>" class="px-3 py-1.5 rounded-lg border border-gray-300 text-sm">Volver</a>
         </div>
     </div>
 
-    <?php
-    $suggestedReceivedAmount = 0.0;
-    foreach ($items as $it) {
-        $pricePerBox = (float) ($it['precio_lista_caja'] ?? 0);
-        if ($pricePerBox <= 0) {
-            $pricePerBox = (float) ($it['precio_lista_unitario'] ?? 0);
-        }
-        $suggestedReceivedAmount += $pricePerBox * (int) ($it['boxes_to_order'] ?? 0);
-    }
-    ?>
     <form method="post" action="<?= e(url('/pedidos-proveedor/' . (int) $order['id'] . '/status')) ?>" class="flex flex-wrap gap-3 items-end bg-white p-4 rounded-xl border border-gray-200">
         <?= csrfField() ?>
         <div class="text-sm text-gray-600">Estado del pedido:</div>
