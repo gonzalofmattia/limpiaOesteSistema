@@ -71,7 +71,11 @@ final class PriceListController extends Controller
             redirect('/listas/generar');
         }
         $db = Database::getInstance();
-        $catFilter = json_encode($bundle['category_ids'], JSON_THROW_ON_ERROR);
+        $filterPayload = [
+            'categories' => $bundle['category_ids'],
+            'products' => $bundle['product_ids'],
+        ];
+        $catFilter = json_encode($filterPayload, JSON_THROW_ON_ERROR);
         $listId = $db->insert('price_lists', [
             'name' => $bundle['name'],
             'description' => $bundle['description'] ?: null,
@@ -145,12 +149,25 @@ final class PriceListController extends Controller
         exit;
     }
 
-    /** @return array{name:string,description:string,category_ids:list<int>,markup:?float,include_iva:int,price_field:string,lines:list<array<string,mixed>>,error:?string} */
+    /**
+     * @return array{
+     *   name:string,
+     *   description:string,
+     *   category_ids:list<int>,
+     *   product_ids:list<int>,
+     *   markup:?float,
+     *   include_iva:int,
+     *   price_field:string,
+     *   supplier:string,
+     *   lines:list<array<string,mixed>>,
+     *   error:?string
+     * }
+     */
     private function collectGenerateInput(): array
     {
         $name = trim((string) $this->input('name', ''));
         if ($name === '') {
-            return ['error' => 'El nombre es obligatorio.', 'name' => '', 'description' => '', 'category_ids' => [], 'markup' => null, 'include_iva' => 0, 'price_field' => '', 'lines' => []];
+            return ['error' => 'El nombre es obligatorio.', 'name' => '', 'description' => '', 'category_ids' => [], 'product_ids' => [], 'markup' => null, 'include_iva' => 0, 'price_field' => '', 'supplier' => '', 'lines' => []];
         }
         $desc = trim((string) $this->input('description', ''));
         $cats = $_POST['category_ids'] ?? [];
@@ -158,6 +175,11 @@ final class PriceListController extends Controller
             $cats = [];
         }
         $categoryIdsRaw = array_values(array_filter(array_map('intval', $cats)));
+        $prodPost = $_POST['product_ids'] ?? [];
+        if (!is_array($prodPost)) {
+            $prodPost = [];
+        }
+        $productIdsRaw = array_values(array_unique(array_filter(array_map('intval', $prodPost), static fn (int $id): bool => $id > 0)));
         $markRaw = trim((string) $this->input('custom_markup', ''));
         $markup = $markRaw === '' ? null : (float) str_replace(',', '.', $markRaw);
         $supplierSlug = trim((string) $this->input('supplier', ''));
@@ -165,11 +187,11 @@ final class PriceListController extends Controller
         $includeIva = (string) $ivaPost === '1';
         $priceField = trim((string) $this->input('price_field', ''));
         if ($priceField === '') {
-            return ['error' => 'Elegí el campo de precio.', 'name' => $name, 'description' => $desc, 'category_ids' => $categoryIdsRaw, 'markup' => $markup, 'include_iva' => $includeIva ? 1 : 0, 'price_field' => '', 'lines' => []];
+            return ['error' => 'Elegí el campo de precio.', 'name' => $name, 'description' => $desc, 'category_ids' => $categoryIdsRaw, 'product_ids' => $productIdsRaw, 'markup' => $markup, 'include_iva' => $includeIva ? 1 : 0, 'price_field' => '', 'supplier' => $supplierSlug, 'lines' => []];
         }
 
         $db = Database::getInstance();
-        if ($categoryIdsRaw === [] && $supplierSlug !== '') {
+        if ($categoryIdsRaw === [] && $supplierSlug !== '' && $productIdsRaw === []) {
             $autoCats = $db->fetchAll(
                 'SELECT c.id
                  FROM categories c
@@ -180,8 +202,8 @@ final class PriceListController extends Controller
             );
             $categoryIdsRaw = array_map(static fn (array $r): int => (int) $r['id'], $autoCats);
         }
-        if ($categoryIdsRaw === []) {
-            return ['error' => 'Seleccioná al menos una categoría.', 'name' => $name, 'description' => $desc, 'category_ids' => [], 'markup' => null, 'include_iva' => 0, 'price_field' => '', 'lines' => []];
+        if ($categoryIdsRaw === [] && $productIdsRaw === []) {
+            return ['error' => 'Seleccioná categorías o agregá al menos un producto a la lista.', 'name' => $name, 'description' => $desc, 'category_ids' => [], 'product_ids' => $productIdsRaw, 'markup' => null, 'include_iva' => 0, 'price_field' => $priceField, 'supplier' => $supplierSlug, 'lines' => []];
         }
         $expanded = [];
         foreach ($categoryIdsRaw as $cid) {
@@ -191,9 +213,11 @@ final class PriceListController extends Controller
         }
         $categoryIds = array_keys($expanded);
 
-        $in = implode(',', array_fill(0, count($categoryIds), '?'));
-        $products = $db->fetchAll(
-            "SELECT p.*,
+        $byId = [];
+        if ($categoryIds !== []) {
+            $in = implode(',', array_fill(0, count($categoryIds), '?'));
+            $fromCats = $db->fetchAll(
+                "SELECT p.*,
                     COALESCE(pc.slug, c.slug) AS category_slug,
                     c.name AS category_name,
                     c.presentation_info AS category_presentation_info,
@@ -213,8 +237,23 @@ final class PriceListController extends Controller
              LEFT JOIN suppliers s ON s.id = COALESCE(c.supplier_id, pc.supplier_id)
              WHERE p.is_active = 1 AND p.category_id IN ({$in})
              ORDER BY chain_parent_sort, c.parent_id IS NOT NULL, c.sort_order, p.sort_order, p.name",
-            $categoryIds
-        );
+                $categoryIds
+            );
+            foreach ($fromCats as $row) {
+                $byId[(int) $row['id']] = $row;
+            }
+        }
+        if ($productIdsRaw !== []) {
+            $fromPick = $this->fetchProductsForPriceListByIds($db, $productIdsRaw);
+            foreach ($fromPick as $row) {
+                $id = (int) $row['id'];
+                if (!isset($byId[$id])) {
+                    $byId[$id] = $row;
+                }
+            }
+        }
+        $products = array_values($byId);
+        $this->sortProductsForPriceList($products);
 
         $lines = [];
         foreach ($products as $p) {
@@ -249,6 +288,7 @@ final class PriceListController extends Controller
             'name' => $name,
             'description' => $desc,
             'category_ids' => $categoryIdsRaw,
+            'product_ids' => $productIdsRaw,
             'markup' => $markup,
             'include_iva' => $includeIva ? 1 : 0,
             'price_field' => $priceField,
@@ -257,6 +297,71 @@ final class PriceListController extends Controller
             'pdf_sections' => $this->buildPricelistPdfSections($lines),
             'error' => null,
         ];
+    }
+
+    /** @param list<int> $productIds @return list<array<string,mixed>> */
+    private function fetchProductsForPriceListByIds(Database $db, array $productIds): array
+    {
+        $productIds = array_values(array_unique(array_filter($productIds, static fn (int $id): bool => $id > 0)));
+        if ($productIds === []) {
+            return [];
+        }
+        $in = implode(',', array_fill(0, count($productIds), '?'));
+
+        return $db->fetchAll(
+            "SELECT p.*,
+                    COALESCE(pc.slug, c.slug) AS category_slug,
+                    c.name AS category_name,
+                    c.presentation_info AS category_presentation_info,
+                    pc.name AS parent_category_name,
+                    COALESCE(pc.sort_order, c.sort_order) AS chain_parent_sort,
+                    c.sort_order AS category_sort,
+                    c.default_discount,
+                    c.default_markup AS category_default_markup,
+                    pc.default_discount AS parent_discount,
+                    pc.default_markup AS parent_default_markup,
+                    COALESCE(c.supplier_id, pc.supplier_id) AS supplier_id,
+                    s.name AS supplier_name,
+                    s.slug AS supplier_slug
+             FROM products p
+             JOIN categories c ON c.id = p.category_id
+             LEFT JOIN categories pc ON c.parent_id = pc.id
+             LEFT JOIN suppliers s ON s.id = COALESCE(c.supplier_id, pc.supplier_id)
+             WHERE p.is_active = 1 AND p.id IN ({$in})",
+            $productIds
+        );
+    }
+
+    /** @param list<array<string,mixed>> $products */
+    private function sortProductsForPriceList(array &$products): void
+    {
+        usort(
+            $products,
+            static function (array $a, array $b): int {
+                $c1 = (int) ($a['chain_parent_sort'] ?? 0);
+                $c2 = (int) ($b['chain_parent_sort'] ?? 0);
+                if ($c1 !== $c2) {
+                    return $c1 <=> $c2;
+                }
+                $aSub = !empty($a['parent_category_name']);
+                $bSub = !empty($b['parent_category_name']);
+                if ($aSub !== $bSub) {
+                    return ($aSub ? 1 : 0) <=> ($bSub ? 1 : 0);
+                }
+                $cs1 = (int) ($a['category_sort'] ?? 0);
+                $cs2 = (int) ($b['category_sort'] ?? 0);
+                if ($cs1 !== $cs2) {
+                    return $cs1 <=> $cs2;
+                }
+                $ps1 = (int) ($a['sort_order'] ?? 0);
+                $ps2 = (int) ($b['sort_order'] ?? 0);
+                if ($ps1 !== $ps2) {
+                    return $ps1 <=> $ps2;
+                }
+
+                return strcasecmp((string) ($a['name'] ?? ''), (string) ($b['name'] ?? ''));
+            }
+        );
     }
 
     /**

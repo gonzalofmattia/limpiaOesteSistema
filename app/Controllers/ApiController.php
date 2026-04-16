@@ -19,8 +19,15 @@ final class ApiController extends Controller
             $this->json(['results' => []]);
             return;
         }
+        $supplierSlug = trim((string) $this->query('supplier', ''));
         $db = Database::getInstance();
         $like = '%' . $q . '%';
+        $params = [$like, $like];
+        $supplierSql = '';
+        if ($supplierSlug !== '') {
+            $supplierSql = ' AND s.slug = ? ';
+            $params[] = $supplierSlug;
+        }
         $rows = $db->fetchAll(
             'SELECT p.id, p.code, p.name, p.sale_unit_label, p.sale_unit_type, p.sale_unit_description,
                     p.units_per_box, p.content,
@@ -33,10 +40,10 @@ final class ApiController extends Controller
              JOIN categories c ON c.id = p.category_id
              LEFT JOIN categories pc ON c.parent_id = pc.id
              LEFT JOIN suppliers s ON s.id = COALESCE(c.supplier_id, pc.supplier_id)
-             WHERE p.is_active = 1 AND (p.code LIKE ? OR p.name LIKE ?)
+             WHERE p.is_active = 1 AND (p.code LIKE ? OR p.name LIKE ?) ' . $supplierSql . '
              ORDER BY p.name
              LIMIT 30',
-            [$like, $like]
+            $params
         );
         foreach ($rows as &$r) {
             $parent = trim((string) ($r['parent_category_name'] ?? ''));

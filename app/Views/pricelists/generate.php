@@ -5,13 +5,54 @@ $allFields = [
     'precio_lista_litro', 'precio_lista_bulto', 'precio_lista_sobre',
 ];
 ?>
-<div class="max-w-3xl bg-white rounded-xl border border-gray-200 shadow-sm p-6" x-data="{
+<div class="max-w-4xl bg-white rounded-xl border border-gray-200 shadow-sm p-6" x-data="{
     supplier: '',
+    picked: [],
+    searchQ: '',
+    searchHits: [],
+    searchOpen: false,
+    searchLoading: false,
+    searchTimer: null,
     toggleChildren(rootId, checked) {
         document.querySelectorAll('input[type=checkbox][data-pl-parent=\'' + rootId + '\']').forEach(function (el) { el.checked = checked; });
     },
     isVisible(nodeSupplier) {
         return this.supplier === '' || this.supplier === nodeSupplier;
+    },
+    clearAllCategories() {
+        document.querySelectorAll('input[name=\'category_ids[]\']').forEach(function (el) { el.checked = false; });
+    },
+    scheduleSearch() {
+        if (this.searchTimer) clearTimeout(this.searchTimer);
+        this.searchTimer = setTimeout(function () { this.runSearch(); }.bind(this), 300);
+    },
+    async runSearch() {
+        var q = (this.searchQ || '').trim();
+        if (q.length < 2) { this.searchHits = []; this.searchLoading = false; return; }
+        this.searchLoading = true;
+        this.searchHits = [];
+        try {
+            var u = window.appUrl('/api/productos/buscar?q=' + encodeURIComponent(q));
+            if (this.supplier) u += '&supplier=' + encodeURIComponent(this.supplier);
+            var res = await fetch(u);
+            var data = await res.json();
+            this.searchHits = data.results || [];
+        } catch (e) {
+            this.searchHits = [];
+        } finally {
+            this.searchLoading = false;
+        }
+    },
+    addPick(row) {
+        var id = parseInt(row.id, 10);
+        if (!id || this.picked.some(function (p) { return p.id === id; })) return;
+        this.picked.push({ id: id, code: row.code || '', name: row.name || '' });
+        this.searchQ = '';
+        this.searchHits = [];
+        this.searchOpen = false;
+    },
+    removePick(id) {
+        this.picked = this.picked.filter(function (p) { return p.id !== id; });
     }
 }">
     <form method="post" action="<?= e(url('/listas/preview')) ?>" class="space-y-6">
@@ -59,6 +100,47 @@ $allFields = [
                 <?php endforeach; ?>
             </div>
             <p class="text-xs text-gray-500 mt-1">Al marcar o desmarcar una categoría principal se actualizan sus subcategorías; podés ajustar cada subcategoría por separado.</p>
+            <button type="button" @click="clearAllCategories()"
+                    class="mt-2 text-xs text-[#1565C0] hover:underline">Desmarcar todas las categorías</button>
+        </div>
+        <div class="border border-gray-100 rounded-lg p-4 bg-white space-y-3" @click.away="searchOpen = false">
+            <p class="text-sm font-medium text-gray-700">Productos puntuales (opcional)</p>
+            <p class="text-xs text-gray-500">Buscá por código o nombre y agregá ítems a la lista. Se suman a los productos de las categorías marcadas arriba (sin duplicar).</p>
+            <div class="relative">
+                <input type="text" x-model="searchQ" @input="scheduleSearch()" @focus="searchOpen = true"
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#1a6b3c]"
+                       placeholder="Escribí al menos 2 caracteres…" autocomplete="off">
+                <div x-show="searchOpen && (searchQ || '').trim().length >= 2"
+                     x-cloak
+                     class="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg text-sm">
+                    <template x-if="searchLoading">
+                        <div class="px-3 py-2 text-gray-500">Buscando…</div>
+                    </template>
+                    <template x-if="!searchLoading && searchHits.length === 0">
+                        <div class="px-3 py-2 text-gray-500">Sin resultados</div>
+                    </template>
+                    <template x-for="row in searchHits" :key="row.id">
+                        <button type="button" @click="addPick(row)"
+                                class="w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-50 last:border-0">
+                            <span class="font-mono text-xs text-gray-600" x-text="row.code"></span>
+                            <span class="block font-medium text-gray-900" x-text="row.name"></span>
+                            <span class="block text-xs text-gray-500 truncate" x-text="row.category_context"></span>
+                        </button>
+                    </template>
+                </div>
+            </div>
+            <div class="flex flex-wrap gap-2 min-h-[2rem]" x-show="picked.length > 0">
+                <template x-for="p in picked" :key="p.id">
+                    <span class="inline-flex items-center gap-1 pl-2 pr-1 py-1 rounded-full bg-[#E8F5E9] text-xs text-gray-800 border border-[#C8E6C9]">
+                        <span class="font-mono text-[10px] text-gray-600" x-text="p.code"></span>
+                        <span x-text="p.name"></span>
+                        <button type="button" @click="removePick(p.id)" class="p-0.5 rounded hover:bg-red-100 text-gray-500 hover:text-red-700" aria-label="Quitar">×</button>
+                    </span>
+                </template>
+            </div>
+            <template x-for="p in picked" :key="'hid-' + p.id">
+                <input type="hidden" name="product_ids[]" :value="p.id">
+            </template>
         </div>
         <div class="grid sm:grid-cols-2 gap-4">
             <div>

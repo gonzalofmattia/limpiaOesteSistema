@@ -14,8 +14,12 @@ $pdfSections = $b['pdf_sections'] ?? [];
         <input type="hidden" name="custom_markup" value="<?= e($b['markup'] !== null ? (string) $b['markup'] : '') ?>">
         <input type="hidden" name="include_iva" value="<?= ((int) ($b['include_iva'] ?? 0) === 1) ? '1' : '0' ?>">
         <input type="hidden" name="price_field" value="<?= e($b['price_field']) ?>">
+        <input type="hidden" name="supplier" value="<?= e((string) ($b['supplier'] ?? '')) ?>">
         <?php foreach ($b['category_ids'] as $cid): ?>
             <input type="hidden" name="category_ids[]" value="<?= (int) $cid ?>">
+        <?php endforeach; ?>
+        <?php foreach (($b['product_ids'] ?? []) as $pid): ?>
+            <input type="hidden" name="product_ids[]" value="<?= (int) $pid ?>">
         <?php endforeach; ?>
         <button type="submit" class="px-5 py-2.5 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium">Generar PDF y guardar</button>
         <a href="<?= e(url('/listas/generar')) ?>" class="px-5 py-2.5 rounded-lg border border-gray-300 text-sm inline-flex items-center">Volver</a>
