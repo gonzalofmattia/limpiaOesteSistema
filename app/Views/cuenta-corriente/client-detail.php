@@ -1,7 +1,12 @@
 <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
     <div>
         <h2 class="text-xl font-semibold text-gray-900"><?= e($client['name']) ?> — Cuenta Corriente</h2>
-        <p class="text-sm text-gray-600">Saldo actual: <span class="font-semibold"><?= formatPrice((float) $balance) ?></span></p>
+        <p class="text-sm text-gray-600">
+            <?php if ((float) ($openingBalance ?? 0) > 0): ?>
+                Saldo inicial: <span class="font-semibold"><?= formatPrice((float) $openingBalance) ?></span> ·
+            <?php endif; ?>
+            Saldo actual: <span class="font-semibold"><?= formatPrice((float) $balance) ?></span>
+        </p>
     </div>
     <div class="flex flex-wrap gap-2">
         <a href="<?= e(url('/cuenta-corriente/cliente/' . (int) $client['id'] . '/pdf')) ?>" class="px-3 py-1.5 rounded-lg border border-gray-300 text-sm">Descargar PDF</a>
@@ -60,6 +65,16 @@
             </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
+            <?php if ((float) ($openingBalance ?? 0) > 0): ?>
+                <tr class="bg-amber-50">
+                    <td class="px-4 py-2 text-gray-600">—</td>
+                    <td class="px-4 py-2 font-medium">Saldo inicial por presupuestos</td>
+                    <td class="px-4 py-2 text-right"><?= formatPrice((float) $openingBalance) ?></td>
+                    <td class="px-4 py-2 text-right"></td>
+                    <td class="px-4 py-2 text-right font-medium"><?= formatPrice((float) $openingBalance) ?></td>
+                    <td class="px-4 py-2"></td>
+                </tr>
+            <?php endif; ?>
             <?php foreach ($transactions as $tx): ?>
                 <?php $canDelete = (($tx['reference_type'] ?? 'manual') === 'manual'); ?>
                 <tr>

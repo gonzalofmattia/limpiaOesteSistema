@@ -106,4 +106,24 @@ final class ClientReceivableSummary
 
         return round($net, 2);
     }
+
+    public static function openingBalanceForClient(Database $db, int $clientId): float
+    {
+        $inv = (float) $db->fetchColumn(
+            "SELECT COALESCE(SUM(amount), 0) FROM account_transactions
+             WHERE account_type = 'client' AND account_id = ? AND transaction_type = 'invoice'",
+            [$clientId]
+        );
+        if ($inv > 0.0) {
+            return 0.0;
+        }
+
+        $quotes = (float) $db->fetchColumn(
+            "SELECT COALESCE(SUM(total), 0) FROM quotes
+             WHERE client_id = ? AND status IN ('accepted', 'delivered')",
+            [$clientId]
+        );
+
+        return round($quotes, 2);
+    }
 }

@@ -141,7 +141,8 @@ final class AccountController extends Controller
              ORDER BY transaction_date ASC, id ASC",
             [$clientId]
         );
-        $running = 0.0;
+        $openingBalance = ClientReceivableSummary::openingBalanceForClient($db, $clientId);
+        $running = $openingBalance;
         foreach ($transactions as &$tx) {
             $running += $this->transactionImpact($tx);
             $tx['running_balance'] = round($running, 2);
@@ -154,6 +155,7 @@ final class AccountController extends Controller
             'title' => 'Cuenta corriente - ' . $client['name'],
             'client' => $client,
             'transactions' => $transactions,
+            'openingBalance' => $openingBalance,
             'balance' => ClientReceivableSummary::hybridBalanceForClient($db, $clientId),
         ]);
     }
@@ -411,7 +413,12 @@ final class AccountController extends Controller
              ORDER BY transaction_date ASC, id ASC",
             [(int) $id]
         );
-        $this->renderStatementPdf('client', $client, $transactions);
+        $this->renderStatementPdf(
+            'client',
+            $client,
+            $transactions,
+            ClientReceivableSummary::openingBalanceForClient($db, (int) $id)
+        );
     }
 
     public function supplierStatementPdf(string $id): void
@@ -528,10 +535,20 @@ final class AccountController extends Controller
     }
 
     /** @param array<string,mixed> $entity @param list<array<string,mixed>> $transactions */
-    private function renderStatementPdf(string $entityType, array $entity, array $transactions): void
+    private function renderStatementPdf(string $entityType, array $entity, array $transactions, float $openingBalance = 0.0): void
     {
         $rows = [];
-        $running = 0.0;
+        $running = $openingBalance;
+        if ($entityType === 'client' && abs($openingBalance) > 0.00001) {
+            $rows[] = [
+                'transaction_date' => null,
+                'description' => 'Saldo inicial por presupuestos',
+                'debe' => $openingBalance > 0 ? abs($openingBalance) : 0.0,
+                'haber' => $openingBalance < 0 ? abs($openingBalance) : 0.0,
+                'saldo' => round($running, 2),
+                'is_opening_balance' => true,
+            ];
+        }
         foreach ($transactions as $tx) {
             $impact = $this->transactionImpact($tx);
             $running += $impact;
@@ -541,6 +558,7 @@ final class AccountController extends Controller
                 'debe' => $impact > 0 ? abs((float) $tx['amount']) : 0.0,
                 'haber' => $impact < 0 ? abs((float) $tx['amount']) : 0.0,
                 'saldo' => round($running, 2),
+                'is_opening_balance' => false,
             ];
         }
 
@@ -548,6 +566,7 @@ final class AccountController extends Controller
             'entityType' => $entityType,
             'entity' => $entity,
             'rows' => $rows,
+            'openingBalance' => $openingBalance,
             'currentBalance' => round($running, 2),
         ];
 
