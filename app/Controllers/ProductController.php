@@ -6,6 +6,7 @@ namespace App\Controllers;
 
 use App\Core\Controller;
 use App\Helpers\CategoryHierarchy;
+use App\Helpers\ImageUploader;
 use App\Helpers\PricingEngine;
 use App\Models\Database;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
@@ -136,6 +137,7 @@ final class ProductController extends Controller
             'title' => 'Nuevo producto',
             'product' => null,
             'categories' => $categories,
+            'product_images' => [],
         ]);
     }
 
@@ -186,10 +188,16 @@ final class ProductController extends Controller
             $catRow['effective_slug'] = !empty($catRow['parent_slug']) ? (string) $catRow['parent_slug'] : (string) $catRow['slug'];
         }
         unset($catRow);
+        $productImages = $db->fetchAll(
+            'SELECT id, filename, original_name, mime_type, file_size, sort_order, is_cover, alt_text
+             FROM product_images WHERE product_id = ? ORDER BY sort_order ASC, id ASC',
+            [(int) $id]
+        );
         $this->view('products/form', [
             'title' => 'Editar producto',
             'product' => $product,
             'categories' => $categories,
+            'product_images' => $productImages,
         ]);
     }
 
@@ -231,6 +239,264 @@ final class ProductController extends Controller
         $db->update('products', ['is_active' => $p['is_active'] ? 0 : 1], 'id = :id', ['id' => (int) $id]);
         flash('success', 'Estado actualizado.');
         redirect('/productos');
+    }
+
+    public function uploadImages(string $id): void
+    {
+        if (!verifyCsrf()) {
+            $this->json(['success' => false, 'error' => 'CSRF'], 419);
+            return;
+        }
+        $pid = (int) $id;
+        $db = Database::getInstance();
+        $exists = $db->fetch('SELECT id FROM products WHERE id = ?', [$pid]);
+        if (!$exists) {
+            $this->json(['success' => false, 'error' => 'No encontrado'], 404);
+            return;
+        }
+        $current = (int) $db->fetchColumn('SELECT COUNT(*) FROM product_images WHERE product_id = ?', [$pid]);
+        if ($current >= 8) {
+            $this->json(['success' => false, 'error' => 'Máximo 8 imágenes por producto.'], 400);
+            return;
+        }
+        $files = $this->normalizeFilesInput('images');
+        if ($files === []) {
+            $this->json(['success' => false, 'error' => 'No se recibieron archivos.'], 400);
+            return;
+        }
+        $slots = 8 - $current;
+        $uploader = new ImageUploader();
+        $hadAny = $current > 0;
+        $created = [];
+        $i = 0;
+        foreach ($files as $file) {
+            if ($i >= $slots) {
+                break;
+            }
+            try {
+                $meta = $uploader->upload($file, $pid);
+            } catch (\Throwable) {
+                $this->json(['success' => false, 'error' => 'No se pudo procesar una o más imágenes.'], 400);
+                return;
+            }
+            $sort = $current + $i;
+            $isCover = (!$hadAny && $i === 0) ? 1 : 0;
+            $imgId = $db->insert('product_images', [
+                'product_id' => $pid,
+                'filename' => $meta['filename'],
+                'original_name' => $meta['original_name'],
+                'mime_type' => $meta['mime_type'],
+                'file_size' => $meta['file_size'],
+                'sort_order' => $sort,
+                'is_cover' => $isCover,
+                'alt_text' => null,
+            ]);
+            $created[] = $this->imageJsonRow($pid, $imgId, $meta['filename'], $isCover, null, $sort);
+            $i++;
+        }
+        $this->json(['success' => true, 'images' => $created]);
+    }
+
+    public function reorderImages(string $id): void
+    {
+        $pid = (int) $id;
+        $data = $this->readJsonBody();
+        if ($data === null || !isset($data['_csrf']) || !is_string($data['_csrf'])
+            || !hash_equals($_SESSION['_csrf'] ?? '', $data['_csrf'])) {
+            $this->json(['success' => false, 'error' => 'CSRF'], 419);
+            return;
+        }
+        $order = $data['order'] ?? null;
+        if (!is_array($order) || $order === []) {
+            $this->json(['success' => false, 'error' => 'Orden inválido'], 400);
+            return;
+        }
+        $db = Database::getInstance();
+        $ids = [];
+        foreach ($order as $v) {
+            if (is_numeric($v)) {
+                $ids[] = (int) $v;
+            }
+        }
+        if ($ids === []) {
+            $this->json(['success' => false, 'error' => 'Orden inválido'], 400);
+            return;
+        }
+        $marks = implode(',', array_fill(0, count($ids), '?'));
+        $rows = $db->fetchAll(
+            "SELECT id FROM product_images WHERE product_id = ? AND id IN ({$marks})",
+            array_merge([$pid], $ids)
+        );
+        if (count($rows) !== count($ids)) {
+            $this->json(['success' => false, 'error' => 'Imágenes inválidas'], 400);
+            return;
+        }
+        $pos = 0;
+        foreach ($ids as $imgId) {
+            $db->update('product_images', ['sort_order' => $pos], 'id = :id', ['id' => $imgId]);
+            $pos++;
+        }
+        $this->json(['success' => true]);
+    }
+
+    public function setCover(string $id, string $img): void
+    {
+        if (!verifyCsrf()) {
+            $this->json(['success' => false, 'error' => 'CSRF'], 419);
+            return;
+        }
+        $pid = (int) $id;
+        $imgId = (int) $img;
+        $db = Database::getInstance();
+        $row = $db->fetch(
+            'SELECT id FROM product_images WHERE id = ? AND product_id = ?',
+            [$imgId, $pid]
+        );
+        if (!$row) {
+            $this->json(['success' => false, 'error' => 'No encontrado'], 404);
+            return;
+        }
+        $db->update('product_images', ['is_cover' => 0], 'product_id = :pid', ['pid' => $pid]);
+        $db->update('product_images', ['is_cover' => 1], 'id = :id', ['id' => $imgId]);
+        $this->json(['success' => true]);
+    }
+
+    public function deleteImage(string $id, string $img): void
+    {
+        if (!verifyCsrf()) {
+            $this->json(['success' => false, 'error' => 'CSRF'], 419);
+            return;
+        }
+        $pid = (int) $id;
+        $imgId = (int) $img;
+        $db = Database::getInstance();
+        $row = $db->fetch(
+            'SELECT id, filename, is_cover FROM product_images WHERE id = ? AND product_id = ?',
+            [$imgId, $pid]
+        );
+        if (!$row) {
+            $this->json(['success' => false, 'error' => 'No encontrado'], 404);
+            return;
+        }
+        $uploader = new ImageUploader();
+        $uploader->deleteFiles($pid, (string) $row['filename']);
+        $db->delete('product_images', 'id = :id', ['id' => $imgId]);
+        if (!empty($row['is_cover'])) {
+            $next = $db->fetch(
+                'SELECT id FROM product_images WHERE product_id = ? ORDER BY sort_order ASC, id ASC LIMIT 1',
+                [$pid]
+            );
+            if ($next) {
+                $db->update('product_images', ['is_cover' => 1], 'id = :id', ['id' => (int) $next['id']]);
+            }
+        }
+        $this->json(['success' => true]);
+    }
+
+    public function updateAltText(string $id, string $img): void
+    {
+        if (!verifyCsrf()) {
+            $this->json(['success' => false, 'error' => 'CSRF'], 419);
+            return;
+        }
+        $pid = (int) $id;
+        $imgId = (int) $img;
+        $alt = trim((string) $this->input('alt_text', ''));
+        if (function_exists('mb_substr')) {
+            $alt = mb_substr($alt, 0, 255);
+        } else {
+            $alt = substr($alt, 0, 255);
+        }
+        $alt = $alt === '' ? null : $alt;
+        $db = Database::getInstance();
+        $n = $db->update(
+            'product_images',
+            ['alt_text' => $alt],
+            'id = :id AND product_id = :pid',
+            ['id' => $imgId, 'pid' => $pid]
+        );
+        if ($n === 0) {
+            $this->json(['success' => false, 'error' => 'No encontrado'], 404);
+            return;
+        }
+        $this->json(['success' => true, 'alt_text' => $alt]);
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function normalizeFilesInput(string $key): array
+    {
+        if (!isset($_FILES[$key]) || !is_array($_FILES[$key])) {
+            return [];
+        }
+        $f = $_FILES[$key];
+        if (!isset($f['name']) || !is_array($f['name'])) {
+            if (!is_string($f['name'] ?? null)) {
+                return [];
+            }
+            if (($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+                return [];
+            }
+
+            return [[
+                'name' => $f['name'],
+                'type' => $f['type'] ?? '',
+                'tmp_name' => $f['tmp_name'] ?? '',
+                'error' => (int) ($f['error'] ?? 0),
+                'size' => (int) ($f['size'] ?? 0),
+            ]];
+        }
+        $out = [];
+        $n = count($f['name']);
+        for ($i = 0; $i < $n; $i++) {
+            if (($f['error'][$i] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+                continue;
+            }
+            $out[] = [
+                'name' => $f['name'][$i],
+                'type' => $f['type'][$i] ?? '',
+                'tmp_name' => $f['tmp_name'][$i] ?? '',
+                'error' => (int) ($f['error'][$i] ?? 0),
+                'size' => (int) ($f['size'][$i] ?? 0),
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * @return ?array<string, mixed>
+     */
+    private function readJsonBody(): ?array
+    {
+        $raw = file_get_contents('php://input');
+        if ($raw === false || trim($raw) === '') {
+            return null;
+        }
+        try {
+            $data = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return is_array($data) ? $data : null;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function imageJsonRow(int $productId, int $imageId, string $filename, int $isCover, ?string $alt, int $sortOrder): array
+    {
+        return [
+            'id' => $imageId,
+            'filename' => $filename,
+            'thumb_url' => url('/api/productos/' . $productId . '/imagen/' . $imageId . '/thumb'),
+            'full_url' => url('/api/productos/' . $productId . '/imagen/' . $imageId),
+            'is_cover' => $isCover,
+            'alt_text' => $alt,
+            'sort_order' => $sortOrder,
+        ];
     }
 
     public function importForm(): void
@@ -1144,6 +1410,14 @@ final class ProductController extends Controller
             $errors[] = 'Ya existe un producto con ese código.';
         }
 
+        $slugInput = trim((string) $this->input('slug', ''));
+        $slugBase = $slugInput !== '' ? slugify($slugInput) : slugify($name);
+        if ($slugBase === '') {
+            $slugBase = 'producto';
+        }
+        $slugBase = $this->truncateStr($slugBase, 250);
+        $slug = $this->ensureUniqueProductSlug($db, $slugBase, $ignoreId);
+
         $num = fn (string $k) => $this->nullableFloat($this->input($k, ''));
 
         $disc = trim((string) $this->input('discount_override', ''));
@@ -1154,10 +1428,14 @@ final class ProductController extends Controller
             'category_id' => $categoryId,
             'code' => $code,
             'name' => $name,
+            'slug' => $slug,
             'short_name' => $this->emptyToNull($this->input('short_name', '')),
+            'short_description' => $this->truncateNullable($this->input('short_description', ''), 255),
             'description' => $this->emptyToNull($this->input('description', '')),
+            'full_description' => $this->emptyToNull($this->input('full_description', '')),
             'content' => $this->emptyToNull($this->input('content', '')),
             'presentation' => $this->emptyToNull($this->input('presentation', '')),
+            'content_volume' => $this->truncateNullable($this->input('content_volume', ''), 50),
             'units_per_box' => max(1, (int) $this->input('units_per_box', 1)),
             'stock_units' => max(0, (int) $this->input('stock_units', 0)),
             'unit_volume' => $this->emptyToNull($this->input('unit_volume', '')),
@@ -1185,6 +1463,7 @@ final class ProductController extends Controller
             'pallet_info' => $this->emptyToNull($this->input('pallet_info', '')),
             'is_active' => $this->input('is_active') ? 1 : 0,
             'is_featured' => $this->input('is_featured') ? 1 : 0,
+            'is_published' => $this->input('is_published') ? 1 : 0,
             'sort_order' => (int) $this->input('sort_order', 0),
             'notes' => $this->emptyToNull($this->input('notes', '')),
         ]);
@@ -1194,6 +1473,37 @@ final class ProductController extends Controller
     {
         $s = trim((string) $v);
         return $s === '' ? null : $s;
+    }
+
+    private function truncateStr(string $s, int $max): string
+    {
+        if (function_exists('mb_substr')) {
+            return mb_substr($s, 0, $max);
+        }
+
+        return substr($s, 0, $max);
+    }
+
+    private function ensureUniqueProductSlug(Database $db, string $baseSlug, ?int $ignoreId): string
+    {
+        $slug = $baseSlug;
+        $n = 1;
+        for ($guard = 0; $guard < 5000; $guard++) {
+            $sql = 'SELECT id FROM products WHERE slug = ?';
+            $params = [$slug];
+            if ($ignoreId !== null) {
+                $sql .= ' AND id != ?';
+                $params[] = $ignoreId;
+            }
+            $dup = $db->fetch($sql, $params);
+            if (!$dup) {
+                return $slug;
+            }
+            $suffix = '-' . $n++;
+            $slug = $this->truncateStr($baseSlug, max(1, 250 - strlen($suffix))) . $suffix;
+        }
+
+        return $this->truncateStr($baseSlug, 240) . '-' . bin2hex(random_bytes(4));
     }
 
     private function truncateNullable(mixed $v, int $max): ?string

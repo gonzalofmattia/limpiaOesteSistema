@@ -29,13 +29,37 @@ $catsJson = json_encode(array_map(function ($c) {
 }, $categories), JSON_UNESCAPED_UNICODE);
 
 $selectedCatId = $p['category_id'] ?? ($categories[0]['id'] ?? '');
+
+$productImages = $product_images ?? [];
+$imageCfgJson = 'null';
+if ($isEdit && isset($product['id'])) {
+    $pid = (int) $product['id'];
+    $imgInitial = [];
+    foreach ($productImages as $im) {
+        $iid = (int) $im['id'];
+        $imgInitial[] = [
+            'id' => $iid,
+            'thumb_url' => url('/api/productos/' . $pid . '/imagen/' . $iid . '/thumb'),
+            'full_url' => url('/api/productos/' . $pid . '/imagen/' . $iid),
+            'is_cover' => (int) ($im['is_cover'] ?? 0),
+            'alt_text' => $im['alt_text'] ?? null,
+            'sort_order' => (int) ($im['sort_order'] ?? 0),
+        ];
+    }
+    $imageCfgJson = json_encode([
+        'productId' => $pid,
+        'images' => $imgInitial,
+    ], JSON_UNESCAPED_UNICODE);
+}
 ?>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <script>
 window.__productFormCfg = {
     fieldsBySlug: <?= $fieldsJson ?>,
     categories: <?= $catsJson ?>,
     csrf: <?= json_encode(csrfToken(), JSON_UNESCAPED_UNICODE) ?>,
-    initialCategoryId: <?= json_encode((string) $selectedCatId, JSON_UNESCAPED_UNICODE) ?>
+    initialCategoryId: <?= json_encode((string) $selectedCatId, JSON_UNESCAPED_UNICODE) ?>,
+    imageCfg: <?= $imageCfgJson ?>
 };
 </script>
 <div class="max-w-4xl" x-data="productForm()" x-init="init(window.__productFormCfg)">
@@ -203,6 +227,79 @@ window.__productFormCfg = {
         </section>
 
         <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+            <h2 class="text-sm font-semibold text-gray-800 border-b border-gray-100 pb-2 mb-4">Catálogo web (público)</h2>
+            <p class="text-xs text-gray-500 mb-4">Estos datos alimentan la API pública para un futuro catálogo online. La publicación la activás manualmente.</p>
+            <div class="grid sm:grid-cols-2 gap-4">
+                <div class="sm:col-span-2">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Slug (URL)</label>
+                    <input type="text" name="slug" value="<?= e((string) ($p['slug'] ?? '')) ?>"
+                           placeholder="Se genera automáticamente desde el nombre si lo dejás vacío"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono">
+                </div>
+                <div class="sm:col-span-2">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Descripción corta (catálogo)</label>
+                    <input type="text" name="short_description" maxlength="255"
+                           value="<?= e((string) ($p['short_description'] ?? '')) ?>"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                </div>
+                <div class="sm:col-span-2">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Descripción larga (catálogo)</label>
+                    <textarea name="full_description" rows="4" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"><?= e((string) ($p['full_description'] ?? '')) ?></textarea>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Volumen / contenido (catálogo)</label>
+                    <input type="text" name="content_volume" maxlength="50"
+                           value="<?= e((string) ($p['content_volume'] ?? '')) ?>"
+                           placeholder="Ej.: 5 Lts, 900cc"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                </div>
+                <div class="flex items-end pb-2">
+                    <label class="inline-flex items-center gap-2 text-sm">
+                        <input type="checkbox" name="is_published" value="1" <?= !empty($p['is_published']) ? 'checked' : '' ?>>
+                        Publicado en API catálogo
+                    </label>
+                </div>
+            </div>
+        </section>
+
+        <?php if ($isEdit): ?>
+        <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-6" x-show="imageCfg" x-cloak>
+            <h2 class="text-sm font-semibold text-gray-800 border-b border-gray-100 pb-2 mb-4">Imágenes del producto</h2>
+            <p class="text-xs text-gray-500 mb-3">Arrastrá para reordenar · Máximo 8 imágenes · ★ portada · Click en la imagen para texto alternativo</p>
+            <div class="flex flex-wrap gap-3 items-start" x-ref="imgList">
+                <template x-for="im in images" :key="im.id">
+                    <div :data-img-id="im.id"
+                         class="relative w-28 h-28 rounded-lg border border-gray-200 overflow-hidden bg-gray-50 shrink-0 group cursor-grab active:cursor-grabbing">
+                        <img :src="im.thumb_url" alt="" class="w-full h-full object-contain" @click="openAlt(im)">
+                        <button type="button" class="absolute top-1 left-1 w-7 h-7 rounded-full bg-white/90 text-amber-500 text-sm shadow border border-gray-200"
+                                title="Portada" @click.stop="makeCover(im.id)" x-text="Number(im.is_cover) === 1 ? '★' : '☆'"></button>
+                        <button type="button" class="absolute top-1 right-1 w-7 h-7 rounded-full bg-white/90 text-red-600 text-xs shadow border border-gray-200"
+                                title="Eliminar" @click.stop="removeImage(im.id)">✕</button>
+                    </div>
+                </template>
+                <label class="flex w-28 h-28 rounded-lg border-2 border-dashed border-gray-300 items-center justify-center text-center text-xs text-gray-500 cursor-pointer hover:border-[#1a6b3c] hover:text-[#1a6b3c] shrink-0">
+                    <span>+ Agregar<br>imágenes</span>
+                    <input type="file" class="hidden" accept="image/jpeg,image/png,image/webp" multiple @change="queueUpload($event)">
+                </label>
+            </div>
+            <div class="mt-3 h-1.5 w-full max-w-md bg-gray-200 rounded overflow-hidden" x-show="uploadProgress > 0 && uploadProgress < 100">
+                <div class="h-full bg-[#1a6b3c] transition-all" :style="'width:' + uploadProgress + '%'"></div>
+            </div>
+            <p class="text-xs text-red-600 mt-2" x-show="imgError" x-text="imgError"></p>
+            <div x-show="altOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @keydown.escape.window="altOpen = false">
+                <div class="bg-white rounded-xl shadow-xl max-w-md w-full p-5 space-y-3" @click.outside="altOpen = false">
+                    <h3 class="text-sm font-semibold text-gray-800">Texto alternativo</h3>
+                    <input type="text" x-model="altDraft" maxlength="255" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Descripción para accesibilidad / SEO">
+                    <div class="flex justify-end gap-2">
+                        <button type="button" class="px-3 py-2 text-sm rounded-lg border border-gray-300" @click="altOpen = false">Cancelar</button>
+                        <button type="button" class="px-3 py-2 text-sm rounded-lg bg-[#1a6b3c] text-white" @click="saveAlt()">Guardar</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+        <?php endif; ?>
+
+        <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
             <h2 class="text-sm font-semibold text-gray-800 border-b border-gray-100 pb-2 mb-4">Información adicional</h2>
             <div class="grid sm:grid-cols-2 gap-4">
                 <div>
@@ -254,7 +351,16 @@ function productForm() {
         fieldsBySlug: {},
         categories: [],
         csrf: '',
-        slug: '',
+        categorySlug: '',
+        imageCfg: null,
+        productId: null,
+        images: [],
+        sortable: null,
+        uploadProgress: 0,
+        imgError: '',
+        altOpen: false,
+        altDraft: '',
+        altTargetId: null,
         fmt: { lista: '—', discount: '—', costo: '—', markup: '—', venta: '—', margen: '—' },
         src: { discount: '—', markup: '—' },
         init(cfg) {
@@ -262,22 +368,174 @@ function productForm() {
             this.categories = cfg.categories || [];
             this.csrf = cfg.csrf || '';
             this.categoryId = cfg.initialCategoryId || '';
+            this.imageCfg = cfg.imageCfg || null;
+            if (this.imageCfg) {
+                this.productId = this.imageCfg.productId;
+                this.images = Array.isArray(this.imageCfg.images) ? [...this.imageCfg.images] : [];
+            }
             this.syncSlug();
             this.preview();
+            this.$nextTick(() => this.mountSortable());
+        },
+        mountSortable() {
+            if (!this.productId || typeof Sortable === 'undefined') return;
+            const el = this.$refs.imgList;
+            if (!el) return;
+            if (this.sortable) {
+                this.sortable.destroy();
+                this.sortable = null;
+            }
+            this.sortable = Sortable.create(el, {
+                animation: 150,
+                draggable: '[data-img-id]',
+                onEnd: () => this.afterReorder(),
+            });
+        },
+        afterReorder() {
+            const el = this.$refs.imgList;
+            if (!el) return;
+            const ids = Array.from(el.querySelectorAll('[data-img-id]')).map((n) => parseInt(n.getAttribute('data-img-id'), 10));
+            const map = new Map(this.images.map((i) => [i.id, i]));
+            this.images = ids.map((id) => map.get(id)).filter(Boolean);
+            this.persistOrder(ids);
+        },
+        async persistOrder(order) {
+            this.imgError = '';
+            try {
+                const res = await fetch(window.appUrl('/productos/' + this.productId + '/imagenes/reordenar'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({ _csrf: this.csrf, order }),
+                });
+                const j = await res.json();
+                if (!j.success) this.imgError = j.error || 'No se pudo guardar el orden';
+            } catch (e) {
+                this.imgError = 'Error de red';
+            }
+        },
+        async makeCover(id) {
+            this.imgError = '';
+            try {
+                const body = new URLSearchParams({ _csrf: this.csrf });
+                const res = await fetch(window.appUrl('/productos/' + this.productId + '/imagenes/' + id + '/portada'), {
+                    method: 'POST',
+                    headers: { 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body,
+                });
+                const j = await res.json();
+                if (!j.success) {
+                    this.imgError = j.error || 'Error';
+                    return;
+                }
+                this.images.forEach((i) => { i.is_cover = i.id === id ? 1 : 0; });
+            } catch (e) {
+                this.imgError = 'Error de red';
+            }
+        },
+        async removeImage(id) {
+            if (!confirm('¿Eliminar esta imagen?')) return;
+            this.imgError = '';
+            try {
+                const body = new URLSearchParams({ _csrf: this.csrf });
+                const res = await fetch(window.appUrl('/productos/' + this.productId + '/imagenes/' + id + '/eliminar'), {
+                    method: 'POST',
+                    headers: { 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body,
+                });
+                const j = await res.json();
+                if (!j.success) {
+                    this.imgError = j.error || 'Error';
+                    return;
+                }
+                this.images = this.images.filter((i) => i.id !== id);
+                this.$nextTick(() => this.mountSortable());
+            } catch (e) {
+                this.imgError = 'Error de red';
+            }
+        },
+        openAlt(im) {
+            this.altTargetId = im.id;
+            this.altDraft = im.alt_text || '';
+            this.altOpen = true;
+        },
+        async saveAlt() {
+            if (!this.altTargetId) return;
+            this.imgError = '';
+            try {
+                const body = new URLSearchParams({ _csrf: this.csrf, alt_text: this.altDraft });
+                const res = await fetch(window.appUrl('/productos/' + this.productId + '/imagenes/' + this.altTargetId + '/alt'), {
+                    method: 'POST',
+                    headers: { 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body,
+                });
+                const j = await res.json();
+                if (!j.success) {
+                    this.imgError = j.error || 'Error';
+                    return;
+                }
+                const t = this.images.find((i) => i.id === this.altTargetId);
+                if (t) t.alt_text = j.alt_text;
+                this.altOpen = false;
+            } catch (e) {
+                this.imgError = 'Error de red';
+            }
+        },
+        queueUpload(ev) {
+            const input = ev.target;
+            if (!input.files || !input.files.length) return;
+            this.uploadFiles(input.files);
+            input.value = '';
+        },
+        uploadFiles(fileList) {
+            const fd = new FormData();
+            fd.append('_csrf', this.csrf);
+            for (let i = 0; i < fileList.length; i++) {
+                fd.append('images[]', fileList[i]);
+            }
+            this.imgError = '';
+            this.uploadProgress = 1;
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', window.appUrl('/productos/' + this.productId + '/imagenes/subir'));
+            xhr.upload.onprogress = (e) => {
+                if (e.lengthComputable) {
+                    this.uploadProgress = Math.round((e.loaded / e.total) * 100);
+                }
+            };
+            xhr.onload = () => {
+                this.uploadProgress = 0;
+                try {
+                    const j = JSON.parse(xhr.responseText || '{}');
+                    if (!j.success) {
+                        this.imgError = j.error || 'Error al subir';
+                        return;
+                    }
+                    if (Array.isArray(j.images)) {
+                        j.images.forEach((row) => this.images.push(row));
+                    }
+                    this.$nextTick(() => this.mountSortable());
+                } catch (e) {
+                    this.imgError = 'Respuesta inválida';
+                }
+            };
+            xhr.onerror = () => {
+                this.uploadProgress = 0;
+                this.imgError = 'Error de red';
+            };
+            xhr.send(fd);
         },
         syncSlug() {
             const sel = document.querySelector('select[name=category_id]');
             if (sel) this.categoryId = sel.value;
             const cat = this.categories.find(c => String(c.id) === String(this.categoryId));
-            this.slug = cat ? (cat.effective_slug || cat.slug) : '';
+            this.categorySlug = cat ? (cat.effective_slug || cat.slug) : '';
         },
         showField(field) {
-            if (!this.slug || !this.fieldsBySlug[this.slug]) return true;
-            return this.fieldsBySlug[this.slug].includes(field);
+            if (!this.categorySlug || !this.fieldsBySlug[this.categorySlug]) return true;
+            return this.fieldsBySlug[this.categorySlug].includes(field);
         },
         placeholderPackLabel() {
             const m = { aerosoles: 'Pack x12', bidones: 'Caja 4x5L', masivo: 'Caja x12', sobres: 'Caja', alimenticia: 'Caja 4x5L' };
-            return m[this.slug] || 'Caja / pack';
+            return m[this.categorySlug] || 'Caja / pack';
         },
         placeholderSaleDesc() {
             const m = {
@@ -287,7 +545,7 @@ function productForm() {
                 sobres: 'Caja completa — presentación',
                 alimenticia: 'Caja 4 bidones x 5 Litros'
             };
-            return m[this.slug] || 'Descripción para el cliente';
+            return m[this.categorySlug] || 'Descripción para el cliente';
         },
         async preview() {
             this.syncSlug();
@@ -295,7 +553,7 @@ function productForm() {
             const fd = new FormData(form);
             const body = {
                 _csrf: this.csrf,
-                category_slug: this.slug,
+                category_slug: this.categorySlug,
                 category_id: parseInt(this.categoryId, 10) || 0,
                 discount_override: fd.get('discount_override') || '',
                 markup_override: fd.get('markup_override') || '',

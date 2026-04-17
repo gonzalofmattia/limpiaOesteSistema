@@ -81,12 +81,21 @@ final class Router
         foreach ($parts as $part) {
             if (preg_match('/^\{([a-zA-Z_][a-zA-Z0-9_]*)\}$/', $part, $m)) {
                 $name = $m[1];
-                $escaped[] = '(?P<' . $name . '>[0-9]+)';
+                $escaped[] = '(?P<' . $name . '>' . $this->paramRegexInner($name) . ')';
             } else {
                 $escaped[] = preg_quote($part, '#');
             }
         }
         $inner = implode('/', $escaped);
         return '#^' . ($inner === '' ? '' : $inner) . '$#';
+    }
+
+    private function paramRegexInner(string $name): string
+    {
+        if ($name === 'slug') {
+            return '[a-z0-9]+(?:-[a-z0-9]+)*';
+        }
+
+        return '[0-9]+';
     }
 }

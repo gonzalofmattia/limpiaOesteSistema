@@ -6,6 +6,7 @@ namespace App\Controllers;
 
 use App\Core\Controller;
 use App\Helpers\CategoryHierarchy;
+use App\Helpers\ImageUploader;
 use App\Helpers\PricingEngine;
 use App\Helpers\QuoteLinePricing;
 use App\Models\Database;
@@ -245,5 +246,262 @@ final class ApiController extends Controller
             $s = str_replace(',', '.', $s);
         }
         return is_numeric($s) ? (float) $s : null;
+    }
+
+    public function serveProductImage(string $id, string $img): void
+    {
+        $this->outputProductImage((int) $id, (int) $img, false);
+    }
+
+    public function serveProductThumb(string $id, string $img): void
+    {
+        $this->outputProductImage((int) $id, (int) $img, true);
+    }
+
+    private function outputProductImage(int $productId, int $imageId, bool $thumb): void
+    {
+        $db = Database::getInstance();
+        $row = $db->fetch(
+            'SELECT id, product_id, filename, mime_type FROM product_images WHERE id = ? AND product_id = ?',
+            [$imageId, $productId]
+        );
+        if (!$row) {
+            http_response_code(404);
+            header('Content-Type: text/plain; charset=utf-8');
+            echo 'No encontrado';
+            return;
+        }
+        $uploader = new ImageUploader();
+        $path = $thumb
+            ? $uploader->thumbPath($productId, (string) $row['filename'])
+            : $uploader->originalPath($productId, (string) $row['filename']);
+        if (!is_file($path) || !is_readable($path)) {
+            http_response_code(404);
+            header('Content-Type: text/plain; charset=utf-8');
+            echo 'No encontrado';
+            return;
+        }
+        $mime = (string) ($row['mime_type'] ?? 'application/octet-stream');
+        $size = (int) filesize($path);
+        header('Content-Type: ' . $mime);
+        header('Cache-Control: public, max-age=86400');
+        if ($size > 0) {
+            header('Content-Length: ' . (string) $size);
+        }
+        readfile($path);
+        exit;
+    }
+
+    public function catalogCategories(): void
+    {
+        $db = Database::getInstance();
+        $rows = $db->fetchAll('SELECT * FROM categories WHERE is_active = 1 ORDER BY sort_order, name');
+        $tree = CategoryHierarchy::buildTree($rows);
+        $out = [];
+        foreach ($tree as $root) {
+            $item = [
+                'id' => (int) $root['id'],
+                'name' => (string) $root['name'],
+                'slug' => (string) ($root['slug'] ?? ''),
+                'children' => [],
+            ];
+            foreach ($root['children'] ?? [] as $ch) {
+                $item['children'][] = [
+                    'id' => (int) $ch['id'],
+                    'name' => (string) $ch['name'],
+                    'slug' => (string) ($ch['slug'] ?? ''),
+                ];
+            }
+            $out[] = $item;
+        }
+        $this->json(['categories' => $out]);
+    }
+
+    public function catalogProducts(): void
+    {
+        $db = Database::getInstance();
+        $rows = $db->fetchAll(
+            'SELECT p.*,
+                    COALESCE(pc.slug, c.slug) AS category_effective_slug,
+                    c.name AS category_leaf_name,
+                    pc.name AS category_parent_name,
+                    c.default_discount,
+                    c.default_markup AS category_default_markup,
+                    pc.default_discount AS parent_discount,
+                    pc.default_markup AS parent_default_markup,
+                    cov.id AS cover_image_id,
+                    cov.filename AS cover_filename,
+                    cov.alt_text AS cover_alt_text
+             FROM products p
+             JOIN categories c ON c.id = p.category_id
+             LEFT JOIN categories pc ON c.parent_id = pc.id
+             LEFT JOIN product_images cov ON cov.id = (
+                 SELECT pi.id FROM product_images pi
+                 WHERE pi.product_id = p.id AND pi.is_cover = 1
+                 ORDER BY pi.sort_order ASC, pi.id ASC LIMIT 1
+             )
+             WHERE p.is_published = 1 AND p.is_active = 1
+               AND COALESCE(pc.slug, c.slug) <> \'alimenticia\'
+               AND EXISTS (
+                   SELECT 1 FROM product_images pi2
+                   WHERE pi2.product_id = p.id AND pi2.is_cover = 1
+               )
+             ORDER BY p.sort_order ASC, p.name ASC'
+        );
+        $products = [];
+        foreach ($rows as $row) {
+            $products[] = $this->catalogProductPayload($row, false);
+        }
+        $this->json(['products' => $products]);
+    }
+
+    public function catalogProductDetail(string $slug): void
+    {
+        $slug = strtolower(trim($slug));
+        if ($slug === '') {
+            $this->json(['error' => 'No encontrado'], 404);
+            return;
+        }
+        $db = Database::getInstance();
+        $row = $db->fetch(
+            'SELECT p.*,
+                    COALESCE(pc.slug, c.slug) AS category_effective_slug,
+                    c.name AS category_leaf_name,
+                    pc.name AS category_parent_name,
+                    c.default_discount,
+                    c.default_markup AS category_default_markup,
+                    pc.default_discount AS parent_discount,
+                    pc.default_markup AS parent_default_markup,
+                    cov.id AS cover_image_id,
+                    cov.filename AS cover_filename,
+                    cov.alt_text AS cover_alt_text
+             FROM products p
+             JOIN categories c ON c.id = p.category_id
+             LEFT JOIN categories pc ON c.parent_id = pc.id
+             LEFT JOIN product_images cov ON cov.id = (
+                 SELECT pi.id FROM product_images pi
+                 WHERE pi.product_id = p.id AND pi.is_cover = 1
+                 ORDER BY pi.sort_order ASC, pi.id ASC LIMIT 1
+             )
+             WHERE p.slug = ? AND p.is_published = 1 AND p.is_active = 1
+               AND COALESCE(pc.slug, c.slug) <> \'alimenticia\'',
+            [$slug]
+        );
+        if (!$row) {
+            $this->json(['error' => 'No encontrado'], 404);
+            return;
+        }
+        $payload = $this->catalogProductPayload($row, true);
+        $imgs = $db->fetchAll(
+            'SELECT id, filename, alt_text, sort_order, is_cover
+             FROM product_images WHERE product_id = ? ORDER BY sort_order ASC, id ASC',
+            [(int) $row['id']]
+        );
+        $pid = (int) $row['id'];
+        $images = [];
+        foreach ($imgs as $im) {
+            $iid = (int) $im['id'];
+            $images[] = [
+                'id' => $iid,
+                'thumb_url' => url('/api/productos/' . $pid . '/imagen/' . $iid . '/thumb'),
+                'full_url' => url('/api/productos/' . $pid . '/imagen/' . $iid),
+                'alt_text' => $im['alt_text'],
+                'is_cover' => (int) ($im['is_cover'] ?? 0) === 1,
+                'sort_order' => (int) ($im['sort_order'] ?? 0),
+            ];
+        }
+        $payload['images'] = $images;
+        $this->json($payload);
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function catalogProductPayload(array $row, bool $detail): array
+    {
+        $pid = (int) $row['id'];
+        $effSlug = strtolower((string) ($row['category_effective_slug'] ?? ''));
+        $resolved = QuoteLinePricing::resolveListaForQuote($row, $effSlug, 'caja');
+        $lista = $resolved['lista_seiq'];
+        $mayorOv = self::optionalMarkupOverride('catalog_markup_mayorista');
+        $minorOv = self::optionalMarkupOverride('catalog_markup_minorista');
+        $calcMayor = PricingEngine::calculateWithListaSeiq($lista, $row, $mayorOv, false);
+        $calcMinor = $minorOv !== null
+            ? PricingEngine::calculateWithListaSeiq($lista, $row, $minorOv, false)
+            : $calcMayor;
+        $parent = trim((string) ($row['category_parent_name'] ?? ''));
+        $leaf = trim((string) ($row['category_leaf_name'] ?? ''));
+        if ($parent !== '') {
+            $catName = $parent;
+            $subName = $leaf !== '' ? $leaf : null;
+        } else {
+            $catName = $leaf;
+            $subName = null;
+        }
+        $cv = trim((string) ($row['content_volume'] ?? ''));
+        if ($cv === '') {
+            $cv = trim((string) ($row['content'] ?? ''));
+        }
+        $short = trim((string) ($row['short_description'] ?? ''));
+        if ($short === '') {
+            $short = trim((string) ($row['short_name'] ?? ''));
+        }
+        $coverId = isset($row['cover_image_id']) ? (int) $row['cover_image_id'] : 0;
+        $cover = null;
+        if ($coverId > 0) {
+            $cover = [
+                'id' => $coverId,
+                'thumb_url' => url('/api/productos/' . $pid . '/imagen/' . $coverId . '/thumb'),
+                'full_url' => url('/api/productos/' . $pid . '/imagen/' . $coverId),
+                'alt_text' => $row['cover_alt_text'] ?? null,
+            ];
+        }
+        $out = [
+            'id' => $pid,
+            'name' => (string) $row['name'],
+            'slug' => (string) ($row['slug'] ?? ''),
+            'short_description' => $short !== '' ? $short : null,
+            'category' => $catName,
+            'subcategory' => $subName,
+            'content_volume' => $cv !== '' ? $cv : null,
+            'presentation' => $this->nullIfEmpty($row['presentation'] ?? null),
+            'dilution' => $this->nullIfEmpty($row['dilution'] ?? null),
+            'equivalence' => $this->nullIfEmpty($row['equivalence'] ?? null),
+            'cover_image' => $cover,
+            'prices' => [
+                'mayorista' => $calcMayor['precio_venta'],
+                'minorista' => $calcMinor['precio_venta'],
+            ],
+        ];
+        if ($detail) {
+            $fd = trim((string) ($row['full_description'] ?? ''));
+            if ($fd === '') {
+                $fd = trim((string) ($row['description'] ?? ''));
+            }
+            $out['full_description'] = $fd !== '' ? $fd : null;
+        }
+
+        return $out;
+    }
+
+    private function nullIfEmpty(mixed $v): ?string
+    {
+        $s = trim((string) ($v ?? ''));
+        return $s === '' ? null : $s;
+    }
+
+    private static function optionalMarkupOverride(string $settingKey): ?float
+    {
+        $raw = trim((string) (setting($settingKey, '') ?? ''));
+        if ($raw === '') {
+            return null;
+        }
+        $s = str_replace(',', '.', $raw);
+        if (!is_numeric($s)) {
+            return null;
+        }
+
+        return (float) $s;
     }
 }

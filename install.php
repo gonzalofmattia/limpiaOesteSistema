@@ -106,10 +106,14 @@ CREATE TABLE IF NOT EXISTS products (
     category_id INT NOT NULL,
     code VARCHAR(50) NOT NULL,
     name VARCHAR(255) NOT NULL,
+    slug VARCHAR(255) DEFAULT NULL,
     short_name VARCHAR(100),
+    short_description VARCHAR(255) DEFAULT NULL,
     description TEXT,
+    full_description TEXT DEFAULT NULL,
     content VARCHAR(100),
     presentation VARCHAR(100),
+    content_volume VARCHAR(50) DEFAULT NULL,
     units_per_box INT DEFAULT 1,
     stock_units INT NOT NULL DEFAULT 0,
     unit_volume VARCHAR(50),
@@ -131,6 +135,7 @@ CREATE TABLE IF NOT EXISTS products (
     pallet_info VARCHAR(50),
     is_active TINYINT(1) DEFAULT 1,
     is_featured TINYINT(1) DEFAULT 0,
+    is_published TINYINT(1) NOT NULL DEFAULT 0,
     sort_order INT DEFAULT 0,
     notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -139,6 +144,22 @@ CREATE TABLE IF NOT EXISTS products (
     INDEX idx_category (category_id),
     INDEX idx_code (code),
     INDEX idx_active (is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS product_images (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    product_id INT NOT NULL,
+    filename VARCHAR(255) NOT NULL,
+    original_name VARCHAR(255) NOT NULL,
+    mime_type VARCHAR(50) NOT NULL,
+    file_size INT UNSIGNED NOT NULL COMMENT 'en bytes',
+    sort_order TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    is_cover TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1 = imagen principal',
+    alt_text VARCHAR(255) DEFAULT NULL COMMENT 'texto alternativo para catálogo web',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+    INDEX idx_product_cover (product_id, is_cover),
+    INDEX idx_product_sort (product_id, sort_order)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS clients (
@@ -488,6 +509,8 @@ $settingsSeed = [
     ['mostrar_iva', '0', null],
     ['quote_prefix', 'LO', null],
     ['quote_validity_days', '7', null],
+    ['catalog_markup_mayorista', '', 'Markup % fijo mayorista API catálogo (vacío = reglas normales)'],
+    ['catalog_markup_minorista', '', 'Markup % fijo minorista API catálogo (vacío = igual que mayorista)'],
 ];
 
 $insSetting = $pdo->prepare(
