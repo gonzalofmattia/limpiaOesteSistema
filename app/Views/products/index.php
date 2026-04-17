@@ -55,6 +55,7 @@ $st = $filters['status'] ?? '';
                 <th class="text-left px-3 py-2">Nombre</th>
                 <th class="text-left px-3 py-2">Cat.</th>
                 <th class="text-left px-3 py-2">Proveedor</th>
+                <th class="text-right px-3 py-2">Stock (un.)</th>
                 <th class="text-right px-3 py-2">Lista</th>
                 <th class="text-right px-3 py-2">Costo LO</th>
                 <th class="text-right px-3 py-2">Venta</th>
@@ -71,6 +72,7 @@ $st = $filters['status'] ?? '';
                     <td class="px-3 py-2 max-w-[200px] truncate" title="<?= e($p['name']) ?>"><?= e($p['name']) ?></td>
                     <td class="px-3 py-2 text-gray-600"><?= e($p['category_name']) ?></td>
                     <td class="px-3 py-2 text-gray-600"><?= e((string) ($p['supplier_name'] ?? '—')) ?></td>
+                    <td class="px-3 py-2 text-right"><?= (int) ($p['stock_units'] ?? 0) ?></td>
                     <td class="px-3 py-2 text-right"><?= formatPrice($calc['precio_lista_seiq']) ?></td>
                     <td class="px-3 py-2 text-right"><?= formatPrice($calc['costo']) ?></td>
                     <td class="px-3 py-2 text-right font-medium"><?= formatPrice($calc['precio_venta']) ?></td>

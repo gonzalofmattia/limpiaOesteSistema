@@ -111,6 +111,7 @@ CREATE TABLE IF NOT EXISTS products (
     content VARCHAR(100),
     presentation VARCHAR(100),
     units_per_box INT DEFAULT 1,
+    stock_units INT NOT NULL DEFAULT 0,
     unit_volume VARCHAR(50),
     equivalence VARCHAR(100),
     ean13 VARCHAR(13),
@@ -201,6 +202,7 @@ CREATE TABLE IF NOT EXISTS quotes (
     status ENUM('draft','sent','accepted','rejected','expired','delivered') DEFAULT 'draft',
     sent_at TIMESTAMP NULL,
     pdf_path VARCHAR(255),
+    delivery_stock_applied TINYINT(1) NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL,
@@ -239,6 +241,7 @@ CREATE TABLE IF NOT EXISTS seiq_orders (
     status ENUM('draft','sent','received') DEFAULT 'draft',
     sent_at TIMESTAMP NULL,
     received_at TIMESTAMP NULL,
+    receipt_stock_applied TINYINT(1) NOT NULL DEFAULT 0,
     pdf_path VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -331,6 +334,9 @@ try {
     if (!$installColumnExists($pdo, 'products', 'sale_unit_type')) {
         $pdo->exec("ALTER TABLE products ADD COLUMN sale_unit_type ENUM('caja','unidad') NOT NULL DEFAULT 'caja' AFTER ean13");
     }
+    if (!$installColumnExists($pdo, 'products', 'stock_units')) {
+        $pdo->exec('ALTER TABLE products ADD COLUMN stock_units INT NOT NULL DEFAULT 0 AFTER units_per_box');
+    }
     if (!$installColumnExists($pdo, 'products', 'sale_unit_label')) {
         $pdo->exec("ALTER TABLE products ADD COLUMN sale_unit_label VARCHAR(50) NOT NULL DEFAULT 'Caja' AFTER sale_unit_type");
     }
@@ -361,6 +367,15 @@ try {
     ok('ENUM quotes.status incluye delivered (si aplica)');
 } catch (PDOException $e) {
     warn('quotes.status delivered: ' . $e->getMessage());
+}
+
+try {
+    if (!$installColumnExists($pdo, 'quotes', 'delivery_stock_applied')) {
+        $pdo->exec('ALTER TABLE quotes ADD COLUMN delivery_stock_applied TINYINT(1) NOT NULL DEFAULT 0 AFTER pdf_path');
+    }
+    ok('Migración quotes.delivery_stock_applied (si aplica)');
+} catch (PDOException $e) {
+    warn('Migración delivery_stock_applied: ' . $e->getMessage());
 }
 
 try {
@@ -411,6 +426,15 @@ try {
 }
 
 try {
+    if (!$installColumnExists($pdo, 'seiq_orders', 'receipt_stock_applied')) {
+        $pdo->exec('ALTER TABLE seiq_orders ADD COLUMN receipt_stock_applied TINYINT(1) NOT NULL DEFAULT 0 AFTER received_at');
+    }
+    ok('Migración seiq_orders.receipt_stock_applied (si aplica)');
+} catch (PDOException $e) {
+    warn('Migración receipt_stock_applied: ' . $e->getMessage());
+}
+
+try {
     $pdo->exec(<<<'SQL'
 CREATE TABLE IF NOT EXISTS seiq_orders (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -422,6 +446,7 @@ CREATE TABLE IF NOT EXISTS seiq_orders (
     status ENUM('draft','sent','received') DEFAULT 'draft',
     sent_at TIMESTAMP NULL,
     received_at TIMESTAMP NULL,
+    receipt_stock_applied TINYINT(1) NOT NULL DEFAULT 0,
     pdf_path VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP

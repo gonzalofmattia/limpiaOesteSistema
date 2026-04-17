@@ -38,6 +38,7 @@ final class SeiqOrderBuilder
             "SELECT qi.*,
                     p.code, p.name AS product_name, p.units_per_box, p.content,
                     p.sale_unit_label, p.presentation, p.sale_unit_description,
+                    p.stock_units,
                     qi.unit_type,
                     c.name AS category_name, c.slug AS category_slug,
                     pc.name AS parent_category_name,
@@ -82,6 +83,7 @@ final class SeiqOrderBuilder
                     'presentation' => (string) ($item['presentation'] ?? ''),
                     'sale_unit_label' => (string) ($item['sale_unit_label'] ?? ''),
                     'sale_unit_description' => (string) ($item['sale_unit_description'] ?? ''),
+                    'stock_units' => max(0, (int) ($item['stock_units'] ?? 0)),
                     'category_slug' => strtolower((string) ($item['category_slug'] ?? '')),
                     'units_per_box' => max(1, (int) ($item['units_per_box'] ?? 1) ?: 1),
                     'category_name' => $catName,
@@ -113,10 +115,16 @@ final class SeiqOrderBuilder
             $unitsPerBox = max(1, (int) ($row['units_per_box'] ?? 1) ?: 1);
             $row['units_per_box'] = $unitsPerBox;
             $totalUnits = (int) $row['qty_units_sold'] + ((int) $row['qty_boxes_sold'] * $unitsPerBox);
+            $stockUnits = max(0, (int) ($row['stock_units'] ?? 0));
+            $unitsToOrderAfterStock = max(0, $totalUnits - $stockUnits);
+
             $row['total_units_needed'] = $totalUnits;
-            $boxesToOrder = (int) ceil($totalUnits / $unitsPerBox);
+            $row['units_to_order_after_stock'] = $unitsToOrderAfterStock;
+            $row['units_covered_by_stock'] = min($totalUnits, $stockUnits);
+            $row['units_shortage'] = $unitsToOrderAfterStock;
+            $boxesToOrder = $unitsToOrderAfterStock > 0 ? (int) ceil($unitsToOrderAfterStock / $unitsPerBox) : 0;
             $row['boxes_to_order'] = $boxesToOrder;
-            $row['units_remainder'] = ($boxesToOrder * $unitsPerBox) - $totalUnits;
+            $row['units_remainder'] = max(0, ($boxesToOrder * $unitsPerBox) - $unitsToOrderAfterStock);
             $totalBoxes += $boxesToOrder;
             $list[] = $row;
         }

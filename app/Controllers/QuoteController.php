@@ -6,6 +6,7 @@ namespace App\Controllers;
 
 use App\Core\Controller;
 use App\Helpers\PricingEngine;
+use App\Helpers\QuoteDeliveryStock;
 use App\Helpers\QuoteLinePricing;
 use App\Models\Database;
 use Dompdf\Dompdf;
@@ -183,13 +184,26 @@ final class QuoteController extends Controller
             return;
         }
         $oldStatus = (string) ($quote['status'] ?? 'draft');
+        $deliveryApplied = (int) ($quote['delivery_stock_applied'] ?? 0) === 1;
         $extra = [];
         if ($status === 'sent') {
             $extra['sent_at'] = date('Y-m-d H:i:s');
         }
-        $db->update('quotes', array_merge(['status' => $status], $extra), 'id = :id', ['id' => (int) $id]);
 
+        $pdo = $db->getPdo();
+        $pdo->beginTransaction();
         try {
+            if ($oldStatus === 'delivered' && $status !== 'delivered' && $deliveryApplied) {
+                QuoteDeliveryStock::reverseDelivery($db, (int) $id);
+                $extra['delivery_stock_applied'] = 0;
+            }
+            if ($status === 'delivered' && $oldStatus !== 'delivered' && !$deliveryApplied) {
+                QuoteDeliveryStock::applyDelivery($db, (int) $id);
+                $extra['delivery_stock_applied'] = 1;
+            }
+
+            $db->update('quotes', array_merge(['status' => $status], $extra), 'id = :id', ['id' => (int) $id]);
+
             $hasAccountTable = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
             if ($hasAccountTable && $oldStatus !== 'accepted' && $status === 'accepted') {
                 $existing = $db->fetch(
@@ -225,9 +239,15 @@ final class QuoteController extends Controller
                 );
                 $this->recalculateClientBalance((int) ($quote['client_id'] ?? 0));
             }
-        } catch (\Throwable) {
-            // No bloquea el cambio de estado si la tabla no existe.
+
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            flash('error', 'No se pudo actualizar el estado: ' . $e->getMessage());
+            redirect('/presupuestos/' . $id);
+            return;
         }
+
         flash('success', 'Estado actualizado.');
         redirect('/presupuestos/' . $id);
     }

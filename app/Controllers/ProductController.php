@@ -466,7 +466,7 @@ final class ProductController extends Controller
             $numericFields = [
                 'precio_lista_unitario', 'precio_lista_caja', 'precio_lista_bidon',
                 'precio_lista_litro', 'precio_lista_bulto', 'precio_lista_sobre',
-                'discount_override', 'markup_override', 'usage_cost', 'units_per_box', 'sort_order',
+                'discount_override', 'markup_override', 'usage_cost', 'units_per_box', 'stock_units', 'sort_order',
             ];
             foreach ($numericFields as $nf) {
                 if (isset($row[$nf]) && $row[$nf] !== '') {
@@ -638,7 +638,7 @@ final class ProductController extends Controller
                 $numericFields = [
                     'precio_lista_unitario', 'precio_lista_caja', 'precio_lista_bidon',
                     'precio_lista_litro', 'precio_lista_bulto', 'precio_lista_sobre',
-                    'discount_override', 'markup_override', 'usage_cost', 'units_per_box', 'sort_order',
+                    'discount_override', 'markup_override', 'usage_cost', 'units_per_box', 'stock_units', 'sort_order',
                 ];
                 foreach ($numericFields as $nf) {
                     if (isset($row[$nf]) && $row[$nf] !== '') {
@@ -1044,6 +1044,7 @@ final class ProductController extends Controller
             'content' => ['content', 'contenido'],
             'presentation' => ['presentation', 'presentacion', 'presentación'],
             'units_per_box' => ['units_per_box', 'unidades_caja', 'unidades_por_caja'],
+            'stock_units' => ['stock_units', 'stock', 'existencia', 'stock_actual'],
             'unit_volume' => ['unit_volume', 'volumen'],
             'equivalence' => ['equivalence', 'equivalencia'],
             'ean13' => ['ean13', 'ean'],
@@ -1096,6 +1097,8 @@ final class ProductController extends Controller
             'presentation' => $row['presentation'] ?? null,
             'units_per_box' => isset($row['units_per_box']) && $row['units_per_box'] !== '' && $row['units_per_box'] !== null
                 ? (int) $row['units_per_box'] : 1,
+            'stock_units' => isset($row['stock_units']) && $row['stock_units'] !== '' && $row['stock_units'] !== null
+                ? max(0, (int) $row['stock_units']) : 0,
             'unit_volume' => $row['unit_volume'] ?? null,
             'equivalence' => $row['equivalence'] ?? null,
             'ean13' => $row['ean13'] ?? null,
@@ -1156,6 +1159,7 @@ final class ProductController extends Controller
             'content' => $this->emptyToNull($this->input('content', '')),
             'presentation' => $this->emptyToNull($this->input('presentation', '')),
             'units_per_box' => max(1, (int) $this->input('units_per_box', 1)),
+            'stock_units' => max(0, (int) $this->input('stock_units', 0)),
             'unit_volume' => $this->emptyToNull($this->input('unit_volume', '')),
             'equivalence' => $this->emptyToNull($this->input('equivalence', '')),
             'ean13' => $this->emptyToNull($this->input('ean13', '')),

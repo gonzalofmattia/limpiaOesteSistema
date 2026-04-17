@@ -43,6 +43,7 @@ $remainderRows = array_values(array_filter($items, static fn ($it) => (int) ($it
             <button type="submit" name="status" value="<?= e($s) ?>" class="px-3 py-1 rounded-lg text-xs border border-gray-200 hover:bg-gray-50"><?= e($s) ?></button>
         <?php endforeach; ?>
     </form>
+    <p class="text-xs text-gray-600 -mt-2 mb-2">Al pasar el pedido a <strong>received</strong>, se suma al <strong>stock</strong> de cada producto la cantidad recibida (cajas/packs pedidos × unidades por caja). Si volvés a <strong>draft</strong> o <strong>sent</strong>, se revierte esa suma.</p>
 
     <?php if (!empty($includedQuotes)): ?>
         <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
@@ -62,6 +63,7 @@ $remainderRows = array_values(array_filter($items, static fn ($it) => (int) ($it
                     Marcar presupuestos como entregados
                 </button>
             </form>
+            <p class="text-xs text-gray-600 mt-2">Al marcar entregados se pasa el presupuesto a <strong>delivered</strong> y se <strong>descuenta stock</strong> como en la ficha del presupuesto.</p>
         </div>
     <?php endif; ?>
 

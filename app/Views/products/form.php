@@ -97,6 +97,11 @@ window.__productFormCfg = {
                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
                 </div>
                 <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Stock actual (unidades)</label>
+                    <input type="number" name="stock_units" min="0" value="<?= e((string) ($p['stock_units'] ?? 0)) ?>"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                </div>
+                <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Volumen unitario</label>
                     <input type="text" name="unit_volume" value="<?= e($p['unit_volume'] ?? '') ?>"
                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">

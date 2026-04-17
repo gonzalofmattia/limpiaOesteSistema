@@ -6,6 +6,7 @@ namespace App\Controllers;
 
 use App\Core\Controller;
 use App\Helpers\PricingEngine;
+use App\Helpers\QuoteDeliveryStock;
 use App\Helpers\SeiqOrderBuilder;
 use App\Models\Database;
 use Dompdf\Dompdf;
@@ -72,6 +73,8 @@ final class SeiqOrderController extends Controller
             redirect('/pedidos-proveedor/generar');
         }
         $notes = trim((string) $this->input('notes', ''));
+        $manualBoxesInput = $_POST['boxes_to_order'] ?? [];
+        $manualBoxes = is_array($manualBoxesInput) ? $manualBoxesInput : [];
         $bundle = $built['bundle'];
         $acceptedQuotes = $built['acceptedQuotes'];
         $quoteIds = array_map(static fn ($q) => (int) $q['id'], $acceptedQuotes);
@@ -92,14 +95,33 @@ final class SeiqOrderController extends Controller
                 $supplier = $entry['supplier'];
                 $supplierId = (int) ($supplier['id'] ?? 0);
                 $sb = $entry['bundle'];
+                $rowsForOrder = [];
+                $supplierTotalBoxes = 0;
+                foreach ($sb['consolidated'] as $row) {
+                    $productId = (int) ($row['product_id'] ?? 0);
+                    if ($productId <= 0) {
+                        continue;
+                    }
+                    $unitsPerBox = max(1, (int) ($row['units_per_box'] ?? 1));
+                    $unitsToOrderAfterStock = max(0, (int) ($row['units_to_order_after_stock'] ?? $row['total_units_needed'] ?? 0));
+                    $defaultBoxes = max(0, (int) ($row['boxes_to_order'] ?? 0));
+                    $boxesToOrder = $this->resolveBoxesToOrder($manualBoxes[$productId] ?? null, $defaultBoxes);
+                    $row['boxes_to_order'] = $boxesToOrder;
+                    $row['units_remainder'] = max(0, ($boxesToOrder * $unitsPerBox) - $unitsToOrderAfterStock);
+                    $rowsForOrder[] = $row;
+                    $supplierTotalBoxes += $boxesToOrder;
+                }
+                if ($rowsForOrder === [] || $supplierTotalBoxes <= 0) {
+                    continue;
+                }
                 $orderNumber = $this->nextOrderNumber($db, (string) ($supplier['slug'] ?? ''));
                 $orderId = $db->insert('seiq_orders', [
                     'supplier_id' => $supplierId,
                     'order_number' => $orderNumber,
                     'notes' => $notes !== '' ? $notes : null,
                     'included_quotes' => $includedJson,
-                    'total_products' => $sb['total_products'],
-                    'total_boxes' => $sb['total_boxes'],
+                    'total_products' => count($rowsForOrder),
+                    'total_boxes' => $supplierTotalBoxes,
                     'status' => 'draft',
                     'sent_at' => null,
                     'received_at' => null,
@@ -107,7 +129,7 @@ final class SeiqOrderController extends Controller
                 ]);
 
                 $sort = 0;
-                foreach ($sb['consolidated'] as $row) {
+                foreach ($rowsForOrder as $row) {
                     $db->insert('seiq_order_items', [
                         'seiq_order_id' => $orderId,
                         'product_id' => (int) $row['product_id'],
@@ -120,10 +142,13 @@ final class SeiqOrderController extends Controller
                         'sort_order' => $sort++,
                     ]);
                 }
-                $pdfFile = $this->renderSeiqOrderPdf($orderId, $orderNumber, $sb['consolidated'], $supplier);
+                $pdfFile = $this->renderSeiqOrderPdf($orderId, $orderNumber, $rowsForOrder, $supplier);
                 $db->update('seiq_orders', ['pdf_path' => $pdfFile], 'id = :id', ['id' => $orderId]);
                 $lastOrderId = $orderId;
                 $numbers[] = $orderNumber;
+            }
+            if ($numbers === []) {
+                throw new \RuntimeException('No hay cantidades para pedir. Ajustá los ítems antes de generar.');
             }
 
             $db->getPdo()->commit();
@@ -191,7 +216,7 @@ final class SeiqOrderController extends Controller
             );
         }
 
-        $waMessage = $this->buildWhatsAppMessage($order, $items, (int) $order['total_boxes']);
+        $waMessage = $this->buildWhatsAppMessage($order, $items);
         $suggestedReceivedAmount = 0.0;
         foreach ($items as $it) {
             $suggestedReceivedAmount += $this->orderItemCostPerBox($it) * (int) ($it['boxes_to_order'] ?? 0);
@@ -255,10 +280,11 @@ final class SeiqOrderController extends Controller
                 'boxes_to_order' => (int) $it['boxes_to_order'],
             ];
         }
+        $lines = $this->filterSupplierOrderLinesForSupplierFacing($lines);
         $orderForPdf = [
             'order_number' => (string) $order['order_number'],
             'created_at' => (string) $order['created_at'],
-            'total_boxes' => (int) $order['total_boxes'],
+            'total_boxes' => (int) array_sum(array_column($lines, 'boxes_to_order')),
             'supplier_name' => (string) ($order['supplier_name'] ?? ''),
             'cliente_id' => (string) ($order['cliente_id'] ?? ''),
             'cliente_nombre' => (string) ($order['cliente_nombre'] ?? ''),
@@ -317,8 +343,11 @@ final class SeiqOrderController extends Controller
         $lines = [];
         $totalAmount = 0.0;
         foreach ($items as $it) {
-            $pricePerBox = $this->orderItemCostPerBox($it);
             $boxes = (int) ($it['boxes_to_order'] ?? 0);
+            if ($boxes <= 0) {
+                continue;
+            }
+            $pricePerBox = $this->orderItemCostPerBox($it);
             $lineTotal = round($pricePerBox * $boxes, 2);
             $totalAmount += $lineTotal;
             $lines[] = [
@@ -335,7 +364,7 @@ final class SeiqOrderController extends Controller
         $orderForPdf = [
             'order_number' => (string) $order['order_number'],
             'created_at' => (string) $order['created_at'],
-            'total_boxes' => (int) $order['total_boxes'],
+            'total_boxes' => (int) array_sum(array_column($lines, 'boxes_to_order')),
             'supplier_name' => (string) ($order['supplier_name'] ?? ''),
             'cliente_id' => (string) ($order['cliente_id'] ?? ''),
             'cliente_nombre' => (string) ($order['cliente_nombre'] ?? ''),
@@ -377,12 +406,16 @@ final class SeiqOrderController extends Controller
         if (!$this->ensureSeiqSchema($db)) {
             return;
         }
-        $exists = $db->fetch('SELECT id FROM seiq_orders WHERE id = ?', [(int) $id]);
-        if (!$exists) {
+        $orderId = (int) $id;
+        $order = $db->fetch('SELECT * FROM seiq_orders WHERE id = ?', [$orderId]);
+        if (!$order) {
             flash('error', 'Pedido no encontrado.');
             redirect('/pedidos-proveedor');
             return;
         }
+        $prevStatus = (string) ($order['status'] ?? '');
+        $receiptApplied = (int) ($order['receipt_stock_applied'] ?? 0) === 1;
+
         $data = ['status' => $status];
         if ($status === 'sent') {
             $data['sent_at'] = date('Y-m-d H:i:s');
@@ -396,12 +429,37 @@ final class SeiqOrderController extends Controller
             }
             $data['received_at'] = date('Y-m-d H:i:s');
         }
-        $db->update('seiq_orders', $data, 'id = :id', ['id' => (int) $id]);
 
-        if ($status === 'received') {
-            $this->registerSupplierInvoiceOnReceive($db, (int) $id);
+        $pdo = $db->getPdo();
+        $stockMessage = '';
+        $pdo->beginTransaction();
+        try {
+            if ($prevStatus === 'received' && $status !== 'received' && $receiptApplied) {
+                $this->applySupplierOrderStockDelta($db, $orderId, -1);
+                $data['receipt_stock_applied'] = 0;
+                $stockMessage = ' Stock de productos ajustado (se revirtió la recepción).';
+            }
+            if ($status === 'received' && $prevStatus !== 'received' && !$receiptApplied) {
+                $this->applySupplierOrderStockDelta($db, $orderId, 1);
+                $data['receipt_stock_applied'] = 1;
+                $stockMessage = ' Stock de productos actualizado según las cantidades del pedido.';
+            }
+
+            $db->update('seiq_orders', $data, 'id = :id', ['id' => $orderId]);
+
+            if ($status === 'received') {
+                $this->registerSupplierInvoiceOnReceive($db, $orderId);
+            }
+
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            flash('error', 'No se pudo actualizar el estado: ' . $e->getMessage());
+            redirect('/pedidos-proveedor/' . $id);
+            return;
         }
-        flash('success', 'Estado actualizado.');
+
+        flash('success', 'Estado actualizado.' . $stockMessage);
         redirect('/pedidos-proveedor/' . $id);
     }
 
@@ -435,12 +493,37 @@ final class SeiqOrderController extends Controller
             redirect('/pedidos-proveedor/' . $id);
             return;
         }
-        $ph = implode(',', array_fill(0, count($ids), '?'));
-        $db->query(
-            "UPDATE quotes SET status = 'delivered' WHERE id IN ({$ph})",
-            $ids
-        );
-        flash('success', 'Presupuestos marcados como entregados.');
+        $pdo = $db->getPdo();
+        $pdo->beginTransaction();
+        try {
+            foreach ($ids as $qid) {
+                $q = $db->fetch('SELECT id, status, delivery_stock_applied FROM quotes WHERE id = ?', [$qid]);
+                if (!$q) {
+                    continue;
+                }
+                if ((string) ($q['status'] ?? '') === 'delivered') {
+                    continue;
+                }
+                if ((int) ($q['delivery_stock_applied'] ?? 0) === 1) {
+                    continue;
+                }
+                QuoteDeliveryStock::applyDelivery($db, $qid);
+                $db->update(
+                    'quotes',
+                    ['status' => 'delivered', 'delivery_stock_applied' => 1],
+                    'id = :id',
+                    ['id' => $qid]
+                );
+            }
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            flash('error', 'No se pudo marcar entregados: ' . $e->getMessage());
+            redirect('/pedidos-proveedor/' . $id);
+            return;
+        }
+
+        flash('success', 'Presupuestos marcados como entregados (stock descontado).');
         redirect('/pedidos-proveedor/' . $id);
     }
 
@@ -457,6 +540,19 @@ final class SeiqOrderController extends Controller
         $next = (int) ($last ?? 0) + 1;
 
         return sprintf('%s-%s-%04d', $prefix, $year, $next);
+    }
+
+    private function resolveBoxesToOrder(mixed $rawValue, int $default): int
+    {
+        if ($rawValue === null || $rawValue === '') {
+            return max(0, $default);
+        }
+        $parsed = filter_var($rawValue, FILTER_VALIDATE_INT);
+        if ($parsed === false) {
+            return max(0, $default);
+        }
+
+        return max(0, (int) $parsed);
     }
 
     private function ensureSeiqSchema(Database $db): bool
@@ -605,6 +701,9 @@ final class SeiqOrderController extends Controller
     {
         $lines = [];
         foreach ($consolidated as $row) {
+            if ((int) ($row['boxes_to_order'] ?? 0) <= 0) {
+                continue;
+            }
             $lines[] = [
                 'code' => $row['code'],
                 'name' => $row['name'],
@@ -618,7 +717,7 @@ final class SeiqOrderController extends Controller
         $order = [
             'order_number' => $orderNumber,
             'created_at' => date('Y-m-d H:i:s'),
-            'total_boxes' => array_sum(array_column($lines, 'boxes_to_order')),
+            'total_boxes' => (int) array_sum(array_column($lines, 'boxes_to_order')),
             'supplier_name' => (string) ($supplier['name'] ?? ''),
             'cliente_id' => (string) ($supplier['cliente_id'] ?? ''),
             'cliente_nombre' => (string) ($supplier['cliente_nombre'] ?? ''),
@@ -646,10 +745,60 @@ final class SeiqOrderController extends Controller
     }
 
     /**
-     * @param list<array<string,mixed>> $items
+     * Suma o resta stock según ítems del pedido a proveedor (cajas × unidades por caja).
+     *
+     * @param 1|-1 $sign 1 al recibir mercadería, -1 al revertir si se saca el estado «received»
      */
-    private function buildWhatsAppMessage(array $order, array $items, int $totalBoxes): string
+    private function applySupplierOrderStockDelta(Database $db, int $orderId, int $sign): void
     {
+        if ($sign !== 1 && $sign !== -1) {
+            return;
+        }
+        $items = $db->fetchAll(
+            'SELECT product_id, boxes_to_order, units_per_box FROM seiq_order_items WHERE seiq_order_id = ?',
+            [$orderId]
+        );
+        foreach ($items as $it) {
+            $pid = (int) ($it['product_id'] ?? 0);
+            if ($pid <= 0) {
+                continue;
+            }
+            $boxes = max(0, (int) ($it['boxes_to_order'] ?? 0));
+            $upb = max(1, (int) ($it['units_per_box'] ?? 1));
+            $delta = $sign * $boxes * $upb;
+            if ($delta === 0) {
+                continue;
+            }
+            $db->query(
+                'UPDATE products SET stock_units = GREATEST(0, stock_units + :delta) WHERE id = :pid',
+                ['delta' => $delta, 'pid' => $pid]
+            );
+        }
+    }
+
+    /**
+     * @param list<array<string,mixed>> $lines Filas con clave boxes_to_order (p. ej. PDF nota de pedido).
+     * @return list<array<string,mixed>>
+     */
+    private function filterSupplierOrderLinesForSupplierFacing(array $lines): array
+    {
+        return array_values(array_filter(
+            $lines,
+            static fn (array $l): bool => (int) ($l['boxes_to_order'] ?? 0) > 0
+        ));
+    }
+
+    private function buildWhatsAppMessage(array $order, array $items): string
+    {
+        $items = array_values(array_filter(
+            $items,
+            static fn (array $it): bool => (int) ($it['boxes_to_order'] ?? 0) > 0
+        ));
+        $totalBoxes = (int) array_sum(array_map(
+            static fn (array $it): int => (int) ($it['boxes_to_order'] ?? 0),
+            $items
+        ));
+
         $lines = [];
         $lines[] = '*Pedido LIMPIA OESTE*';
         $lines[] = 'N°: ' . ($order['order_number'] ?? '');

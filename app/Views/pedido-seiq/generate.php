@@ -6,7 +6,7 @@
 <div class="max-w-6xl space-y-6">
     <div>
         <h2 class="text-lg font-semibold text-gray-900">Generar pedidos a proveedores</h2>
-        <p class="text-sm text-gray-600 mt-1">Se consolidan todos los presupuestos en estado <strong>accepted</strong>, se agrupan por proveedor y se redondea a cajas completas.</p>
+        <p class="text-sm text-gray-600 mt-1">Se consolidan los presupuestos <strong>accepted</strong>, se descuenta el stock actual del producto y se arma una sugerencia editable por proveedor.</p>
     </div>
 
     <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
@@ -22,6 +22,8 @@
         </ul>
     </div>
 
+    <form method="post" action="<?= e(url('/pedidos-proveedor')) ?>" class="space-y-6">
+        <?= csrfField() ?>
     <?php foreach ($supplierBundles as $supplierBundle): ?>
     <?php $supplier = $supplierBundle['supplier']; $rows = $supplierBundle['bundle']['consolidated']; ?>
     <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -36,6 +38,8 @@
                         <th class="text-left px-3 py-2">Código</th>
                         <th class="text-left px-3 py-2">Producto</th>
                         <th class="text-left px-3 py-2">Vendido</th>
+                        <th class="text-left px-3 py-2">Stock</th>
+                        <th class="text-left px-3 py-2">Faltante</th>
                         <th class="text-left px-3 py-2">Pedir</th>
                         <th class="text-left px-3 py-2">Remanente</th>
                     </tr>
@@ -54,7 +58,10 @@
                             $vendidoLines[] = $qu . ' un.';
                         }
                         $vendidoBody = implode(' + ', $vendidoLines);
-                        $pedir = (int) $r['boxes_to_order'] . ' ' . $pack . ' (×' . (int) $r['units_per_box'] . ' u.)';
+                        $productId = (int) ($r['product_id'] ?? 0);
+                        $stockUnits = max(0, (int) ($r['stock_units'] ?? 0));
+                        $shortageUnits = max(0, (int) ($r['units_to_order_after_stock'] ?? $r['total_units_needed'] ?? 0));
+                        $defaultBoxes = max(0, (int) ($r['boxes_to_order'] ?? 0));
                         ?>
                         <tr class="hover:bg-gray-50/80">
                             <td class="px-3 py-2 align-top text-gray-600 whitespace-nowrap">
@@ -69,7 +76,23 @@
                                 <div><?= e($vendidoBody) ?></div>
                                 <div class="text-xs text-gray-500">= <?= (int) $r['total_units_needed'] ?> un. totales</div>
                             </td>
-                            <td class="px-3 py-2 align-top font-medium text-[#1a6b3c]"><?= e($pedir) ?></td>
+                            <td class="px-3 py-2 align-top text-gray-700"><?= (int) $stockUnits ?> un.</td>
+                            <td class="px-3 py-2 align-top text-gray-700"><?= (int) $shortageUnits ?> un.</td>
+                            <td class="px-3 py-2 align-top">
+                                <label class="sr-only" for="boxes_to_order_<?= $productId ?>">Cajas a pedir</label>
+                                <div class="flex items-center gap-2">
+                                    <input
+                                        id="boxes_to_order_<?= $productId ?>"
+                                        type="number"
+                                        min="0"
+                                        step="1"
+                                        name="boxes_to_order[<?= $productId ?>]"
+                                        value="<?= (int) $defaultBoxes ?>"
+                                        class="w-24 border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-medium text-[#1a6b3c] focus:ring-2 focus:ring-[#1a6b3c]"
+                                    >
+                                    <span class="text-xs text-gray-500"><?= e($pack) ?> (×<?= (int) $r['units_per_box'] ?> u.)</span>
+                                </div>
+                            </td>
                             <td class="px-3 py-2 align-top"><?= e(seiqRemainderLabel($r)) ?></td>
                         </tr>
                     <?php endforeach; ?>
@@ -87,8 +110,7 @@
         <strong><?= (int) $bundle['total_boxes'] ?></strong> cajas/packs a pedir
     </p>
 
-    <form method="post" action="<?= e(url('/pedidos-proveedor')) ?>" class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-4">
-        <?= csrfField() ?>
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-4">
         <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Notas (opcional)</label>
             <textarea name="notes" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#1a6b3c]" placeholder="Observaciones internas del pedido"></textarea>
@@ -97,5 +119,6 @@
             <button type="submit" class="px-5 py-2.5 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium">Generar pedidos y PDFs (<?= count($supplierBundles) ?>)</button>
             <a href="<?= e(url('/pedidos-proveedor')) ?>" class="px-5 py-2.5 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50">Volver</a>
         </div>
+    </div>
     </form>
 </div>

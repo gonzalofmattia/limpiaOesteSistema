@@ -48,6 +48,7 @@ $badges = [
             <button type="submit" name="status" value="<?= e($s) ?>" class="px-3 py-1 rounded-lg text-xs border border-gray-200 hover:bg-gray-50"><?= e($s) ?></button>
         <?php endforeach; ?>
     </form>
+    <p class="text-xs text-gray-600 mt-2 mb-0">El estado <strong>delivered</strong> descuenta del <strong>stock</strong> de cada producto las unidades del presupuesto (según caja vs unidad). Si volvés a otro estado, se revierte el descuento.</p>
     <?php endif; ?>
 
     <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
