@@ -52,6 +52,13 @@ return [
     ['POST', 'presupuestos/{id}', 'QuoteController@update', []],
     ['GET', 'presupuestos/{id}/pdf', 'QuoteController@downloadPdf', []],
     ['POST', 'presupuestos/{id}/status', 'QuoteController@changeStatus', []],
+    ['GET', 'presupuestos/{id}/enviar-mail', 'MailController@sendForm', []],
+    ['POST', 'presupuestos/{id}/enviar-mail', 'MailController@send', []],
+
+    ['POST', 'adjuntos/subir', 'AttachmentController@upload', []],
+    ['GET', 'adjuntos/{id}/descargar', 'AttachmentController@download', []],
+    ['GET', 'adjuntos/{id}/ver', 'AttachmentController@inline', []],
+    ['POST', 'adjuntos/{id}/eliminar', 'AttachmentController@delete', []],
 
     ['GET', 'pedido-seiq', 'SeiqOrderController@index', []],
     ['GET', 'pedido-seiq/generar', 'SeiqOrderController@generate', []],

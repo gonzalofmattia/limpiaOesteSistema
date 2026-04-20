@@ -17,12 +17,28 @@ final class QuoteController extends Controller
     public function index(): void
     {
         $db = Database::getInstance();
-        $rows = $db->fetchAll(
-            'SELECT q.*, c.name AS client_name
-             FROM quotes q
-             LEFT JOIN clients c ON c.id = q.client_id
-             ORDER BY q.created_at DESC'
-        );
+        $hasAttach = false;
+        try {
+            $hasAttach = (bool) $db->fetchColumn("SHOW TABLES LIKE 'quote_attachments'");
+        } catch (\Throwable) {
+            $hasAttach = false;
+        }
+        if ($hasAttach) {
+            $rows = $db->fetchAll(
+                'SELECT q.*, c.name AS client_name,
+                        (SELECT COUNT(*) FROM quote_attachments qa WHERE qa.quote_id = q.id) AS attachments_count
+                 FROM quotes q
+                 LEFT JOIN clients c ON c.id = q.client_id
+                 ORDER BY q.created_at DESC'
+            );
+        } else {
+            $rows = $db->fetchAll(
+                'SELECT q.*, c.name AS client_name, 0 AS attachments_count
+                 FROM quotes q
+                 LEFT JOIN clients c ON c.id = q.client_id
+                 ORDER BY q.created_at DESC'
+            );
+        }
         $this->view('quotes/index', ['title' => 'Presupuestos', 'quotes' => $rows]);
     }
 
@@ -79,11 +95,31 @@ final class QuoteController extends Controller
              WHERE qi.quote_id = ? ORDER BY qi.sort_order, qi.id',
             [(int) $id]
         );
+        $quoteAttachments = [];
+        $invoiceAttachmentCount = 0;
+        try {
+            if ((bool) $db->fetchColumn("SHOW TABLES LIKE 'quote_attachments'")) {
+                $quoteAttachments = $db->fetchAll(
+                    "SELECT * FROM quote_attachments WHERE quote_id = ?
+                     ORDER BY CASE type WHEN 'remito' THEN 0 ELSE 1 END, created_at DESC",
+                    [(int) $id]
+                );
+                $invoiceAttachmentCount = (int) $db->fetchColumn(
+                    "SELECT COUNT(*) FROM quote_attachments WHERE quote_id = ? AND type = 'factura'",
+                    [(int) $id]
+                );
+            }
+        } catch (\Throwable) {
+            $quoteAttachments = [];
+            $invoiceAttachmentCount = 0;
+        }
         $this->view('quotes/preview', [
             'title' => 'Presupuesto ' . $quote['quote_number'],
             'quote' => $quote,
             'items' => $items,
             'readonly' => false,
+            'quoteAttachments' => $quoteAttachments,
+            'invoiceAttachmentCount' => $invoiceAttachmentCount,
         ]);
     }
 

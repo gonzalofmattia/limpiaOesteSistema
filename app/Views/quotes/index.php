@@ -27,7 +27,12 @@ $statusStyle = [
         <tbody class="divide-y divide-gray-100">
             <?php foreach ($quotes as $q): ?>
                 <tr class="hover:bg-gray-50">
-                    <td class="px-4 py-3 font-mono text-xs"><?= e($q['quote_number']) ?></td>
+                    <td class="px-4 py-3 font-mono text-xs">
+                        <?= e($q['quote_number']) ?>
+                        <?php if ((int) ($q['attachments_count'] ?? 0) > 0): ?>
+                            <span class="ml-1.5 text-gray-500 font-sans normal-case" title="Documentos adjuntos">📎 <?= (int) $q['attachments_count'] ?></span>
+                        <?php endif; ?>
+                    </td>
                     <td class="px-4 py-3"><?= e($q['client_name'] ?? '—') ?></td>
                     <td class="px-4 py-3 text-gray-600"><?= e($q['created_at']) ?></td>
                     <td class="px-4 py-3 text-right font-medium"><?= formatPrice((float) $q['total']) ?></td>
