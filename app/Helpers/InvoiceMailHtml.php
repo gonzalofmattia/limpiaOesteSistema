@@ -60,9 +60,9 @@ final class InvoiceMailHtml
                                         <tr>
                                             <td style="color:#1A6B3C;font-size:14px;line-height:1.5;">
                                                 <strong>Limpia Oeste — Distribuidora</strong><br>
-                                                📱 WhatsApp: 2323-535220<br>
-                                                📷 Instagram: @limpiaOeste<br>
-                                                📧 gonzalo@limpiaoeste.com.ar
+                                                WhatsApp: 2323-535220<br>
+                                                Instagram: @limpiaOeste<br>
+                                                gonzalo@limpiaoeste.com.ar
                                             </td>
                                         </tr>
                                     </table>
