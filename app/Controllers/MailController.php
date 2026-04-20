@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Controller;
+use App\Helpers\InvoiceMailHtml;
 use App\Helpers\MailHelper;
 use App\Models\Database;
 
@@ -41,7 +42,7 @@ final class MailController extends Controller
             );
         }
         $defaultSubject = 'Factura — Limpia Oeste — Pedido #' . (string) ($quote['quote_number'] ?? $quoteId);
-        $mailPreviewHtml = MailHelper::buildInvoiceEmailHtml(
+        $mailPreviewHtml = InvoiceMailHtml::buildInvoiceEmailHtml(
             (string) ($quote['client_name'] ?? 'Cliente'),
             (string) ($quote['quote_number'] ?? $quoteId),
             null
@@ -108,24 +109,29 @@ final class MailController extends Controller
 
         $clientName = (string) ($quote['client_name'] ?? 'Cliente');
         $quoteNumber = (string) ($quote['quote_number'] ?? (string) $id);
-        $html = MailHelper::buildInvoiceEmailHtml($clientName, $quoteNumber, $customMsg);
+        $html = InvoiceMailHtml::buildInvoiceEmailHtml($clientName, $quoteNumber, $customMsg);
 
-        $mailer = new MailHelper();
-        $ok = $mailer->sendInvoice(
-            $clientEmail,
-            $clientName,
-            $subject,
-            $html,
-            $path,
-            (string) ($att['original_filename'] ?? basename($path))
-        );
-
-        $detail = $mailer->getLastError();
+        $ok = false;
         $errorMsg = null;
-        if (!$ok) {
-            $errorMsg = $detail !== null && $detail !== ''
-                ? $detail
-                : 'No se pudo enviar el correo. Revisá MAIL_* en .env y el log de PHP.';
+        try {
+            $mailer = new MailHelper();
+            $ok = $mailer->sendInvoice(
+                $clientEmail,
+                $clientName,
+                $subject,
+                $html,
+                $path,
+                (string) ($att['original_filename'] ?? basename($path))
+            );
+            if (!$ok) {
+                $detail = $mailer->getLastError();
+                $errorMsg = $detail !== null && $detail !== ''
+                    ? $detail
+                    : 'No se pudo enviar el correo. Revisá MAIL_* en .env y el log de PHP.';
+            }
+        } catch (\Throwable $e) {
+            $ok = false;
+            $errorMsg = $e->getMessage();
         }
 
         if ($db->fetchColumn("SHOW TABLES LIKE 'mail_log'")) {
