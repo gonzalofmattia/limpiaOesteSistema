@@ -110,6 +110,18 @@ class MailHelper
             $this->mailer->clearAddresses();
             $this->mailer->clearAttachments();
 
+            $logoPath = dirname(__DIR__, 2) . '/public/assets/img/logoLimpiaOeste.png';
+            $logoCid = 'lo_logo';
+            if (is_readable($logoPath)) {
+                $this->mailer->addEmbeddedImage($logoPath, $logoCid, 'logoLimpiaOeste.png');
+                $bodyHtml = preg_replace(
+                    '#\ssrc="https?://[^"]*logoLimpiaOeste\.png"#i',
+                    ' src="cid:' . $logoCid . '"',
+                    $bodyHtml,
+                    1
+                ) ?? $bodyHtml;
+            }
+
             $this->mailer->addAddress($toEmail, $toName);
             $this->mailer->isHTML(true);
             $this->mailer->Subject = $subject;

@@ -15,7 +15,8 @@ final class InvoiceMailHtml
         string $quoteNumber,
         ?string $customMessage = null
     ): string {
-        $logoUrl = rtrim(Env::get('APP_URL', ''), '/') . '/assets/img/logoLimpiaOeste.png';
+        // Misma URL que usa el sitio (APP_URL). En el envío real el logo se incrusta por CID en MailHelper.
+        $logoUrl = \baseUrl('assets/img/logoLimpiaOeste.png');
         $message = $customMessage !== null && $customMessage !== ''
             ? $customMessage
             : 'Te enviamos la factura correspondiente al pedido #' . $quoteNumber . '.';
