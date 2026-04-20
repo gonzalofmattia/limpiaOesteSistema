@@ -32,7 +32,7 @@ final class InvoiceMailHtml
 
                             <!-- Header con logo -->
                             <tr>
-                                <td style="background-color:#1A6B3C;padding:24px 32px;text-align:center;">
+                                <td style="padding:24px 32px;text-align:center;">
                                     <img src="' . $logoUrl . '" alt="Limpia Oeste" style="max-height:60px;max-width:200px;" />
                                 </td>
                             </tr>
