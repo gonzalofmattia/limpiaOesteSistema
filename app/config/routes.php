@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 return [
     ['GET', '', 'DashboardController@index', ['public' => false]],
+    ['GET', 'dashboard/detalle/{slug}', 'DashboardController@detail', ['public' => false]],
     ['GET', 'login', 'AuthController@showLogin', ['public' => true]],
     ['POST', 'login', 'AuthController@login', ['public' => true]],
     ['GET', 'logout', 'AuthController@logout', ['public' => false]],
