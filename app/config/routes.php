@@ -32,6 +32,7 @@ return [
     ['POST', 'productos/importar', 'ProductController@import', []],
     ['POST', 'productos/importar-masivo', 'ProductController@importMultiSheet', []],
     ['GET', 'stock-actual', 'StockController@index', []],
+    ['POST', 'stock-actual/ajustar', 'StockController@adjust', []],
 
     ['GET', 'listas', 'PriceListController@index', []],
     ['GET', 'listas/generar', 'PriceListController@generateForm', []],
