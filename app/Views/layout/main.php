@@ -59,6 +59,12 @@
                 </svg>
                 Productos
             </a>
+            <a href="<?= e(url('/stock-actual')) ?>" class="flex items-center gap-2 px-4 py-2 <?= isActive('/stock-actual') ? 'bg-primary/20 border-l-4 border-primary-light text-white' : 'hover:bg-gray-800 border-l-4 border-transparent' ?>">
+                <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5"/>
+                </svg>
+                Stock actual
+            </a>
             <p class="px-4 pt-4 pb-1 text-xs text-gray-500 uppercase">Comercial</p>
             <a href="<?= e(url('/listas')) ?>" class="flex items-center gap-2 px-4 py-2 <?= isActive('/listas') ? 'bg-primary/20 border-l-4 border-primary-light text-white' : 'hover:bg-gray-800 border-l-4 border-transparent' ?>">
                 <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
