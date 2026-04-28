@@ -78,6 +78,12 @@
                 </svg>
                 Presupuestos
             </a>
+            <a href="<?= e(url('/ventas-ml')) ?>" class="flex items-center gap-2 px-4 py-2 <?= isActive('/ventas-ml') ? 'bg-primary/20 border-l-4 border-primary-light text-white' : 'hover:bg-gray-800 border-l-4 border-transparent' ?>">
+                <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3.75 6.75h16.5m-16.5 4.5h16.5m-16.5 4.5h10.5m-7.5 3.75h10.5"/>
+                </svg>
+                Ventas ML
+            </a>
             <a href="<?= e(url('/pedidos-proveedor')) ?>" class="flex items-center gap-2 px-4 py-2 <?= isActive('/pedido-seiq') || isActive('/pedidos-proveedor') ? 'bg-primary/20 border-l-4 border-primary-light text-white' : 'hover:bg-gray-800 border-l-4 border-transparent' ?>">
                 <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>

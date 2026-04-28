@@ -19,6 +19,7 @@ foreach ($items as $it) {
         'unit_type' => QuoteLinePricing::normalizeUnitType((string) ($it['unit_type'] ?? 'caja')),
         'pack_label' => $packLabel,
         'sale_unit_default' => (($it['sale_unit_type'] ?? 'caja') === 'unidad') ? 'unidad' : 'caja',
+        'unit_price' => (float) ($it['unit_price'] ?? 0),
     ];
 }
 $linesJson = json_encode($initialLines, JSON_UNESCAPED_UNICODE);
@@ -28,7 +29,11 @@ $clientsJson = json_encode(array_map(fn ($c) => ['id' => (int) $c['id'], 'name' 
 window.__quoteForm = {
     lines: <?= $linesJson ?: '[]' ?>,
     clients: <?= $clientsJson ?>,
-    csrf: <?= json_encode(csrfToken(), JSON_UNESCAPED_UNICODE) ?>
+    csrf: <?= json_encode(csrfToken(), JSON_UNESCAPED_UNICODE) ?>,
+    customMarkup: <?= json_encode(isset($q['custom_markup']) && $q['custom_markup'] !== null && $q['custom_markup'] !== '' ? (string) $q['custom_markup'] : '', JSON_UNESCAPED_UNICODE) ?>,
+    includeIva: <?= !empty($q['include_iva']) ? 'true' : 'false' ?>,
+    discountPercentage: <?= json_encode(isset($q['discount_percentage']) && $q['discount_percentage'] !== null ? (string) $q['discount_percentage'] : '', JSON_UNESCAPED_UNICODE) ?>,
+    discountAmount: <?= json_encode(isset($q['discount_amount']) && $q['discount_amount'] !== null ? (string) $q['discount_amount'] : '', JSON_UNESCAPED_UNICODE) ?>
 };
 </script>
 <div class="max-w-5xl" x-data="quoteForm()" x-init="init(window.__quoteForm)">
@@ -52,6 +57,8 @@ window.__quoteForm = {
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Markup presupuesto (%)</label>
                 <input type="text" name="custom_markup" placeholder="Vacío = reglas estándar"
+                       x-model="customMarkup"
+                       @change="refreshAllLinePrices()"
                        value="<?= isset($q['custom_markup']) && $q['custom_markup'] !== null && $q['custom_markup'] !== '' ? e((string) $q['custom_markup']) : '' ?>"
                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
             </div>
@@ -61,7 +68,7 @@ window.__quoteForm = {
                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
             </div>
             <label class="inline-flex items-center gap-2 text-sm sm:col-span-2">
-                <input type="checkbox" name="include_iva" value="1" <?= !empty($q['include_iva']) ? 'checked' : '' ?>> Incluir IVA en precios unitarios
+                <input type="checkbox" name="include_iva" value="1" x-model="includeIva" @change="refreshAllLinePrices()" <?= !empty($q['include_iva']) ? 'checked' : '' ?>> Incluir IVA en precios unitarios
             </label>
             <div class="sm:col-span-2">
                 <label class="block text-sm font-medium text-gray-700 mb-1">Notas / condiciones</label>
@@ -96,11 +103,11 @@ window.__quoteForm = {
                         </div>
                         <div class="md:col-span-2">
                             <label class="block text-xs text-gray-500 mb-1">Cantidad</label>
-                            <input type="number" min="1" x-model.number="line.quantity" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
+                            <input type="number" min="1" x-model.number="line.quantity" @input="recalculateDiscountIfAuto()" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
                         </div>
                         <div class="md:col-span-3">
                             <label class="block text-xs text-gray-500 mb-1">Presentación</label>
-                            <select x-model="line.unit_type" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
+                            <select x-model="line.unit_type" @change="updateLinePrice(idx)" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
                                 <option value="caja" x-text="line.pack_label || 'Presentación'"></option>
                                 <option value="unidad">Unidad</option>
                             </select>
@@ -116,6 +123,30 @@ window.__quoteForm = {
             </div>
             <p class="text-xs text-gray-500" x-show="lines.length === 0">Agregá al menos un producto.</p>
         </div>
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-4">
+            <h2 class="text-sm font-semibold text-gray-800">Descuento</h2>
+            <div class="grid md:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Porcentaje de descuento (%)</label>
+                    <input type="number" min="0" max="100" step="0.01" x-model="discountPercentage" @input="onDiscountPercentageChange()"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Ej: 10">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Monto de descuento ($)</label>
+                    <input type="number" min="0" step="0.01" x-model="discountAmount" @input="onDiscountAmountManualInput()"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Ej: 15000">
+                    <p class="text-xs text-gray-500 mt-1" x-show="discountManuallyEdited">Monto ajustado manualmente.</p>
+                </div>
+                <div class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                    <p class="text-xs text-gray-500">Subtotal</p>
+                    <p class="font-medium" x-text="formatCurrency(subtotal())"></p>
+                    <p class="text-xs text-gray-500 mt-1">Total final</p>
+                    <p class="text-lg font-semibold text-[#1a6b3c]" x-text="formatCurrency(finalTotal())"></p>
+                </div>
+            </div>
+            <input type="hidden" name="discount_percentage" :value="normalizedDiscountPercentage()">
+            <input type="hidden" name="discount_amount" :value="normalizedDiscountAmount()">
+        </div>
 
         <div class="flex gap-3">
             <button type="submit" class="px-5 py-2.5 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium">Guardar presupuesto</button>
@@ -127,6 +158,11 @@ window.__quoteForm = {
 function quoteForm() {
     return {
         lines: [],
+        customMarkup: '',
+        includeIva: false,
+        discountPercentage: '',
+        discountAmount: '',
+        discountManuallyEdited: false,
         init(cfg) {
             this.lines = (cfg.lines || []).map(l => ({
                 product_id: l.product_id || 0,
@@ -137,18 +173,28 @@ function quoteForm() {
                 unit_type: l.unit_type || 'caja',
                 pack_label: l.pack_label || 'Caja',
                 sale_unit_default: l.sale_unit_default || 'caja',
+                unit_price: Number(l.unit_price || 0),
                 query: '',
                 results: []
             }));
+            this.customMarkup = cfg.customMarkup || '';
+            this.includeIva = !!cfg.includeIva;
+            this.discountPercentage = cfg.discountPercentage || '';
+            this.discountAmount = cfg.discountAmount || '';
+            this.discountManuallyEdited = this.discountAmount !== '';
             if (this.lines.length === 0) this.addLine();
+            this.refreshAllLinePrices(false);
+            if (this.discountPercentage !== '' && !this.discountManuallyEdited) {
+                this.recalculateDiscountAmount();
+            }
         },
         addLine() {
             this.lines.push({
                 product_id: 0, code: '', name: '', category_context: '', quantity: 1, unit_type: 'caja',
-                pack_label: 'Caja', sale_unit_default: 'caja', query: '', results: []
+                pack_label: 'Caja', sale_unit_default: 'caja', unit_price: 0, query: '', results: []
             });
         },
-        remove(i) { this.lines.splice(i, 1); if (this.lines.length === 0) this.addLine(); },
+        remove(i) { this.lines.splice(i, 1); if (this.lines.length === 0) this.addLine(); this.recalculateDiscountIfAuto(); },
         async search(i) {
             const line = this.lines[i];
             const q = (line.query || '').trim();
@@ -168,6 +214,94 @@ function quoteForm() {
             line.unit_type = line.sale_unit_default;
             line.results = [];
             line.query = '';
+            this.updateLinePrice(i);
+        },
+        async updateLinePrice(i) {
+            const line = this.lines[i];
+            if (!line || !line.product_id) {
+                if (line) line.unit_price = 0;
+                this.recalculateDiscountIfAuto();
+                return;
+            }
+            try {
+                const params = new URLSearchParams({
+                    unit_type: line.unit_type || 'caja',
+                    include_iva: this.includeIva ? '1' : '0'
+                });
+                if ((this.customMarkup || '').trim() !== '') {
+                    params.set('markup', (this.customMarkup || '').trim());
+                }
+                const res = await fetch(window.appUrl('/api/productos/' + line.product_id + '/precio?' + params.toString()));
+                const j = await res.json();
+                if (j && j.calc) {
+                    line.unit_price = Number(this.includeIva && j.calc.precio_con_iva !== null ? j.calc.precio_con_iva : j.calc.precio_venta) || 0;
+                }
+            } catch (e) {
+                // Sin precio remoto: mantiene valor actual.
+            }
+            this.recalculateDiscountIfAuto();
+        },
+        async refreshAllLinePrices(recalculateDiscount = true) {
+            for (let i = 0; i < this.lines.length; i += 1) {
+                await this.updateLinePrice(i);
+            }
+            if (recalculateDiscount) {
+                this.recalculateDiscountIfAuto();
+            }
+        },
+        lineSubtotal(line) {
+            const qty = Number(line.quantity || 0);
+            const unit = Number(line.unit_price || 0);
+            return Math.max(0, qty * unit);
+        },
+        subtotal() {
+            return this.lines.reduce((acc, line) => acc + this.lineSubtotal(line), 0);
+        },
+        finalTotal() {
+            const total = this.subtotal() - this.safeDiscountAmount();
+            return total > 0 ? total : 0;
+        },
+        safeDiscountAmount() {
+            const raw = Number(this.discountAmount || 0);
+            if (!Number.isFinite(raw)) return 0;
+            const bounded = raw < 0 ? 0 : raw;
+            const max = this.subtotal();
+            return bounded > max ? max : bounded;
+        },
+        onDiscountPercentageChange() {
+            this.discountManuallyEdited = false;
+            this.recalculateDiscountAmount();
+        },
+        onDiscountAmountManualInput() {
+            this.discountManuallyEdited = true;
+        },
+        recalculateDiscountAmount() {
+            const pct = Number(this.discountPercentage || 0);
+            if (!Number.isFinite(pct) || pct <= 0) {
+                this.discountAmount = '';
+                return;
+            }
+            const boundedPct = Math.min(100, Math.max(0, pct));
+            const amount = this.subtotal() * (boundedPct / 100);
+            this.discountAmount = amount.toFixed(2);
+        },
+        recalculateDiscountIfAuto() {
+            if (!this.discountManuallyEdited && (this.discountPercentage || '').trim() !== '') {
+                this.recalculateDiscountAmount();
+            }
+        },
+        normalizedDiscountPercentage() {
+            const pct = Number(this.discountPercentage || 0);
+            if (!Number.isFinite(pct) || pct <= 0) return '';
+            return Math.min(100, Math.max(0, pct)).toFixed(2);
+        },
+        normalizedDiscountAmount() {
+            const amount = this.safeDiscountAmount();
+            return amount > 0 ? amount.toFixed(2) : '';
+        },
+        formatCurrency(value) {
+            const num = Number(value || 0);
+            return '$ ' + num.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         }
     };
 }

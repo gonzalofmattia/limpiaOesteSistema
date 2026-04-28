@@ -69,6 +69,12 @@ $leyendaIvaPdf = priceIvaLegendLine(!empty($quote['include_iva']));
     <?php if ((float) $quote['iva_amount'] > 0): ?>
         <p class="right"><strong>IVA:</strong> $ <?= number_format((float) $quote['iva_amount'], 2, ',', '.') ?></p>
     <?php endif; ?>
+    <?php if ((float) ($quote['discount_amount'] ?? 0) > 0): ?>
+        <p class="right">
+            <strong>Descuento<?= ($quote['discount_percentage'] ?? null) !== null ? ' (' . number_format((float) $quote['discount_percentage'], 2, ',', '.') . '%)' : '' ?>:</strong>
+            - $ <?= number_format((float) $quote['discount_amount'], 2, ',', '.') ?>
+        </p>
+    <?php endif; ?>
     <p class="right" style="font-size:13px;color:#1a6b3c;"><strong>Total:</strong> $ <?= number_format((float) $quote['total'], 2, ',', '.') ?></p>
     <?php if (!empty($quote['notes'])): ?>
         <div class="box" style="margin-top:16px;">

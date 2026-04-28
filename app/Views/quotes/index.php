@@ -29,6 +29,9 @@ $statusStyle = [
                 <tr class="hover:bg-gray-50">
                     <td class="px-4 py-3 font-mono text-xs">
                         <?= e($q['quote_number']) ?>
+                        <?php if ((int) ($q['is_mercadolibre'] ?? 0) === 1): ?>
+                            <span class="ml-1.5 inline-flex px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-800 font-sans">ML</span>
+                        <?php endif; ?>
                         <?php if ((int) ($q['attachments_count'] ?? 0) > 0): ?>
                             <span class="ml-1.5 text-gray-500 font-sans normal-case" title="Documentos adjuntos">📎 <?= (int) $q['attachments_count'] ?></span>
                         <?php endif; ?>

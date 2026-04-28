@@ -55,6 +55,10 @@ return [
     ['POST', 'presupuestos/{id}/status', 'QuoteController@changeStatus', []],
     ['GET', 'presupuestos/{id}/enviar-mail', 'MailController@sendForm', []],
     ['POST', 'presupuestos/{id}/enviar-mail', 'MailController@send', []],
+    ['GET', 'ventas-ml', 'MercadoLibreController@index', []],
+    ['GET', 'ventas-ml/crear', 'MercadoLibreController@create', []],
+    ['POST', 'ventas-ml/guardar', 'MercadoLibreController@store', []],
+    ['GET', 'ventas-ml/{id}', 'MercadoLibreController@show', []],
 
     ['POST', 'adjuntos/subir', 'AttachmentController@upload', []],
     ['GET', 'adjuntos/{id}/descargar', 'AttachmentController@download', []],

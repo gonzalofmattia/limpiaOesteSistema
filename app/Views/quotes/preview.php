@@ -231,6 +231,12 @@ $badges = [
             <?php if ((float) $quote['iva_amount'] > 0): ?>
                 <p>IVA: <span class="font-medium"><?= formatPrice((float) $quote['iva_amount']) ?></span></p>
             <?php endif; ?>
+            <?php if ((float) ($quote['discount_amount'] ?? 0) > 0): ?>
+                <p>
+                    Descuento<?= ($quote['discount_percentage'] ?? null) !== null ? ' (' . number_format((float) $quote['discount_percentage'], 2, ',', '.') . '%)' : '' ?>:
+                    <span class="font-medium text-red-700"><?= formatPrice(-1 * (float) $quote['discount_amount']) ?></span>
+                </p>
+            <?php endif; ?>
             <p class="text-lg font-semibold text-[#1a6b3c]">Total: <?= formatPrice((float) $quote['total']) ?></p>
         </div>
     </div>

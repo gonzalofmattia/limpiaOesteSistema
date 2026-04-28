@@ -18,7 +18,7 @@ final class SeiqOrderBuilder
             'SELECT q.*, c.name AS client_name
              FROM quotes q
              LEFT JOIN clients c ON q.client_id = c.id
-             WHERE q.status = \'accepted\'
+             WHERE q.status = \'accepted\' OR COALESCE(q.is_mercadolibre, 0) = 1
              ORDER BY q.created_at'
         );
     }

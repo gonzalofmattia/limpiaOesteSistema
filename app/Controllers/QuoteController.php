@@ -327,6 +327,11 @@ final class QuoteController extends Controller
         $markRaw = trim((string) $this->input('custom_markup', ''));
         $customMarkup = $markRaw === '' ? null : (float) str_replace(',', '.', $markRaw);
         $includeIva = isset($_POST['include_iva']) && (string) $_POST['include_iva'] === '1';
+        $discountPercentage = $this->parseNullableDecimal($this->input('discount_percentage', null));
+        $discountAmountInput = $this->parseNullableDecimal($this->input('discount_amount', null));
+        if ($discountPercentage !== null) {
+            $discountPercentage = max(0.0, min(100.0, $discountPercentage));
+        }
 
         $lines = $_POST['items'] ?? [];
         if (!is_array($lines) || $lines === []) {
@@ -345,7 +350,10 @@ final class QuoteController extends Controller
                     'validity_days' => $validity,
                     'custom_markup' => $customMarkup,
                     'include_iva' => $includeIva ? 1 : 0,
+                    'is_mercadolibre' => 0,
                     'subtotal' => 0,
+                    'discount_percentage' => null,
+                    'discount_amount' => null,
                     'iva_amount' => 0,
                     'total' => 0,
                     'status' => 'draft',
@@ -364,6 +372,8 @@ final class QuoteController extends Controller
                     'validity_days' => $validity,
                     'custom_markup' => $customMarkup,
                     'include_iva' => $includeIva ? 1 : 0,
+                    'discount_percentage' => null,
+                    'discount_amount' => null,
                 ], 'id = :id', ['id' => $id]);
             }
 
@@ -433,9 +443,21 @@ final class QuoteController extends Controller
             }
 
             $ivaAmount = $includeIva ? round($totalWithIva - $subtotalNet, 2) : 0.0;
-            $total = $includeIva ? $totalWithIva : $subtotalNet;
+            $baseTotal = $includeIva ? $totalWithIva : $subtotalNet;
+            $autoDiscount = $discountPercentage !== null ? round($baseTotal * ($discountPercentage / 100), 2) : 0.0;
+            $discountAmount = $discountAmountInput ?? $autoDiscount;
+            $discountAmount = max(0.0, min($baseTotal, round($discountAmount, 2)));
+            if ($discountAmount <= 0.0) {
+                $discountAmount = null;
+            }
+            if ($discountPercentage !== null && $discountPercentage <= 0.0) {
+                $discountPercentage = null;
+            }
+            $total = max(0.0, round($baseTotal - (float) ($discountAmount ?? 0.0), 2));
             $db->update('quotes', [
                 'subtotal' => round($subtotalNet, 2),
+                'discount_percentage' => $discountPercentage,
+                'discount_amount' => $discountAmount,
                 'iva_amount' => round($ivaAmount, 2),
                 'total' => round($total, 2),
             ], 'id = :id', ['id' => $id]);
@@ -464,6 +486,27 @@ final class QuoteController extends Controller
         }
         $next = $n + 1;
         return sprintf('%s-%d-%04d', $prefix, $year, $next);
+    }
+
+    private function parseNullableDecimal(mixed $value): ?float
+    {
+        if ($value === null) {
+            return null;
+        }
+        $raw = trim((string) $value);
+        if ($raw === '') {
+            return null;
+        }
+        $normalized = str_replace(['$', ' '], '', $raw);
+        if (str_contains($normalized, ',')) {
+            $normalized = str_replace('.', '', $normalized);
+            $normalized = str_replace(',', '.', $normalized);
+        }
+        if (!is_numeric($normalized)) {
+            return null;
+        }
+
+        return (float) $normalized;
     }
 
     /** @param array<string,mixed> $quote @param list<array<string,mixed>> $items */
