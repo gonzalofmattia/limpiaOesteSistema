@@ -61,6 +61,8 @@ return [
     ['GET', 'ventas-ml', 'MercadoLibreController@index', []],
     ['GET', 'ventas-ml/crear', 'MercadoLibreController@create', []],
     ['POST', 'ventas-ml/guardar', 'MercadoLibreController@store', []],
+    ['GET', 'ventas-ml/{id}/editar', 'MercadoLibreController@edit', []],
+    ['POST', 'ventas-ml/{id}', 'MercadoLibreController@update', []],
     ['GET', 'ventas-ml/{id}', 'MercadoLibreController@show', []],
 
     ['POST', 'adjuntos/subir', 'AttachmentController@upload', []],

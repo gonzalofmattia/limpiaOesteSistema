@@ -27,8 +27,9 @@
                     <td class="px-4 py-3 text-right <?= (float) ($s['gain'] ?? 0) >= 0 ? 'text-green-700' : 'text-red-700' ?>">
                         <?= formatPrice((float) ($s['gain'] ?? 0)) ?>
                     </td>
-                    <td class="px-4 py-3 text-right whitespace-nowrap">
+                    <td class="px-4 py-3 text-right whitespace-nowrap space-x-2">
                         <a href="<?= e(url('/ventas-ml/' . (int) $s['id'])) ?>" class="text-[#1565C0] hover:underline">Ver</a>
+                        <a href="<?= e(url('/ventas-ml/' . (int) $s['id'] . '/editar')) ?>" class="text-gray-600 hover:underline">Editar</a>
                     </td>
                 </tr>
             <?php endforeach; ?>
