@@ -8,6 +8,7 @@ use App\Core\Controller;
 use App\Helpers\CategoryHierarchy;
 use App\Helpers\ImageUploader;
 use App\Helpers\PricingEngine;
+use App\Helpers\QuoteLinePricing;
 use App\Models\Database;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\IOFactory;
@@ -101,10 +102,49 @@ final class ProductController extends Controller
         $categoryTree = CategoryHierarchy::buildTree($allCats);
         $categoryFilterOptions = CategoryHierarchy::flatOptionsForSelect($categoryTree);
         $suppliers = $db->fetchAll('SELECT id, name, slug FROM suppliers WHERE is_active = 1 ORDER BY name');
+        $combos = $db->fetchAll(
+            'SELECT c.*,
+                    COUNT(cp.id) AS products_count
+             FROM combos c
+             LEFT JOIN combo_products cp ON cp.combo_id = c.id
+             GROUP BY c.id
+             ORDER BY c.name'
+        );
+        foreach ($combos as &$combo) {
+            $comboProducts = $db->fetchAll(
+                'SELECT cp.quantity, p.*,
+                        COALESCE(pc.slug, c.slug) AS category_slug, c.default_discount,
+                        c.default_markup AS category_default_markup,
+                        pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup
+                 FROM combo_products cp
+                 JOIN products p ON p.id = cp.product_id
+                 JOIN categories c ON c.id = p.category_id
+                 LEFT JOIN categories pc ON c.parent_id = pc.id
+                 WHERE cp.combo_id = ?',
+                [(int) $combo['id']]
+            );
+            $subtotalCalc = 0.0;
+            foreach ($comboProducts as $cp) {
+                $slug = strtolower((string) $cp['category_slug']);
+                $unitVenta = QuoteLinePricing::individualUnitSellingPrice(
+                    $cp,
+                    $slug,
+                    (float) $combo['markup_percentage'],
+                    false
+                );
+                $subtotalCalc += round((float) $unitVenta * max(1, (int) $cp['quantity']), 2);
+            }
+            $subtotal = $combo['subtotal_override'] !== null ? (float) $combo['subtotal_override'] : round($subtotalCalc, 2);
+            $discount = (float) $combo['discount_percentage'];
+            $combo['_subtotal'] = $subtotal;
+            $combo['_final_price'] = round($subtotal * (1 - ($discount / 100)), 2);
+        }
+        unset($combo);
 
         $this->view('products/index', [
             'title' => 'Productos',
             'products' => $rowsWithPricing,
+            'combos' => $combos,
             'categoryFilterOptions' => $categoryFilterOptions,
             'page' => $page,
             'pages' => $pages,

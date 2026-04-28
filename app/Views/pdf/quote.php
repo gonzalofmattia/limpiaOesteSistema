@@ -53,11 +53,12 @@ $leyendaIvaPdf = priceIvaLegendLine(!empty($quote['include_iva']));
         </thead>
         <tbody>
             <?php foreach ($items as $it): ?>
+                <?php $isCombo = (int) ($it['combo_id'] ?? 0) > 0; ?>
                 <tr>
-                    <td><?= htmlspecialchars($it['code']) ?> — <?= htmlspecialchars($it['name']) ?></td>
-                    <td><?= htmlspecialchars(quoteItemDetalleDisplay($it)) ?></td>
+                    <td><?= $isCombo ? htmlspecialchars((string) ($it['combo_name'] ?? 'Combo')) : htmlspecialchars((string) ($it['code'] ?? '')) . ' — ' . htmlspecialchars((string) ($it['name'] ?? '')) ?></td>
+                    <td><?= $isCombo ? 'Combo' : htmlspecialchars(quoteItemDetalleDisplay($it)) ?></td>
                     <td class="right"><?= (int) $it['quantity'] ?></td>
-                    <td class="right">$ <?= number_format(quoteItemIndividualUnitPrice($it, $quote), 2, ',', '.') ?></td>
+                    <td class="right">$ <?= number_format($isCombo ? (float) $it['unit_price'] : quoteItemIndividualUnitPrice($it, $quote), 2, ',', '.') ?></td>
                     <td class="right">$ <?= number_format((float) $it['unit_price'], 2, ',', '.') ?></td>
                     <td class="right">$ <?= number_format((float) $it['subtotal'], 2, ',', '.') ?></td>
                 </tr>

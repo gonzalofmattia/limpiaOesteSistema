@@ -82,16 +82,17 @@ final class QuoteController extends Controller
             redirect('/presupuestos');
         }
         $items = $db->fetchAll(
-            'SELECT qi.*, p.code, p.name, p.presentation, p.content, p.sale_unit_description,
+            'SELECT qi.*, p.code, p.name, cmb.name AS combo_name, p.presentation, p.content, p.sale_unit_description,
                     p.precio_lista_unitario, p.precio_lista_bidon, p.precio_lista_sobre,
                     p.discount_override, p.markup_override,
                     COALESCE(pc.slug, c.slug) AS category_slug, c.default_discount,
                     c.default_markup AS category_default_markup,
                     pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup
              FROM quote_items qi
-             JOIN products p ON p.id = qi.product_id
-             JOIN categories c ON c.id = p.category_id
+             LEFT JOIN products p ON p.id = qi.product_id
+             LEFT JOIN categories c ON c.id = p.category_id
              LEFT JOIN categories pc ON c.parent_id = pc.id
+             LEFT JOIN combos cmb ON cmb.id = qi.combo_id
              WHERE qi.quote_id = ? ORDER BY qi.sort_order, qi.id',
             [(int) $id]
         );
@@ -132,12 +133,13 @@ final class QuoteController extends Controller
             redirect('/presupuestos');
         }
         $items = $db->fetchAll(
-            'SELECT qi.*, p.code, p.name, p.category_id, p.sale_unit_label, p.sale_unit_type, p.content,
+            'SELECT qi.*, p.code, p.name, cmb.name AS combo_name, p.category_id, p.sale_unit_label, p.sale_unit_type, p.content,
                     p.sale_unit_description, COALESCE(pc.slug, c.slug) AS category_slug
              FROM quote_items qi
-             JOIN products p ON p.id = qi.product_id
-             JOIN categories c ON c.id = p.category_id
+             LEFT JOIN products p ON p.id = qi.product_id
+             LEFT JOIN categories c ON c.id = p.category_id
              LEFT JOIN categories pc ON c.parent_id = pc.id
+             LEFT JOIN combos cmb ON cmb.id = qi.combo_id
              WHERE qi.quote_id = ? ORDER BY qi.sort_order, qi.id',
             [(int) $id]
         );
@@ -178,16 +180,17 @@ final class QuoteController extends Controller
             redirect('/presupuestos');
         }
         $items = $db->fetchAll(
-            'SELECT qi.*, p.code, p.name, p.presentation, p.content, p.sale_unit_description,
+            'SELECT qi.*, p.code, p.name, cmb.name AS combo_name, p.presentation, p.content, p.sale_unit_description,
                     p.precio_lista_unitario, p.precio_lista_bidon, p.precio_lista_sobre,
                     p.discount_override, p.markup_override,
                     COALESCE(pc.slug, c.slug) AS category_slug, c.default_discount,
                     c.default_markup AS category_default_markup,
                     pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup
              FROM quote_items qi
-             JOIN products p ON p.id = qi.product_id
-             JOIN categories c ON c.id = p.category_id
+             LEFT JOIN products p ON p.id = qi.product_id
+             LEFT JOIN categories c ON c.id = p.category_id
              LEFT JOIN categories pc ON c.parent_id = pc.id
+             LEFT JOIN combos cmb ON cmb.id = qi.combo_id
              WHERE qi.quote_id = ? ORDER BY qi.sort_order, qi.id',
             [(int) $id]
         );
@@ -444,6 +447,62 @@ final class QuoteController extends Controller
             $sort = 0;
             foreach ($lines as $row) {
                 if (!is_array($row)) {
+                    continue;
+                }
+                $comboId = (int) ($row['combo_id'] ?? 0);
+                if ($comboId > 0) {
+                    $qty = max(1, (int) ($row['quantity'] ?? 1));
+                    $combo = $db->fetch('SELECT id, name, markup_percentage, subtotal_override, discount_percentage FROM combos WHERE id = ? AND is_active = 1', [$comboId]);
+                    if (!$combo) {
+                        continue;
+                    }
+                    $comboProducts = $db->fetchAll(
+                        'SELECT cp.quantity, p.*,
+                                COALESCE(pc.slug, c.slug) AS category_slug,
+                                c.default_discount, c.default_markup AS category_default_markup,
+                                pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup
+                         FROM combo_products cp
+                         JOIN products p ON p.id = cp.product_id
+                         JOIN categories c ON c.id = p.category_id
+                         LEFT JOIN categories pc ON c.parent_id = pc.id
+                         WHERE cp.combo_id = ?',
+                        [$comboId]
+                    );
+                    $subtotalCalc = 0.0;
+                    foreach ($comboProducts as $cp) {
+                        $slug = strtolower((string) $cp['category_slug']);
+                        $unitVenta = QuoteLinePricing::individualUnitSellingPrice(
+                            $cp,
+                            $slug,
+                            (float) $combo['markup_percentage'],
+                            $includeIva
+                        );
+                        $unit = round($unitVenta, 2);
+                        $subtotalCalc += round($unit * (int) $cp['quantity'], 2);
+                    }
+                    $comboSubtotal = $combo['subtotal_override'] !== null ? (float) $combo['subtotal_override'] : round($subtotalCalc, 2);
+                    $comboDiscount = (float) $combo['discount_percentage'];
+                    $comboFinalUnit = round($comboSubtotal * (1 - ($comboDiscount / 100)), 2);
+                    $lineSub = round($comboFinalUnit * $qty, 2);
+                    $subtotalNet += $lineSub;
+                    $totalWithIva += $lineSub;
+                    $db->insert('quote_items', [
+                        'quote_id' => $id,
+                        'product_id' => null,
+                        'combo_id' => $comboId,
+                        'quantity' => $qty,
+                        'unit_type' => 'combo',
+                        'unit_label' => 'Combo',
+                        'unit_description' => (string) $combo['name'],
+                        'unit_price' => $comboFinalUnit,
+                        'individual_unit_price' => $comboFinalUnit,
+                        'subtotal' => $lineSub,
+                        'price_field_used' => 'combo',
+                        'discount_applied' => $comboDiscount,
+                        'markup_applied' => (float) $combo['markup_percentage'],
+                        'notes' => null,
+                        'sort_order' => $sort++,
+                    ]);
                     continue;
                 }
                 $pid = (int) ($row['product_id'] ?? 0);

@@ -7,17 +7,19 @@ $action = url($isEdit ? '/presupuestos/' . (int) $quote['id'] : '/presupuestos')
 $q = $quote ?? [];
 $initialLines = [];
 foreach ($items as $it) {
+    $isComboLine = (int) ($it['combo_id'] ?? 0) > 0;
     $packLabel = trim((string) ($it['unit_label'] ?? ''));
     if ($packLabel === '') {
         $packLabel = trim((string) ($it['sale_unit_label'] ?? '')) ?: 'Caja';
     }
     $initialLines[] = [
+        'combo_id' => (int) ($it['combo_id'] ?? 0),
         'product_id' => (int) $it['product_id'],
         'code' => $it['code'] ?? '',
-        'name' => $it['name'] ?? '',
+        'name' => $isComboLine ? ($it['combo_name'] ?? '') : ($it['name'] ?? ''),
         'quantity' => (int) ($it['quantity'] ?? 1),
-        'unit_type' => QuoteLinePricing::normalizeUnitType((string) ($it['unit_type'] ?? 'caja')),
-        'pack_label' => $packLabel,
+        'unit_type' => $isComboLine ? 'combo' : QuoteLinePricing::normalizeUnitType((string) ($it['unit_type'] ?? 'caja')),
+        'pack_label' => $isComboLine ? 'Combo' : $packLabel,
         'sale_unit_default' => (($it['sale_unit_type'] ?? 'caja') === 'unidad') ? 'unidad' : 'caja',
         'unit_price' => (float) ($it['unit_price'] ?? 0),
     ];
@@ -79,12 +81,15 @@ window.__quoteForm = {
         <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-sm font-semibold text-gray-800">Ítems</h2>
-                <button type="button" @click="addLine()" class="text-sm text-[#1565C0] hover:underline">+ Agregar producto</button>
+                <div class="flex gap-3">
+                    <button type="button" @click="addLine()" class="text-sm text-[#1565C0] hover:underline">+ Agregar producto</button>
+                    <button type="button" @click="addComboLine()" class="text-sm text-[#1a6b3c] hover:underline">+ Agregar combo</button>
+                </div>
             </div>
             <div class="space-y-4 mb-4">
                 <template x-for="(line, idx) in lines" :key="idx">
                     <div class="border border-gray-200 rounded-lg p-4 grid md:grid-cols-12 gap-3 items-end">
-                        <div class="md:col-span-5">
+                        <div class="md:col-span-5" x-show="line.unit_type !== 'combo'">
                             <label class="block text-xs text-gray-500 mb-1">Buscar producto</label>
                             <input type="text" x-model="line.query" @input.debounce.300ms="search(idx)" placeholder="Código o nombre…"
                                    class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
@@ -101,21 +106,36 @@ window.__quoteForm = {
                                 <span class="block text-gray-500 mt-0.5" x-show="line.category_context" x-text="line.category_context"></span>
                             </p>
                         </div>
+                        <div class="md:col-span-5" x-show="line.unit_type === 'combo'">
+                            <label class="block text-xs text-gray-500 mb-1">Combo</label>
+                            <select x-model.number="line.combo_id" @change="pickCombo(idx)" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
+                                <option value="0">Seleccionar combo...</option>
+                                <template x-for="c in combos" :key="c.id">
+                                    <option :value="c.id" x-text="c.name + ' — ' + formatCurrency(c.final_price || 0)"></option>
+                                </template>
+                            </select>
+                            <p class="text-xs text-gray-600 mt-1" x-show="line.name" x-text="line.name"></p>
+                        </div>
                         <div class="md:col-span-2">
                             <label class="block text-xs text-gray-500 mb-1">Cantidad</label>
                             <input type="number" min="1" x-model.number="line.quantity" @input="recalculateDiscountIfAuto()" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
                         </div>
-                        <div class="md:col-span-3">
+                        <div class="md:col-span-3" x-show="line.unit_type !== 'combo'">
                             <label class="block text-xs text-gray-500 mb-1">Presentación</label>
                             <select x-model="line.unit_type" @change="updateLinePrice(idx)" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
                                 <option value="caja" x-text="line.pack_label || 'Presentación'"></option>
                                 <option value="unidad">Unidad</option>
                             </select>
                         </div>
+                        <div class="md:col-span-3" x-show="line.unit_type === 'combo'">
+                            <label class="block text-xs text-gray-500 mb-1">Tipo</label>
+                            <p class="h-9 flex items-center text-sm text-gray-700">Combo</p>
+                        </div>
                         <div class="md:col-span-2 flex justify-end">
                             <button type="button" class="text-red-600 text-sm" @click="remove(idx)">Quitar</button>
                         </div>
                         <input type="hidden" :name="'items['+idx+'][product_id]'" :value="line.product_id">
+                        <input type="hidden" :name="'items['+idx+'][combo_id]'" :value="line.combo_id">
                         <input type="hidden" :name="'items['+idx+'][quantity]'" :value="line.quantity">
                         <input type="hidden" :name="'items['+idx+'][unit_type]'" :value="line.unit_type">
                     </div>
@@ -158,13 +178,15 @@ window.__quoteForm = {
 function quoteForm() {
     return {
         lines: [],
+        combos: [],
         customMarkup: '',
         includeIva: false,
         discountPercentage: '',
         discountAmount: '',
         discountManuallyEdited: false,
-        init(cfg) {
+        async init(cfg) {
             this.lines = (cfg.lines || []).map(l => ({
+                combo_id: Number(l.combo_id || 0),
                 product_id: l.product_id || 0,
                 code: l.code || '',
                 name: l.name || '',
@@ -183,6 +205,7 @@ function quoteForm() {
             this.discountAmount = cfg.discountAmount || '';
             this.discountManuallyEdited = this.discountAmount !== '';
             if (this.lines.length === 0) this.addLine();
+            await this.loadCombos();
             this.refreshAllLinePrices(false);
             if (this.discountPercentage !== '' && !this.discountManuallyEdited) {
                 this.recalculateDiscountAmount();
@@ -190,13 +213,47 @@ function quoteForm() {
         },
         addLine() {
             this.lines.push({
-                product_id: 0, code: '', name: '', category_context: '', quantity: 1, unit_type: 'caja',
+                combo_id: 0, product_id: 0, code: '', name: '', category_context: '', quantity: 1, unit_type: 'caja',
                 pack_label: 'Caja', sale_unit_default: 'caja', unit_price: 0, query: '', results: []
             });
+        },
+        addComboLine() {
+            this.lines.push({
+                combo_id: 0, product_id: 0, code: '', name: '', category_context: '', quantity: 1, unit_type: 'combo',
+                pack_label: 'Combo', sale_unit_default: 'caja', unit_price: 0, query: '', results: []
+            });
+        },
+        async loadCombos() {
+            try {
+                const res = await fetch(window.appUrl('/api/combos'));
+                const data = await res.json();
+                this.combos = data.results || [];
+            } catch (e) {
+                this.combos = [];
+            }
+        },
+        pickCombo(i) {
+            const line = this.lines[i];
+            const combo = this.combos.find(c => Number(c.id) === Number(line.combo_id));
+            if (!combo) {
+                line.name = '';
+                line.unit_price = 0;
+                this.recalculateDiscountIfAuto();
+                return;
+            }
+            line.product_id = 0;
+            line.name = combo.name || '';
+            line.unit_price = Number(combo.final_price || 0);
+            line.pack_label = 'Combo';
+            this.recalculateDiscountIfAuto();
         },
         remove(i) { this.lines.splice(i, 1); if (this.lines.length === 0) this.addLine(); this.recalculateDiscountIfAuto(); },
         async search(i) {
             const line = this.lines[i];
+            if (line.unit_type === 'combo') {
+                this.pickCombo(i);
+                return;
+            }
             const q = (line.query || '').trim();
             if (q.length < 2) { line.results = []; return; }
             const res = await fetch(window.appUrl('/api/productos/buscar?q=' + encodeURIComponent(q)));
@@ -205,6 +262,7 @@ function quoteForm() {
         },
         pick(i, r) {
             const line = this.lines[i];
+            line.combo_id = 0;
             line.product_id = r.id;
             line.code = r.code;
             line.name = r.name;
@@ -218,6 +276,10 @@ function quoteForm() {
         },
         async updateLinePrice(i) {
             const line = this.lines[i];
+            if (line.unit_type === 'combo') {
+                this.pickCombo(i);
+                return;
+            }
             if (!line || !line.product_id) {
                 if (line) line.unit_price = 0;
                 this.recalculateDiscountIfAuto();

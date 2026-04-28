@@ -7,10 +7,11 @@ $includeIvaQuote = !empty($quote['include_iva']);
 $leyendaIva = priceIvaLegendLine($includeIvaQuote);
 $waItems = [];
 foreach ($items as $it) {
+    $lineName = (int) ($it['combo_id'] ?? 0) > 0 ? (string) ($it['combo_name'] ?? 'Combo') : trim((string) (($it['code'] ?? '') . ' — ' . ($it['name'] ?? '')));
     $waItems[] = [
         'qty' => (int) $it['quantity'],
         'label' => (string) ($it['unit_label'] ?? ''),
-        'product' => trim(($it['code'] ?? '') . ' — ' . ($it['name'] ?? '')),
+        'product' => $lineName,
         'sub' => formatPrice((float) $it['subtotal']),
     ];
 }
@@ -214,11 +215,12 @@ $badges = [
             </thead>
             <tbody class="divide-y divide-gray-100">
                 <?php foreach ($items as $it): ?>
+                    <?php $isCombo = (int) ($it['combo_id'] ?? 0) > 0; ?>
                     <tr>
-                        <td class="px-4 py-2"><?= e($it['code']) ?> — <?= e($it['name']) ?></td>
-                        <td class="px-4 py-2 text-gray-700 text-sm"><?= e(quoteItemDetalleDisplay($it)) ?></td>
+                        <td class="px-4 py-2"><?= $isCombo ? e((string) ($it['combo_name'] ?? 'Combo')) : e((string) $it['code']) . ' — ' . e((string) $it['name']) ?></td>
+                        <td class="px-4 py-2 text-gray-700 text-sm"><?= $isCombo ? 'Combo' : e(quoteItemDetalleDisplay($it)) ?></td>
                         <td class="px-4 py-2 text-right"><?= (int) $it['quantity'] ?></td>
-                        <td class="px-4 py-2 text-right text-gray-700"><?= formatPrice(quoteItemIndividualUnitPrice($it, $quote)) ?></td>
+                        <td class="px-4 py-2 text-right text-gray-700"><?= $isCombo ? formatPrice((float) $it['unit_price']) : formatPrice(quoteItemIndividualUnitPrice($it, $quote)) ?></td>
                         <td class="px-4 py-2 text-right"><?= formatPrice((float) $it['unit_price']) ?></td>
                         <td class="px-4 py-2 text-right font-medium"><?= formatPrice((float) $it['subtotal']) ?></td>
                     </tr>

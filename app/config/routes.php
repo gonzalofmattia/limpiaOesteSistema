@@ -31,6 +31,13 @@ return [
     ['GET', 'productos/importar', 'ProductController@importForm', []],
     ['POST', 'productos/importar', 'ProductController@import', []],
     ['POST', 'productos/importar-masivo', 'ProductController@importMultiSheet', []],
+    ['GET', 'combos', 'ComboController@index', []],
+    ['GET', 'combos/crear', 'ComboController@create', []],
+    ['POST', 'combos/guardar', 'ComboController@store', []],
+    ['GET', 'combos/{id}/editar', 'ComboController@edit', []],
+    ['POST', 'combos/{id}/actualizar', 'ComboController@update', []],
+    ['POST', 'combos/{id}/eliminar', 'ComboController@destroy', []],
+    ['POST', 'combos/{id}/toggle', 'ComboController@toggle', []],
     ['GET', 'stock-actual', 'StockController@index', []],
     ['POST', 'stock-actual/ajustar', 'StockController@adjust', []],
 
@@ -116,6 +123,9 @@ return [
     ['GET', 'api/productos/{id}/imagen/{img}', 'ApiController@serveProductImage', ['public' => true]],
     ['GET', 'api/productos/buscar', 'ApiController@searchProducts', []],
     ['GET', 'api/productos/{id}/precio', 'ApiController@getProductPrice', []],
+    ['GET', 'api/combos', 'ComboController@apiList', []],
+    ['GET', 'api/combos/{id}', 'ComboController@apiShow', []],
+    ['GET', 'api/combos/{id}/precio', 'ComboController@apiPrice', []],
     ['GET', 'api/categorias/{id}/productos', 'ApiController@getCategoryProducts', []],
     ['POST', 'api/pricing/preview', 'ApiController@previewPricing', []],
 ];

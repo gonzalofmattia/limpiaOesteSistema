@@ -17,11 +17,19 @@ final class QuoteDeliveryStock
     public static function unitsByProductForQuote(Database $db, int $quoteId): array
     {
         $rows = $db->fetchAll(
-            'SELECT qi.product_id, qi.quantity, qi.unit_type, p.units_per_box
-             FROM quote_items qi
-             JOIN products p ON p.id = qi.product_id
-             WHERE qi.quote_id = ?',
-            [$quoteId]
+            'SELECT x.product_id, x.quantity, x.unit_type, p.units_per_box
+             FROM (
+                 SELECT qi.product_id, qi.quantity, qi.unit_type
+                 FROM quote_items qi
+                 WHERE qi.quote_id = ? AND qi.product_id IS NOT NULL
+                 UNION ALL
+                 SELECT cp.product_id, (qi.quantity * cp.quantity) AS quantity, \'unidad\' AS unit_type
+                 FROM quote_items qi
+                 JOIN combo_products cp ON cp.combo_id = qi.combo_id
+                 WHERE qi.quote_id = ? AND qi.combo_id IS NOT NULL
+             ) x
+             JOIN products p ON p.id = x.product_id',
+            [$quoteId, $quoteId]
         );
         $out = [];
         foreach ($rows as $row) {

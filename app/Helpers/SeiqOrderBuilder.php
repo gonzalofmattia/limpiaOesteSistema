@@ -33,26 +33,35 @@ final class SeiqOrderBuilder
             return [];
         }
         $placeholders = implode(',', array_fill(0, count($quoteIds), '?'));
+        $params = array_merge($quoteIds, $quoteIds);
 
         return $db->fetchAll(
-            "SELECT qi.*,
+            "SELECT x.quote_id, x.product_id, x.quantity, x.unit_type,
                     p.code, p.name AS product_name, p.units_per_box, p.content,
                     p.sale_unit_label, p.presentation, p.sale_unit_description,
                     p.stock_units,
-                    qi.unit_type,
                     c.name AS category_name, c.slug AS category_slug,
                     pc.name AS parent_category_name,
                     COALESCE(c.supplier_id, pc.supplier_id) AS supplier_id,
                     s.name AS supplier_name,
                     s.slug AS supplier_slug
-             FROM quote_items qi
-             JOIN products p ON qi.product_id = p.id
+             FROM (
+                SELECT qi.quote_id, qi.product_id, qi.quantity, qi.unit_type
+                FROM quote_items qi
+                WHERE qi.quote_id IN ({$placeholders}) AND qi.product_id IS NOT NULL
+                UNION ALL
+                SELECT qi.quote_id, cp.product_id, (qi.quantity * cp.quantity) AS quantity, 'unidad' AS unit_type
+                FROM quote_items qi
+                JOIN combo_products cp ON cp.combo_id = qi.combo_id
+                WHERE qi.quote_id IN ({$placeholders}) AND qi.combo_id IS NOT NULL
+             ) x
+             JOIN products p ON x.product_id = p.id
              JOIN categories c ON p.category_id = c.id
              LEFT JOIN categories pc ON c.parent_id = pc.id
              LEFT JOIN suppliers s ON s.id = COALESCE(c.supplier_id, pc.supplier_id)
-             WHERE qi.quote_id IN ({$placeholders})
+             WHERE x.quantity > 0
              ORDER BY p.code",
-            $quoteIds
+            $params
         );
     }
 

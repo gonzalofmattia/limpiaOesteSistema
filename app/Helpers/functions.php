@@ -200,6 +200,9 @@ function seiqRemainderLabel(array $row): string
  */
 function quoteItemDetalleDisplay(array $it): string
 {
+    if ((int) ($it['combo_id'] ?? 0) > 0) {
+        return 'Combo';
+    }
     return \App\Helpers\QuoteLinePricing::fallbackDetalleDisplay($it);
 }
 
@@ -219,6 +222,9 @@ function priceIvaLegendLine(bool $includeIva): string
 
 function quoteItemIndividualUnitPrice(array $it, array $quote): float
 {
+    if ((int) ($it['combo_id'] ?? 0) > 0) {
+        return (float) ($it['unit_price'] ?? 0);
+    }
     if (isset($it['individual_unit_price']) && $it['individual_unit_price'] !== null && $it['individual_unit_price'] !== '') {
         return (float) $it['individual_unit_price'];
     }
