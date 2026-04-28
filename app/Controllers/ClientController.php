@@ -115,6 +115,51 @@ final class ClientController extends Controller
         redirect('/clientes');
     }
 
+    public function delete(string $id): void
+    {
+        if (!verifyCsrf()) {
+            flash('error', 'Token inválido.');
+            redirect('/clientes');
+            return;
+        }
+        $db = Database::getInstance();
+        $clientId = (int) $id;
+        $client = $db->fetch('SELECT id, name FROM clients WHERE id = ?', [$clientId]);
+        if (!$client) {
+            flash('error', 'Cliente no encontrado.');
+            redirect('/clientes');
+            return;
+        }
+
+        $hasQuotes = (int) $db->fetchColumn('SELECT COUNT(*) FROM quotes WHERE client_id = ?', [$clientId]) > 0;
+        if ($hasQuotes) {
+            flash('error', 'No podés eliminar este cliente porque tiene presupuestos asociados.');
+            redirect('/clientes');
+            return;
+        }
+
+        try {
+            $hasAccount = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
+            if ($hasAccount) {
+                $hasMovements = (int) $db->fetchColumn(
+                    "SELECT COUNT(*) FROM account_transactions WHERE account_type = 'client' AND account_id = ?",
+                    [$clientId]
+                ) > 0;
+                if ($hasMovements) {
+                    flash('error', 'No podés eliminar este cliente porque tiene movimientos en cuenta corriente.');
+                    redirect('/clientes');
+                    return;
+                }
+            }
+        } catch (\Throwable) {
+            // Si no existe la tabla, continúa.
+        }
+
+        $db->delete('clients', 'id = :id', ['id' => $clientId]);
+        flash('success', 'Cliente eliminado.');
+        redirect('/clientes');
+    }
+
     /** @return array<string, mixed> */
     private function validate(): array
     {

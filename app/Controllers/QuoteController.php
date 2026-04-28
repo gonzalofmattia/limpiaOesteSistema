@@ -288,6 +288,68 @@ final class QuoteController extends Controller
         redirect('/presupuestos/' . $id);
     }
 
+    public function delete(string $id): void
+    {
+        if (!verifyCsrf()) {
+            flash('error', 'Token inválido.');
+            redirect('/presupuestos');
+            return;
+        }
+        $db = Database::getInstance();
+        $quoteId = (int) $id;
+        $quote = $db->fetch('SELECT id, quote_number, pdf_path FROM quotes WHERE id = ?', [$quoteId]);
+        if (!$quote) {
+            flash('error', 'Presupuesto no encontrado.');
+            redirect('/presupuestos');
+            return;
+        }
+
+        $db->getPdo()->beginTransaction();
+        try {
+            try {
+                $hasAttach = (bool) $db->fetchColumn("SHOW TABLES LIKE 'quote_attachments'");
+                if ($hasAttach) {
+                    $db->query('DELETE FROM quote_attachments WHERE quote_id = ?', [$quoteId]);
+                }
+            } catch (\Throwable) {
+                // Si no está la tabla por entorno/migración, continúa.
+            }
+
+            try {
+                $hasAccount = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
+                if ($hasAccount) {
+                    $db->query(
+                        "DELETE FROM account_transactions
+                         WHERE reference_type = 'quote' AND reference_id = ?",
+                        [$quoteId]
+                    );
+                }
+            } catch (\Throwable) {
+                // No bloquea el borrado principal.
+            }
+
+            $db->delete('quote_items', 'quote_id = :qid', ['qid' => $quoteId]);
+            $db->delete('quotes', 'id = :id', ['id' => $quoteId]);
+            $db->getPdo()->commit();
+        } catch (\Throwable $e) {
+            $db->getPdo()->rollBack();
+            flash('error', 'No se pudo eliminar el presupuesto: ' . $e->getMessage());
+            redirect('/presupuestos');
+            return;
+        }
+
+        $pdfPath = trim((string) ($quote['pdf_path'] ?? ''));
+        if ($pdfPath !== '') {
+            $full = STORAGE_PATH . '/pdfs/' . basename($pdfPath);
+            if (is_file($full)) {
+                @unlink($full);
+            }
+        }
+
+        flash('success', 'Presupuesto eliminado.');
+        redirect('/presupuestos');
+    }
+
     private function recalculateClientBalance(int $clientId): void
     {
         if ($clientId <= 0) {

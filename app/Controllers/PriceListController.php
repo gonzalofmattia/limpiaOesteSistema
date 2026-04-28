@@ -149,6 +149,46 @@ final class PriceListController extends Controller
         exit;
     }
 
+    public function delete(string $id): void
+    {
+        if (!verifyCsrf()) {
+            flash('error', 'Token inválido.');
+            redirect('/listas');
+            return;
+        }
+        $db = Database::getInstance();
+        $listId = (int) $id;
+        $list = $db->fetch('SELECT id, name, pdf_path FROM price_lists WHERE id = ?', [$listId]);
+        if (!$list) {
+            flash('error', 'Lista no encontrada.');
+            redirect('/listas');
+            return;
+        }
+
+        $db->getPdo()->beginTransaction();
+        try {
+            $db->delete('price_list_items', 'price_list_id = :id', ['id' => $listId]);
+            $db->delete('price_lists', 'id = :id', ['id' => $listId]);
+            $db->getPdo()->commit();
+        } catch (\Throwable $e) {
+            $db->getPdo()->rollBack();
+            flash('error', 'No se pudo eliminar la lista: ' . $e->getMessage());
+            redirect('/listas');
+            return;
+        }
+
+        $pdfPath = trim((string) ($list['pdf_path'] ?? ''));
+        if ($pdfPath !== '') {
+            $full = STORAGE_PATH . '/pdfs/' . basename($pdfPath);
+            if (is_file($full)) {
+                @unlink($full);
+            }
+        }
+
+        flash('success', 'Lista eliminada.');
+        redirect('/listas');
+    }
+
     /**
      * @return array{
      *   name:string,

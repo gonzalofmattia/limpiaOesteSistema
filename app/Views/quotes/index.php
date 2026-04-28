@@ -47,6 +47,10 @@ $statusStyle = [
                         <a href="<?= e(url('/presupuestos/' . (int) $q['id'])) ?>" class="text-[#1565C0] hover:underline">Ver</a>
                         <a href="<?= e(url('/presupuestos/' . (int) $q['id'] . '/editar')) ?>" class="text-gray-600 hover:underline">Editar</a>
                         <a href="<?= e(url('/presupuestos/' . (int) $q['id'] . '/pdf')) ?>" class="text-[#1a6b3c] hover:underline">PDF</a>
+                        <form method="post" action="<?= e(url('/presupuestos/' . (int) $q['id'] . '/eliminar')) ?>" class="inline" onsubmit="return confirm('¿Seguro que querés eliminar este presupuesto?');">
+                            <?= csrfField() ?>
+                            <button type="submit" class="text-red-600 hover:underline">Eliminar</button>
+                        </form>
                     </td>
                 </tr>
             <?php endforeach; ?>

@@ -35,6 +35,10 @@
                         <?php if (!empty($l['pdf_path'])): ?>
                             <a href="<?= e(url('/listas/' . (int) $l['id'] . '/pdf')) ?>" class="text-[#1a6b3c] hover:underline">PDF</a>
                         <?php endif; ?>
+                        <form method="post" action="<?= e(url('/listas/' . (int) $l['id'] . '/eliminar')) ?>" class="inline" onsubmit="return confirm('¿Seguro que querés eliminar esta lista de precios?');">
+                            <?= csrfField() ?>
+                            <button type="submit" class="text-red-600 hover:underline">Eliminar</button>
+                        </form>
                     </td>
                 </tr>
             <?php endforeach; ?>

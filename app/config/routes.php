@@ -38,12 +38,14 @@ return [
     ['POST', 'listas', 'PriceListController@store', []],
     ['GET', 'listas/{id}', 'PriceListController@show', []],
     ['GET', 'listas/{id}/pdf', 'PriceListController@downloadPdf', []],
+    ['POST', 'listas/{id}/eliminar', 'PriceListController@delete', []],
 
     ['GET', 'clientes', 'ClientController@index', []],
     ['GET', 'clientes/crear', 'ClientController@create', []],
     ['POST', 'clientes', 'ClientController@store', []],
     ['GET', 'clientes/{id}/editar', 'ClientController@edit', []],
     ['POST', 'clientes/{id}', 'ClientController@update', []],
+    ['POST', 'clientes/{id}/eliminar', 'ClientController@delete', []],
 
     ['GET', 'presupuestos', 'QuoteController@index', []],
     ['GET', 'presupuestos/crear', 'QuoteController@create', []],
@@ -52,6 +54,7 @@ return [
     ['GET', 'presupuestos/{id}/editar', 'QuoteController@edit', []],
     ['POST', 'presupuestos/{id}', 'QuoteController@update', []],
     ['GET', 'presupuestos/{id}/pdf', 'QuoteController@downloadPdf', []],
+    ['POST', 'presupuestos/{id}/eliminar', 'QuoteController@delete', []],
     ['POST', 'presupuestos/{id}/status', 'QuoteController@changeStatus', []],
     ['GET', 'presupuestos/{id}/enviar-mail', 'MailController@sendForm', []],
     ['POST', 'presupuestos/{id}/enviar-mail', 'MailController@send', []],

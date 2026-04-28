@@ -32,6 +32,10 @@
                     <td class="px-4 py-3 text-right whitespace-nowrap space-x-2">
                         <a href="<?= e(url('/cuenta-corriente/cliente/' . (int) $c['id'])) ?>" class="text-[#1a6b3c] hover:underline">Ver cuenta</a>
                         <a href="<?= e(url('/clientes/' . (int) $c['id'] . '/editar')) ?>" class="text-[#1565C0] hover:underline">Editar</a>
+                        <form method="post" action="<?= e(url('/clientes/' . (int) $c['id'] . '/eliminar')) ?>" class="inline" onsubmit="return confirm('¿Seguro que querés eliminar este cliente?');">
+                            <?= csrfField() ?>
+                            <button type="submit" class="text-red-600 hover:underline">Eliminar</button>
+                        </form>
                     </td>
                 </tr>
             <?php endforeach; ?>
