@@ -6,6 +6,7 @@
             <p class="text-sm text-gray-600 mt-1"><?= e((string) ($sale['created_at'] ?? '')) ?></p>
         </div>
         <div class="flex gap-2 items-start">
+            <a href="<?= e(url('/ventas-ml/' . (int) ($sale['id'] ?? 0) . '/editar')) ?>" class="px-3 py-1.5 rounded-lg border border-gray-300 text-sm">Editar</a>
             <a href="<?= e(url('/ventas-ml')) ?>" class="px-3 py-1.5 rounded-lg border border-gray-300 text-sm">Volver</a>
         </div>
     </div>

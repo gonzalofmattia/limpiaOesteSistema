@@ -1,11 +1,35 @@
-<div class="max-w-5xl" x-data="mlSaleForm()" x-init="init()" x-effect="if (!manualTotal) { mlSaleTotal = productsTotal(); }">
-    <form method="post" action="<?= e(url('/ventas-ml/guardar')) ?>" class="space-y-6">
+<?php
+$isEdit = isset($sale) && is_array($sale) && !empty($sale['id']);
+$formAction = $isEdit ? url('/ventas-ml/' . (int) $sale['id']) : url('/ventas-ml/guardar');
+$initialLines = [];
+foreach (($items ?? []) as $it) {
+    $initialLines[] = [
+        'product_id' => (int) ($it['product_id'] ?? 0),
+        'code' => (string) ($it['code'] ?? ''),
+        'name' => (string) ($it['name'] ?? ''),
+        'quantity' => (int) ($it['quantity'] ?? 1),
+        'unit_type' => (string) ($it['unit_type'] ?? 'caja'),
+        'pack_label' => (string) ($it['sale_unit_label'] ?? 'Caja'),
+        'unit_price' => (float) ($it['unit_price'] ?? 0),
+    ];
+}
+?>
+<script>
+window.__mlSaleForm = {
+    lines: <?= json_encode($initialLines, JSON_UNESCAPED_UNICODE) ?: '[]' ?>,
+    saleDate: <?= json_encode($isEdit ? substr((string) ($sale['created_at'] ?? ''), 0, 10) : date('Y-m-d'), JSON_UNESCAPED_UNICODE) ?>,
+    mlSaleTotal: <?= json_encode((string) ($sale['ml_sale_total'] ?? ''), JSON_UNESCAPED_UNICODE) ?>,
+    mlNetAmount: <?= json_encode((string) ($sale['ml_net_amount'] ?? ''), JSON_UNESCAPED_UNICODE) ?>,
+};
+</script>
+<div class="max-w-5xl" x-data="mlSaleForm()" x-init="init(window.__mlSaleForm)" x-effect="if (!manualTotal) { mlSaleTotal = productsTotal(); }">
+    <form method="post" action="<?= e($formAction) ?>" class="space-y-6">
         <?= csrfField() ?>
 
         <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 grid sm:grid-cols-2 gap-4">
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Fecha de venta</label>
-                <input type="date" name="sale_date" value="<?= e(date('Y-m-d')) ?>"
+                <input type="date" name="sale_date" x-model="saleDate"
                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
             </div>
         </div>
@@ -29,6 +53,9 @@
                                     </button>
                                 </template>
                             </div>
+                            <p class="text-xs text-green-700 mt-1" x-show="line.product_id">
+                                Seleccionado: <span x-text="line.code + ' — ' + line.name"></span>
+                            </p>
                         </div>
                         <div class="md:col-span-2">
                             <label class="block text-xs text-gray-500 mb-1">Cantidad</label>
@@ -86,7 +113,7 @@
         </div>
 
         <div class="flex gap-3">
-            <button type="submit" class="px-5 py-2.5 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium">Guardar venta ML</button>
+            <button type="submit" class="px-5 py-2.5 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium"><?= $isEdit ? 'Guardar cambios' : 'Guardar venta ML' ?></button>
             <a href="<?= e(url('/ventas-ml')) ?>" class="px-5 py-2.5 rounded-lg border border-gray-300 text-sm">Cancelar</a>
         </div>
     </form>
@@ -97,10 +124,26 @@ function mlSaleForm() {
     return {
         lines: [],
         manualTotal: false,
+        saleDate: '',
         mlSaleTotal: 0,
         mlNetAmount: 0,
-        init() {
-            this.addLine();
+        init(cfg) {
+            this.saleDate = cfg && cfg.saleDate ? cfg.saleDate : '';
+            this.mlSaleTotal = Number(cfg && cfg.mlSaleTotal ? cfg.mlSaleTotal : 0);
+            this.mlNetAmount = Number(cfg && cfg.mlNetAmount ? cfg.mlNetAmount : 0);
+            this.lines = Array.isArray(cfg && cfg.lines) ? cfg.lines.map(l => ({
+                product_id: Number(l.product_id || 0),
+                code: l.code || '',
+                name: l.name || '',
+                quantity: Number(l.quantity || 1),
+                unit_type: l.unit_type || 'caja',
+                pack_label: l.pack_label || 'Caja',
+                query: l.product_id ? ((l.code || '') + ' — ' + (l.name || '')) : '',
+                results: [],
+                unit_price: Number(l.unit_price || 0)
+            })) : [];
+            if (this.lines.length === 0) this.addLine();
+            this.manualTotal = !!(cfg && cfg.mlSaleTotal && Number(cfg.mlSaleTotal) > 0);
         },
         addLine() {
             this.lines.push({
@@ -115,6 +158,11 @@ function mlSaleForm() {
         async search(i) {
             const line = this.lines[i];
             const q = (line.query || '').trim();
+            if (line.product_id && q !== (line.code + ' — ' + line.name)) {
+                line.product_id = 0;
+                line.code = '';
+                line.name = '';
+            }
             if (q.length < 2) {
                 line.results = [];
                 return;
@@ -131,7 +179,7 @@ function mlSaleForm() {
             line.pack_label = (r.sale_unit_label && String(r.sale_unit_label).trim()) ? r.sale_unit_label.trim() : 'Caja';
             line.unit_type = (r.sale_unit_type === 'unidad') ? 'unidad' : 'caja';
             line.results = [];
-            line.query = '';
+            line.query = r.code + ' — ' + r.name;
         },
         lineSubtotal(line) {
             return Math.max(0, Number(line.quantity || 0) * Number(line.unit_price || 0));
