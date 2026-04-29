@@ -6,7 +6,7 @@
 <div class="max-w-6xl space-y-6">
     <div>
         <h2 class="text-lg font-semibold text-gray-900">Generar pedidos a proveedores</h2>
-        <p class="text-sm text-gray-600 mt-1">Se consolidan los presupuestos <strong>accepted</strong>, se descuenta el stock actual del producto y se arma una sugerencia editable por proveedor.</p>
+        <p class="text-sm text-gray-600 mt-1">Se consolidan los presupuestos <strong>accepted</strong>, se descuenta el stock disponible (total - comprometido) y se arma una sugerencia editable por proveedor.</p>
     </div>
 
     <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
@@ -38,7 +38,9 @@
                         <th class="text-left px-3 py-2">Código</th>
                         <th class="text-left px-3 py-2">Producto</th>
                         <th class="text-left px-3 py-2">Vendido</th>
-                        <th class="text-left px-3 py-2">Stock</th>
+                        <th class="text-left px-3 py-2">Stock total</th>
+                        <th class="text-left px-3 py-2">Comprometido</th>
+                        <th class="text-left px-3 py-2">Disponible</th>
                         <th class="text-left px-3 py-2">Faltante</th>
                         <th class="text-left px-3 py-2">Pedir</th>
                         <th class="text-left px-3 py-2">Remanente</th>
@@ -60,6 +62,8 @@
                         $vendidoBody = implode(' + ', $vendidoLines);
                         $productId = (int) ($r['product_id'] ?? 0);
                         $stockUnits = max(0, (int) ($r['stock_units'] ?? 0));
+                        $committedUnits = max(0, (int) ($r['stock_committed_units'] ?? 0));
+                        $stockAvailable = (int) ($r['stock_available_units'] ?? max(0, $stockUnits - $committedUnits));
                         $shortageUnits = max(0, (int) ($r['units_to_order_after_stock'] ?? $r['total_units_needed'] ?? 0));
                         $defaultBoxes = max(0, (int) ($r['boxes_to_order'] ?? 0));
                         ?>
@@ -77,6 +81,8 @@
                                 <div class="text-xs text-gray-500">= <?= (int) $r['total_units_needed'] ?> un. totales</div>
                             </td>
                             <td class="px-3 py-2 align-top text-gray-700"><?= (int) $stockUnits ?> un.</td>
+                            <td class="px-3 py-2 align-top <?= $committedUnits > 0 ? 'text-amber-600 font-medium' : 'text-gray-500' ?>"><?= (int) $committedUnits ?> un.</td>
+                            <td class="px-3 py-2 align-top font-semibold <?= $stockAvailable > 0 ? 'text-green-700' : 'text-red-700' ?>"><?= (int) $stockAvailable ?> un.</td>
                             <td class="px-3 py-2 align-top text-gray-700"><?= (int) $shortageUnits ?> un.</td>
                             <td class="px-3 py-2 align-top">
                                 <label class="sr-only" for="boxes_to_order_<?= $productId ?>">Cajas a pedir</label>

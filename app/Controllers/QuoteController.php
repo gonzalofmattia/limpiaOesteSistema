@@ -134,6 +134,7 @@ final class QuoteController extends Controller
         }
         $items = $db->fetchAll(
             'SELECT qi.*, p.code, p.name, cmb.name AS combo_name, p.category_id, p.sale_unit_label, p.sale_unit_type, p.content,
+                    p.units_per_box, p.stock_units, COALESCE(p.stock_committed_units, 0) AS stock_committed_units,
                     p.sale_unit_description, COALESCE(pc.slug, c.slug) AS category_slug
              FROM quote_items qi
              LEFT JOIN products p ON p.id = qi.product_id
@@ -232,9 +233,15 @@ final class QuoteController extends Controller
         $pdo = $db->getPdo();
         $pdo->beginTransaction();
         try {
+            if ($oldStatus === 'accepted' && $status !== 'accepted') {
+                QuoteDeliveryStock::releaseCommittedStock($db, (int) $id);
+            }
             if ($oldStatus === 'delivered' && $status !== 'delivered' && $deliveryApplied) {
                 QuoteDeliveryStock::reverseDelivery($db, (int) $id);
                 $extra['delivery_stock_applied'] = 0;
+            }
+            if ($status === 'accepted' && $oldStatus !== 'accepted') {
+                QuoteDeliveryStock::commitStock($db, (int) $id);
             }
             if ($status === 'delivered' && $oldStatus !== 'delivered' && !$deliveryApplied) {
                 QuoteDeliveryStock::applyDelivery($db, (int) $id);
@@ -300,7 +307,7 @@ final class QuoteController extends Controller
         }
         $db = Database::getInstance();
         $quoteId = (int) $id;
-        $quote = $db->fetch('SELECT id, quote_number, pdf_path FROM quotes WHERE id = ?', [$quoteId]);
+        $quote = $db->fetch('SELECT id, quote_number, pdf_path, status FROM quotes WHERE id = ?', [$quoteId]);
         if (!$quote) {
             flash('error', 'Presupuesto no encontrado.');
             redirect('/presupuestos');
@@ -309,6 +316,9 @@ final class QuoteController extends Controller
 
         $db->getPdo()->beginTransaction();
         try {
+            if ((string) ($quote['status'] ?? '') === 'accepted') {
+                QuoteDeliveryStock::releaseCommittedStock($db, $quoteId);
+            }
             try {
                 $hasAttach = (bool) $db->fetchColumn("SHOW TABLES LIKE 'quote_attachments'");
                 if ($hasAttach) {
@@ -405,6 +415,7 @@ final class QuoteController extends Controller
 
         $db->getPdo()->beginTransaction();
         try {
+            $existingQuote = null;
             if ($id === null) {
                 $number = $this->nextQuoteNumber();
                 $id = $db->insert('quotes', [
@@ -424,10 +435,13 @@ final class QuoteController extends Controller
                     'status' => 'draft',
                 ]);
             } else {
-                $exists = $db->fetch('SELECT id FROM quotes WHERE id = ?', [$id]);
-                if (!$exists) {
+                $existingQuote = $db->fetch('SELECT id, status FROM quotes WHERE id = ?', [$id]);
+                if (!$existingQuote) {
                     $db->getPdo()->rollBack();
                     return ['error' => 'No encontrado.'];
+                }
+                if ((string) ($existingQuote['status'] ?? '') === 'accepted') {
+                    QuoteDeliveryStock::releaseCommittedStock($db, $id);
                 }
                 $db->delete('quote_items', 'quote_id = :qid', ['qid' => $id]);
                 $db->update('quotes', [
@@ -582,6 +596,9 @@ final class QuoteController extends Controller
                 'iva_amount' => round($ivaAmount, 2),
                 'total' => round($total, 2),
             ], 'id = :id', ['id' => $id]);
+            if ($existingQuote !== null && (string) ($existingQuote['status'] ?? '') === 'accepted') {
+                QuoteDeliveryStock::commitStock($db, $id);
+            }
 
             $db->getPdo()->commit();
             return ['id' => $id, 'error' => null];

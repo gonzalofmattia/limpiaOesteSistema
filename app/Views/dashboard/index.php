@@ -139,6 +139,40 @@ $barMax = max(array_merge([1.0], $acceptedSeries, $collectedSeries, $supplierSer
         </div>
     </section>
 
+    <section class="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm">
+        <div class="flex items-center justify-between gap-3 mb-3">
+            <h3 class="text-sm font-semibold text-gray-800">Stock bajo / comprometido</h3>
+            <a href="<?= e(url('/stock-actual')) ?>" class="text-xs text-accent hover:underline">Ver todo el stock</a>
+        </div>
+        <?php if (($lowStockProducts ?? []) === []): ?>
+            <p class="text-sm text-gray-500">Sin alertas de stock disponible.</p>
+        <?php else: ?>
+            <div class="overflow-x-auto">
+                <table class="min-w-full text-sm">
+                    <thead class="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs uppercase tracking-wide">
+                        <tr>
+                            <th class="text-left px-3 py-2">Producto</th>
+                            <th class="text-right px-3 py-2">Total</th>
+                            <th class="text-right px-3 py-2">Comprometido</th>
+                            <th class="text-right px-3 py-2">Disponible</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        <?php foreach (($lowStockProducts ?? []) as $p): ?>
+                            <?php $available = (int) ($p['stock_available_units'] ?? 0); ?>
+                            <tr>
+                                <td class="px-3 py-2"><?= e((string) ($p['name'] ?? '')) ?></td>
+                                <td class="px-3 py-2 text-right"><?= (int) ($p['stock_units'] ?? 0) ?></td>
+                                <td class="px-3 py-2 text-right text-amber-600 font-medium"><?= (int) ($p['stock_committed_units'] ?? 0) ?></td>
+                                <td class="px-3 py-2 text-right font-semibold <?= $available > 0 ? 'text-green-700' : 'text-red-700' ?>"><?= $available ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php endif; ?>
+    </section>
+
     <section class="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <a href="<?= e(url('/presupuestos/crear')) ?>" class="inline-flex items-center justify-center px-4 py-3 rounded-xl bg-accent text-white text-sm font-medium hover:bg-blue-700">
             Nuevo presupuesto

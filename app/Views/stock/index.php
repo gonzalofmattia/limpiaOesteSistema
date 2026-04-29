@@ -49,7 +49,9 @@
                 <th class="text-left px-3 py-2">Producto</th>
                 <th class="text-left px-3 py-2">Categoría</th>
                 <th class="text-right px-3 py-2">Unidades por caja</th>
-                <th class="text-right px-3 py-2">Stock (un.)</th>
+                <th class="text-right px-3 py-2">Stock total</th>
+                <th class="text-right px-3 py-2">Comprometido</th>
+                <th class="text-right px-3 py-2">Disponible</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
@@ -59,12 +61,19 @@
                     <td class="px-3 py-2"><?= e((string) $p['name']) ?></td>
                     <td class="px-3 py-2 text-gray-600"><?= e((string) $p['category_name']) ?></td>
                     <td class="px-3 py-2 text-right text-gray-600"><?= (int) ($p['units_per_box'] ?? 1) ?></td>
-                    <td class="px-3 py-2 text-right font-semibold text-[#1a6b3c]"><?= (int) ($p['stock_units'] ?? 0) ?></td>
+                    <?php
+                    $stockTotal = max(0, (int) ($p['stock_units'] ?? 0));
+                    $stockCommitted = max(0, (int) ($p['stock_committed_units'] ?? 0));
+                    $stockAvailable = $stockTotal - $stockCommitted;
+                    ?>
+                    <td class="px-3 py-2 text-right"><?= $stockTotal ?></td>
+                    <td class="px-3 py-2 text-right <?= $stockCommitted > 0 ? 'text-amber-600 font-medium' : 'text-gray-500' ?>"><?= $stockCommitted ?></td>
+                    <td class="px-3 py-2 text-right font-semibold <?= $stockAvailable > 0 ? 'text-green-700' : 'text-red-700' ?>"><?= $stockAvailable ?></td>
                 </tr>
             <?php endforeach; ?>
             <?php if ($products === []): ?>
                 <tr>
-                    <td colspan="5" class="px-3 py-6 text-center text-gray-500">No hay productos con stock para mostrar.</td>
+                    <td colspan="7" class="px-3 py-6 text-center text-gray-500">No hay productos con stock para mostrar.</td>
                 </tr>
             <?php endif; ?>
         </tbody>

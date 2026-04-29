@@ -21,6 +21,10 @@ foreach ($items as $it) {
         'unit_type' => $isComboLine ? 'combo' : QuoteLinePricing::normalizeUnitType((string) ($it['unit_type'] ?? 'caja')),
         'pack_label' => $isComboLine ? 'Combo' : $packLabel,
         'sale_unit_default' => (($it['sale_unit_type'] ?? 'caja') === 'unidad') ? 'unidad' : 'caja',
+        'units_per_box' => (int) ($it['units_per_box'] ?? 1),
+        'stock_units' => (int) ($it['stock_units'] ?? 0),
+        'stock_committed_units' => (int) ($it['stock_committed_units'] ?? 0),
+        'stock_available_units' => max(0, (int) ($it['stock_units'] ?? 0) - (int) ($it['stock_committed_units'] ?? 0)),
         'unit_price' => (float) ($it['unit_price'] ?? 0),
     ];
 }
@@ -138,6 +142,13 @@ window.__quoteForm = {
                         <input type="hidden" :name="'items['+idx+'][combo_id]'" :value="line.combo_id">
                         <input type="hidden" :name="'items['+idx+'][quantity]'" :value="line.quantity">
                         <input type="hidden" :name="'items['+idx+'][unit_type]'" :value="line.unit_type">
+                        <div class="md:col-span-12" x-show="line.stock_warnings && line.stock_warnings.length">
+                            <div class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                                <template x-for="(warn, widx) in line.stock_warnings" :key="widx">
+                                    <p x-text="'⚠️ ' + warn"></p>
+                                </template>
+                            </div>
+                        </div>
                     </div>
                 </template>
             </div>
@@ -196,6 +207,12 @@ function quoteForm() {
                 pack_label: l.pack_label || 'Caja',
                 sale_unit_default: l.sale_unit_default || 'caja',
                 unit_price: Number(l.unit_price || 0),
+                units_per_box: Number(l.units_per_box || 1),
+                stock_units: Number(l.stock_units || 0),
+                stock_committed_units: Number(l.stock_committed_units || 0),
+                stock_available_units: Number(l.stock_available_units || 0),
+                combo_products: [],
+                stock_warnings: [],
                 query: '',
                 results: []
             }));
@@ -214,13 +231,15 @@ function quoteForm() {
         addLine() {
             this.lines.push({
                 combo_id: 0, product_id: 0, code: '', name: '', category_context: '', quantity: 1, unit_type: 'caja',
-                pack_label: 'Caja', sale_unit_default: 'caja', unit_price: 0, query: '', results: []
+                pack_label: 'Caja', sale_unit_default: 'caja', unit_price: 0, units_per_box: 1, stock_units: 0, stock_committed_units: 0,
+                stock_available_units: 0, combo_products: [], stock_warnings: [], query: '', results: []
             });
         },
         addComboLine() {
             this.lines.push({
                 combo_id: 0, product_id: 0, code: '', name: '', category_context: '', quantity: 1, unit_type: 'combo',
-                pack_label: 'Combo', sale_unit_default: 'caja', unit_price: 0, query: '', results: []
+                pack_label: 'Combo', sale_unit_default: 'caja', unit_price: 0, units_per_box: 1, stock_units: 0, stock_committed_units: 0,
+                stock_available_units: 0, combo_products: [], stock_warnings: [], query: '', results: []
             });
         },
         async loadCombos() {
@@ -232,12 +251,14 @@ function quoteForm() {
                 this.combos = [];
             }
         },
-        pickCombo(i) {
+        async pickCombo(i) {
             const line = this.lines[i];
             const combo = this.combos.find(c => Number(c.id) === Number(line.combo_id));
             if (!combo) {
                 line.name = '';
                 line.unit_price = 0;
+                line.combo_products = [];
+                line.stock_warnings = [];
                 this.recalculateDiscountIfAuto();
                 return;
             }
@@ -245,6 +266,14 @@ function quoteForm() {
             line.name = combo.name || '';
             line.unit_price = Number(combo.final_price || 0);
             line.pack_label = 'Combo';
+            try {
+                const res = await fetch(window.appUrl('/api/combos/' + line.combo_id));
+                const data = await res.json();
+                line.combo_products = Array.isArray(data.products) ? data.products : [];
+            } catch (e) {
+                line.combo_products = [];
+            }
+            this.computeLineStockWarnings(line);
             this.recalculateDiscountIfAuto();
         },
         remove(i) { this.lines.splice(i, 1); if (this.lines.length === 0) this.addLine(); this.recalculateDiscountIfAuto(); },
@@ -270,6 +299,11 @@ function quoteForm() {
             line.pack_label = (r.sale_unit_label && String(r.sale_unit_label).trim()) ? r.sale_unit_label.trim() : 'Caja';
             line.sale_unit_default = (r.sale_unit_type === 'unidad') ? 'unidad' : 'caja';
             line.unit_type = line.sale_unit_default;
+            line.units_per_box = Number(r.units_per_box || 1);
+            line.stock_units = Number(r.stock_units || 0);
+            line.stock_committed_units = Number(r.stock_committed_units || 0);
+            line.stock_available_units = Number(r.stock_available_units || 0);
+            line.combo_products = [];
             line.results = [];
             line.query = '';
             this.updateLinePrice(i);
@@ -301,6 +335,7 @@ function quoteForm() {
             } catch (e) {
                 // Sin precio remoto: mantiene valor actual.
             }
+            this.computeLineStockWarnings(line);
             this.recalculateDiscountIfAuto();
         },
         async refreshAllLinePrices(recalculateDiscount = true) {
@@ -310,10 +345,48 @@ function quoteForm() {
             if (recalculateDiscount) {
                 this.recalculateDiscountIfAuto();
             }
+            this.refreshStockWarnings();
+        },
+        lineRequestedUnits(line) {
+            const qty = Number(line.quantity || 0);
+            if (qty <= 0) return 0;
+            if (line.unit_type === 'combo') return qty;
+            const upb = Number(line.units_per_box || 1);
+            return line.unit_type === 'unidad' ? qty : qty * (upb > 0 ? upb : 1);
+        },
+        computeLineStockWarnings(line) {
+            const warnings = [];
+            const qty = Math.max(1, Number(line.quantity || 1));
+            if (line.unit_type === 'combo') {
+                const comboProducts = Array.isArray(line.combo_products) ? line.combo_products : [];
+                comboProducts.forEach(cp => {
+                    const required = qty * Math.max(1, Number(cp.quantity || 1));
+                    const available = Math.max(0, Number(cp.stock_available_units || 0));
+                    if (required > available) {
+                        warnings.push(`Stock insuficiente para ${cp.name || cp.code || 'producto'} (combo). Disponible: ${available} un., solicitado: ${required} un.`);
+                    }
+                });
+                line.stock_warnings = warnings;
+                return;
+            }
+            if (!line.product_id) {
+                line.stock_warnings = [];
+                return;
+            }
+            const requested = this.lineRequestedUnits(line);
+            const available = Math.max(0, Number(line.stock_available_units || 0));
+            if (requested > available) {
+                warnings.push(`Stock insuficiente para ${line.name || 'producto'}. Disponible: ${available} un., solicitado: ${requested} un.`);
+            }
+            line.stock_warnings = warnings;
+        },
+        refreshStockWarnings() {
+            this.lines.forEach(line => this.computeLineStockWarnings(line));
         },
         lineSubtotal(line) {
             const qty = Number(line.quantity || 0);
             const unit = Number(line.unit_price || 0);
+            this.computeLineStockWarnings(line);
             return Math.max(0, qty * unit);
         },
         subtotal() {

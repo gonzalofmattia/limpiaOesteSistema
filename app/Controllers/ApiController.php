@@ -31,7 +31,7 @@ final class ApiController extends Controller
         }
         $rows = $db->fetchAll(
             'SELECT p.id, p.code, p.name, p.sale_unit_label, p.sale_unit_type, p.sale_unit_description,
-                    p.units_per_box, p.content,
+                    p.units_per_box, p.content, p.stock_units, COALESCE(p.stock_committed_units, 0) AS stock_committed_units,
                     c.name AS category_name, c.slug AS category_slug,
                     pc.name AS parent_category_name,
                     s.name AS supplier_name,
@@ -58,6 +58,9 @@ final class ApiController extends Controller
             if ($supplier !== '') {
                 $line = $supplier . ' > ' . $line;
             }
+            $stockUnits = max(0, (int) ($r['stock_units'] ?? 0));
+            $committedUnits = max(0, (int) ($r['stock_committed_units'] ?? 0));
+            $r['stock_available_units'] = max(0, $stockUnits - $committedUnits);
             $r['category_context'] = $line;
         }
         unset($r);

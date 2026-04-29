@@ -116,6 +116,7 @@ CREATE TABLE IF NOT EXISTS products (
     content_volume VARCHAR(50) DEFAULT NULL,
     units_per_box INT DEFAULT 1,
     stock_units INT NOT NULL DEFAULT 0,
+    stock_committed_units INT NOT NULL DEFAULT 0,
     unit_volume VARCHAR(50),
     equivalence VARCHAR(100),
     ean13 VARCHAR(13),
@@ -357,6 +358,9 @@ try {
     }
     if (!$installColumnExists($pdo, 'products', 'stock_units')) {
         $pdo->exec('ALTER TABLE products ADD COLUMN stock_units INT NOT NULL DEFAULT 0 AFTER units_per_box');
+    }
+    if (!$installColumnExists($pdo, 'products', 'stock_committed_units')) {
+        $pdo->exec('ALTER TABLE products ADD COLUMN stock_committed_units INT NOT NULL DEFAULT 0 AFTER stock_units');
     }
     if (!$installColumnExists($pdo, 'products', 'sale_unit_label')) {
         $pdo->exec("ALTER TABLE products ADD COLUMN sale_unit_label VARCHAR(50) NOT NULL DEFAULT 'Caja' AFTER sale_unit_type");

@@ -79,7 +79,7 @@ final class ComboController extends Controller
                     pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup,
                     p.precio_lista_unitario, p.precio_lista_caja, p.precio_lista_bidon,
                     p.precio_lista_litro, p.precio_lista_bulto, p.precio_lista_sobre,
-                    p.discount_override, p.markup_override
+                    p.discount_override, p.markup_override, p.stock_units, p.stock_committed_units
              FROM combo_products cp
              JOIN products p ON p.id = cp.product_id
              JOIN categories c ON c.id = p.category_id
@@ -346,12 +346,17 @@ final class ComboController extends Controller
             $unit = round($unitVenta, 2);
             $line = round($unit * $qty, 2);
             $subtotalCalculated += $line;
+            $stockUnits = max(0, (int) ($row['stock_units'] ?? 0));
+            $committedUnits = max(0, (int) ($row['stock_committed_units'] ?? 0));
             $detail[] = [
                 'product_id' => (int) $row['product_id'],
                 'code' => (string) $row['code'],
                 'name' => (string) $row['name'],
                 'presentation' => $row['presentation'],
                 'quantity' => $qty,
+                'stock_units' => $stockUnits,
+                'stock_committed_units' => $committedUnits,
+                'stock_available_units' => max(0, $stockUnits - $committedUnits),
                 'unit_price' => $unit,
                 'subtotal' => $line,
             ];

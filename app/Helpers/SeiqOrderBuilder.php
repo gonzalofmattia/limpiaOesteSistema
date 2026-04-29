@@ -32,37 +32,59 @@ final class SeiqOrderBuilder
         if ($quoteIds === []) {
             return [];
         }
-        $placeholders = implode(',', array_fill(0, count($quoteIds), '?'));
-        $params = array_merge($quoteIds, $quoteIds);
-
-        return $db->fetchAll(
-            "SELECT x.quote_id, x.product_id, x.quantity, x.unit_type,
-                    p.code, p.name AS product_name, p.units_per_box, p.content,
+        $unitsByQuote = QuoteDeliveryStock::unitsByProductForQuotes($db, $quoteIds);
+        if ($unitsByQuote === []) {
+            return [];
+        }
+        $productIds = [];
+        foreach ($unitsByQuote as $items) {
+            foreach ($items as $pid => $_units) {
+                $productIds[(int) $pid] = true;
+            }
+        }
+        if ($productIds === []) {
+            return [];
+        }
+        $ids = array_keys($productIds);
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $metaRows = $db->fetchAll(
+            "SELECT p.id, p.code, p.name AS product_name, p.units_per_box, p.content,
                     p.sale_unit_label, p.presentation, p.sale_unit_description,
-                    p.stock_units,
+                    p.stock_units, p.stock_committed_units,
                     c.name AS category_name, c.slug AS category_slug,
                     pc.name AS parent_category_name,
                     COALESCE(c.supplier_id, pc.supplier_id) AS supplier_id,
                     s.name AS supplier_name,
                     s.slug AS supplier_slug
-             FROM (
-                SELECT qi.quote_id, qi.product_id, qi.quantity, qi.unit_type
-                FROM quote_items qi
-                WHERE qi.quote_id IN ({$placeholders}) AND qi.product_id IS NOT NULL
-                UNION ALL
-                SELECT qi.quote_id, cp.product_id, (qi.quantity * cp.quantity) AS quantity, 'unidad' AS unit_type
-                FROM quote_items qi
-                JOIN combo_products cp ON cp.combo_id = qi.combo_id
-                WHERE qi.quote_id IN ({$placeholders}) AND qi.combo_id IS NOT NULL
-             ) x
-             JOIN products p ON x.product_id = p.id
+             FROM products p
              JOIN categories c ON p.category_id = c.id
              LEFT JOIN categories pc ON c.parent_id = pc.id
              LEFT JOIN suppliers s ON s.id = COALESCE(c.supplier_id, pc.supplier_id)
-             WHERE x.quantity > 0
-             ORDER BY p.code",
-            $params
+             WHERE p.id IN ({$placeholders})",
+            $ids
         );
+        $metaByProduct = [];
+        foreach ($metaRows as $row) {
+            $metaByProduct[(int) $row['id']] = $row;
+        }
+
+        $out = [];
+        foreach ($unitsByQuote as $qid => $rows) {
+            foreach ($rows as $pid => $units) {
+                $meta = $metaByProduct[(int) $pid] ?? null;
+                if ($meta === null) {
+                    continue;
+                }
+                $out[] = [
+                    'quote_id' => (int) $qid,
+                    'product_id' => (int) $pid,
+                    'quantity' => (int) $units,
+                    'unit_type' => 'unidad',
+                ] + $meta;
+            }
+        }
+
+        return $out;
     }
 
     /**
@@ -93,6 +115,7 @@ final class SeiqOrderBuilder
                     'sale_unit_label' => (string) ($item['sale_unit_label'] ?? ''),
                     'sale_unit_description' => (string) ($item['sale_unit_description'] ?? ''),
                     'stock_units' => max(0, (int) ($item['stock_units'] ?? 0)),
+                    'stock_committed_units' => max(0, (int) ($item['stock_committed_units'] ?? 0)),
                     'category_slug' => strtolower((string) ($item['category_slug'] ?? '')),
                     'units_per_box' => max(1, (int) ($item['units_per_box'] ?? 1) ?: 1),
                     'category_name' => $catName,
@@ -125,11 +148,15 @@ final class SeiqOrderBuilder
             $row['units_per_box'] = $unitsPerBox;
             $totalUnits = (int) $row['qty_units_sold'] + ((int) $row['qty_boxes_sold'] * $unitsPerBox);
             $stockUnits = max(0, (int) ($row['stock_units'] ?? 0));
-            $unitsToOrderAfterStock = max(0, $totalUnits - $stockUnits);
+            $committedUnits = max(0, (int) ($row['stock_committed_units'] ?? 0));
+            $stockAvailable = max(0, $stockUnits - $committedUnits);
+            $unitsToOrderAfterStock = max(0, $totalUnits - $stockAvailable);
 
             $row['total_units_needed'] = $totalUnits;
+            $row['stock_available_units'] = $stockAvailable;
+            $row['stock_committed_units'] = $committedUnits;
             $row['units_to_order_after_stock'] = $unitsToOrderAfterStock;
-            $row['units_covered_by_stock'] = min($totalUnits, $stockUnits);
+            $row['units_covered_by_stock'] = min($totalUnits, $stockAvailable);
             $row['units_shortage'] = $unitsToOrderAfterStock;
             $boxesToOrder = $unitsToOrderAfterStock > 0 ? (int) ceil($unitsToOrderAfterStock / $unitsPerBox) : 0;
             $row['boxes_to_order'] = $boxesToOrder;

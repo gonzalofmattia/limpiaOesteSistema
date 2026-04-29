@@ -32,6 +32,15 @@ final class DashboardController extends Controller
         $monthlyAccepted = [];
         $monthlyCollected = [];
         $monthlySupplierPayments = [];
+        $lowStockProducts = $db->fetchAll(
+            "SELECT p.id, p.name, p.stock_units, COALESCE(p.stock_committed_units, 0) AS stock_committed_units,
+                    (p.stock_units - COALESCE(p.stock_committed_units, 0)) AS stock_available_units
+             FROM products p
+             WHERE p.is_active = 1
+               AND (p.stock_units - COALESCE(p.stock_committed_units, 0)) <= 0
+             ORDER BY stock_available_units ASC, p.name ASC
+             LIMIT 10"
+        );
         if ($accountsTable) {
             $receivable = ClientReceivableSummary::totalReceivable($db);
             $clientsWithDebt = ClientReceivableSummary::countClientsWithDebt($db);
@@ -188,6 +197,7 @@ final class DashboardController extends Controller
             'monthlyAccepted' => $monthlyAccepted,
             'monthlyCollected' => $monthlyCollected,
             'monthlySupplierPayments' => $monthlySupplierPayments,
+            'lowStockProducts' => $lowStockProducts,
         ]);
     }
 

@@ -14,27 +14,29 @@ final class QuoteDeliveryStock
     /**
      * @return array<int, int> product_id => unidades totales vendidas en el presupuesto
      */
-    public static function unitsByProductForQuote(Database $db, int $quoteId): array
+    public static function unitsByProductForQuote(int $quoteId): array
     {
-        $rows = $db->fetchAll(
-            'SELECT x.product_id, x.quantity, x.unit_type, p.units_per_box
-             FROM (
-                 SELECT qi.product_id, qi.quantity, qi.unit_type
-                 FROM quote_items qi
-                 WHERE qi.quote_id = ? AND qi.product_id IS NOT NULL
-                 UNION ALL
-                 SELECT cp.product_id, (qi.quantity * cp.quantity) AS quantity, \'unidad\' AS unit_type
-                 FROM quote_items qi
-                 JOIN combo_products cp ON cp.combo_id = qi.combo_id
-                 WHERE qi.quote_id = ? AND qi.combo_id IS NOT NULL
-             ) x
-             JOIN products p ON p.id = x.product_id',
-            [$quoteId, $quoteId]
-        );
+        $db = Database::getInstance();
+        $byQuote = self::unitsByProductForQuotes($db, [$quoteId]);
+
+        return $byQuote[$quoteId] ?? [];
+    }
+
+    /**
+     * @param list<int> $quoteIds
+     * @return array<int, array<int, int>> quote_id => [product_id => units]
+     */
+    public static function unitsByProductForQuotes(Database $db, array $quoteIds): array
+    {
+        if ($quoteIds === []) {
+            return [];
+        }
+        $rows = self::fetchExplodedRowsForQuotes($db, $quoteIds);
         $out = [];
         foreach ($rows as $row) {
+            $qid = (int) ($row['quote_id'] ?? 0);
             $pid = (int) ($row['product_id'] ?? 0);
-            if ($pid <= 0) {
+            if ($qid <= 0 || $pid <= 0) {
                 continue;
             }
             $qty = (int) ($row['quantity'] ?? 0);
@@ -44,15 +46,48 @@ final class QuoteDeliveryStock
             if ($totalUnits <= 0) {
                 continue;
             }
-            $out[$pid] = ($out[$pid] ?? 0) + $totalUnits;
+            if (!isset($out[$qid])) {
+                $out[$qid] = [];
+            }
+            $out[$qid][$pid] = ($out[$qid][$pid] ?? 0) + $totalUnits;
         }
 
         return $out;
     }
 
+    /**
+     * @param list<int> $quoteIds
+     * @return list<array<string,mixed>>
+     */
+    private static function fetchExplodedRowsForQuotes(Database $db, array $quoteIds): array
+    {
+        $quoteIds = array_values(array_filter(array_map(static fn ($x): int => (int) $x, $quoteIds), static fn ($x): bool => $x > 0));
+        if ($quoteIds === []) {
+            return [];
+        }
+        $placeholders = implode(',', array_fill(0, count($quoteIds), '?'));
+        $params = array_merge($quoteIds, $quoteIds);
+
+        return $db->fetchAll(
+            "SELECT x.quote_id, x.product_id, x.quantity, x.unit_type, p.units_per_box
+             FROM (
+                 SELECT qi.quote_id, qi.product_id, qi.quantity, qi.unit_type
+                 FROM quote_items qi
+                 WHERE qi.quote_id IN ({$placeholders}) AND qi.product_id IS NOT NULL
+                 UNION ALL
+                 SELECT qi.quote_id, cp.product_id, (qi.quantity * cp.quantity) AS quantity, 'unidad' AS unit_type
+                 FROM quote_items qi
+                 JOIN combo_products cp ON cp.combo_id = qi.combo_id
+                 WHERE qi.quote_id IN ({$placeholders}) AND qi.combo_id IS NOT NULL
+             ) x
+             JOIN products p ON p.id = x.product_id",
+            $params
+        );
+    }
+
     public static function applyDelivery(Database $db, int $quoteId): void
     {
-        foreach (self::unitsByProductForQuote($db, $quoteId) as $pid => $units) {
+        foreach (self::unitsByProductForQuote($quoteId) as $pid => $units) {
             $db->query(
                 'UPDATE products SET stock_units = GREATEST(0, stock_units - :u) WHERE id = :pid',
                 ['u' => $units, 'pid' => $pid]
@@ -62,9 +97,29 @@ final class QuoteDeliveryStock
 
     public static function reverseDelivery(Database $db, int $quoteId): void
     {
-        foreach (self::unitsByProductForQuote($db, $quoteId) as $pid => $units) {
+        foreach (self::unitsByProductForQuote($quoteId) as $pid => $units) {
             $db->query(
                 'UPDATE products SET stock_units = stock_units + :u WHERE id = :pid',
+                ['u' => $units, 'pid' => $pid]
+            );
+        }
+    }
+
+    public static function commitStock(Database $db, int $quoteId): void
+    {
+        foreach (self::unitsByProductForQuote($quoteId) as $pid => $units) {
+            $db->query(
+                'UPDATE products SET stock_committed_units = stock_committed_units + :u WHERE id = :pid',
+                ['u' => $units, 'pid' => $pid]
+            );
+        }
+    }
+
+    public static function releaseCommittedStock(Database $db, int $quoteId): void
+    {
+        foreach (self::unitsByProductForQuote($quoteId) as $pid => $units) {
+            $db->query(
+                'UPDATE products SET stock_committed_units = GREATEST(0, stock_committed_units - :u) WHERE id = :pid',
                 ['u' => $units, 'pid' => $pid]
             );
         }

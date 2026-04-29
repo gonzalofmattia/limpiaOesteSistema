@@ -24,7 +24,7 @@ final class StockController extends Controller
         }
 
         $rows = $db->fetchAll(
-            'SELECT p.id, p.code, p.name, p.stock_units, p.units_per_box,
+            'SELECT p.id, p.code, p.name, p.stock_units, COALESCE(p.stock_committed_units, 0) AS stock_committed_units, p.units_per_box,
                     c.name AS category_name
              FROM products p
              JOIN categories c ON c.id = p.category_id

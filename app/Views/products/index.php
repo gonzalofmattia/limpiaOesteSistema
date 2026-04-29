@@ -74,7 +74,9 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
                         <th class="text-left px-3 py-2">Nombre</th>
                         <th class="text-left px-3 py-2">Cat.</th>
                         <th class="text-left px-3 py-2">Proveedor</th>
-                        <th class="text-right px-3 py-2">Stock (un.)</th>
+                        <th class="text-right px-3 py-2">Stock total</th>
+                        <th class="text-right px-3 py-2">Comprometido</th>
+                        <th class="text-right px-3 py-2">Disponible</th>
                         <th class="text-right px-3 py-2">Lista</th>
                         <th class="text-right px-3 py-2">Costo LO</th>
                         <th class="text-right px-3 py-2">Venta</th>
@@ -91,7 +93,14 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
                             <td class="px-3 py-2 max-w-[200px] truncate" title="<?= e($p['name']) ?>"><?= e($p['name']) ?></td>
                             <td class="px-3 py-2 text-gray-600"><?= e($p['category_name']) ?></td>
                             <td class="px-3 py-2 text-gray-600"><?= e((string) ($p['supplier_name'] ?? '—')) ?></td>
-                            <td class="px-3 py-2 text-right"><?= (int) ($p['stock_units'] ?? 0) ?></td>
+                            <?php
+                            $stockTotal = max(0, (int) ($p['stock_units'] ?? 0));
+                            $stockCommitted = max(0, (int) ($p['stock_committed_units'] ?? 0));
+                            $stockAvailable = $stockTotal - $stockCommitted;
+                            ?>
+                            <td class="px-3 py-2 text-right"><?= $stockTotal ?></td>
+                            <td class="px-3 py-2 text-right <?= $stockCommitted > 0 ? 'text-amber-600 font-medium' : 'text-gray-500' ?>"><?= $stockCommitted ?></td>
+                            <td class="px-3 py-2 text-right font-semibold <?= $stockAvailable > 0 ? 'text-green-700' : 'text-red-700' ?>"><?= $stockAvailable ?></td>
                             <td class="px-3 py-2 text-right"><?= formatPrice($calc['precio_lista_seiq']) ?></td>
                             <td class="px-3 py-2 text-right"><?= formatPrice($calc['costo']) ?></td>
                             <td class="px-3 py-2 text-right font-medium"><?= formatPrice($calc['precio_venta']) ?></td>
