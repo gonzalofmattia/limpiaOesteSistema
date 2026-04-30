@@ -293,7 +293,7 @@ final class QuoteController extends Controller
         $pdo = $db->getPdo();
         $pdo->beginTransaction();
         try {
-            if ($oldStatus === 'accepted' && $status !== 'accepted') {
+            if ($oldStatus === 'accepted' && $status !== 'accepted' && $status !== 'delivered') {
                 QuoteDeliveryStock::releaseCommittedStock($db, (int) $id);
             }
             if ($oldStatus === 'delivered' && $status !== 'delivered' && $deliveryApplied) {
@@ -304,7 +304,7 @@ final class QuoteController extends Controller
                 QuoteDeliveryStock::commitStock($db, (int) $id);
             }
             if ($status === 'delivered' && $oldStatus !== 'delivered' && !$deliveryApplied) {
-                QuoteDeliveryStock::applyDelivery($db, (int) $id);
+                QuoteDeliveryStock::markDelivered($db, (int) $id);
                 $extra['delivery_stock_applied'] = 1;
             }
 

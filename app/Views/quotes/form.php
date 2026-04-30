@@ -26,7 +26,7 @@ foreach ($items as $it) {
         'units_per_box' => (int) ($it['units_per_box'] ?? 1),
         'stock_units' => (int) ($it['stock_units'] ?? 0),
         'stock_committed_units' => (int) ($it['stock_committed_units'] ?? 0),
-        'stock_available_units' => max(0, (int) ($it['stock_units'] ?? 0) - (int) ($it['stock_committed_units'] ?? 0)),
+        'stock_available_units' => (int) ($it['stock_units'] ?? 0) - (int) ($it['stock_committed_units'] ?? 0),
         'unit_price' => (float) ($it['unit_price'] ?? 0),
     ];
 }
@@ -488,7 +488,7 @@ function quoteForm() {
                 const comboProducts = Array.isArray(line.combo_products) ? line.combo_products : [];
                 comboProducts.forEach(cp => {
                     const required = qty * Math.max(1, Number(cp.quantity || 1));
-                    const available = Math.max(0, Number(cp.stock_available_units || 0));
+                    const available = Number(cp.stock_available_units || 0);
                     if (required > available) {
                         warnings.push(`Stock insuficiente para ${cp.name || cp.code || 'producto'} (combo). Disponible: ${available} un., solicitado: ${required} un.`);
                     }
@@ -501,7 +501,7 @@ function quoteForm() {
                 return;
             }
             const requested = this.lineRequestedUnits(line);
-            const available = Math.max(0, Number(line.stock_available_units || 0));
+            const available = Number(line.stock_available_units || 0);
             if (requested > available) {
                 warnings.push(`Stock insuficiente para ${line.name || 'producto'}. Disponible: ${available} un., solicitado: ${requested} un.`);
             }

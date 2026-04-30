@@ -14,13 +14,59 @@ final class SeiqOrderBuilder
     /** @return list<array<string,mixed>> */
     public static function fetchAcceptedQuotes(Database $db): array
     {
-        return $db->fetchAll(
+        $accepted = $db->fetchAll(
             'SELECT q.*, c.name AS client_name
              FROM quotes q
              LEFT JOIN clients c ON q.client_id = c.id
              WHERE q.status = \'accepted\'
              ORDER BY q.created_at'
         );
+        if ($accepted === []) {
+            return [];
+        }
+        $alreadyIncluded = self::alreadyIncludedQuoteIds($db);
+        if ($alreadyIncluded === []) {
+            return $accepted;
+        }
+
+        return array_values(array_filter(
+            $accepted,
+            static fn (array $q): bool => !isset($alreadyIncluded[(int) ($q['id'] ?? 0)])
+        ));
+    }
+
+    /**
+     * IDs de presupuestos ya incluidos en pedidos a proveedor existentes.
+     *
+     * @return array<int, true>
+     */
+    private static function alreadyIncludedQuoteIds(Database $db): array
+    {
+        $out = [];
+        $rows = $db->fetchAll(
+            "SELECT included_quotes
+             FROM seiq_orders
+             WHERE included_quotes IS NOT NULL
+               AND included_quotes <> ''"
+        );
+        foreach ($rows as $r) {
+            $raw = (string) ($r['included_quotes'] ?? '');
+            if ($raw === '') {
+                continue;
+            }
+            $decoded = json_decode($raw, true);
+            if (!is_array($decoded)) {
+                continue;
+            }
+            foreach ($decoded as $qid) {
+                $id = (int) $qid;
+                if ($id > 0) {
+                    $out[$id] = true;
+                }
+            }
+        }
+
+        return $out;
     }
 
     /**
@@ -88,6 +134,54 @@ final class SeiqOrderBuilder
     }
 
     /**
+     * @param list<int> $quoteIds
+     * @param array<int, array<string,mixed>> $acceptedById
+     * @return array<int, list<array<string,mixed>>>
+     */
+    private static function buildDemandDetailsByProduct(Database $db, array $quoteIds, array $acceptedById): array
+    {
+        $rows = QuoteDeliveryStock::demandBreakdownForQuotes($db, $quoteIds);
+        if ($rows === []) {
+            return [];
+        }
+        $out = [];
+        foreach ($rows as $row) {
+            $pid = (int) ($row['product_id'] ?? 0);
+            $qid = (int) ($row['quote_id'] ?? 0);
+            if ($pid <= 0 || $qid <= 0) {
+                continue;
+            }
+            $q = $acceptedById[$qid] ?? null;
+            $entry = [
+                'quote_id' => $qid,
+                'quote_number' => (string) ($q['quote_number'] ?? ('#' . $qid)),
+                'client_name' => (string) ($q['client_name'] ?? '—'),
+                'units' => (int) ($row['units'] ?? 0),
+                'source_type' => (string) ($row['source_type'] ?? 'product'),
+                'combo_id' => $row['combo_id'] ?? null,
+                'combo_name' => $row['combo_name'] ?? null,
+            ];
+            if (!isset($out[$pid])) {
+                $out[$pid] = [];
+            }
+            $out[$pid][] = $entry;
+        }
+
+        foreach ($out as &$items) {
+            usort($items, static function (array $a, array $b): int {
+                $cmp = strcmp((string) ($a['quote_number'] ?? ''), (string) ($b['quote_number'] ?? ''));
+                if ($cmp !== 0) {
+                    return $cmp;
+                }
+                return strcmp((string) ($a['source_type'] ?? ''), (string) ($b['source_type'] ?? ''));
+            });
+        }
+        unset($items);
+
+        return $out;
+    }
+
+    /**
      * @param list<array<string,mixed>> $items
      * @return array{
      *   consolidated: list<array<string,mixed>>,
@@ -149,8 +243,11 @@ final class SeiqOrderBuilder
             $totalUnits = (int) $row['qty_units_sold'] + ((int) $row['qty_boxes_sold'] * $unitsPerBox);
             $stockUnits = max(0, (int) ($row['stock_units'] ?? 0));
             $committedUnits = max(0, (int) ($row['stock_committed_units'] ?? 0));
-            $stockAvailable = max(0, $stockUnits - $committedUnits);
-            $unitsToOrderAfterStock = max(0, $totalUnits - $stockAvailable);
+            $stockAvailable = $stockUnits - $committedUnits;
+            // El faltante real para compra debe salir del compromiso total vs stock fisico.
+            // Si usamos "vendido de este lote - disponible", duplicamos el comprometido
+            // y terminamos pidiendo de mas (caso stock=2, comprometido=2 -> faltante debe ser 0).
+            $unitsToOrderAfterStock = max(0, $committedUnits - $stockUnits);
 
             $row['total_units_needed'] = $totalUnits;
             $row['stock_available_units'] = $stockAvailable;
@@ -245,7 +342,17 @@ final class SeiqOrderBuilder
         if ($items === []) {
             return ['acceptedQuotes' => $acceptedQuotes, 'bundle' => null, 'error' => 'no_items'];
         }
+        $acceptedById = [];
+        foreach ($acceptedQuotes as $q) {
+            $acceptedById[(int) ($q['id'] ?? 0)] = $q;
+        }
+        $demandDetailsByProduct = self::buildDemandDetailsByProduct($db, $quoteIds, $acceptedById);
         $bundle = self::consolidate($items);
+        foreach ($bundle['consolidated'] as &$row) {
+            $pid = (int) ($row['product_id'] ?? 0);
+            $row['demand_details'] = $demandDetailsByProduct[$pid] ?? [];
+        }
+        unset($row);
 
         return ['acceptedQuotes' => $acceptedQuotes, 'bundle' => $bundle, 'error' => null];
     }

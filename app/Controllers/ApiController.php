@@ -60,7 +60,7 @@ final class ApiController extends Controller
             }
             $stockUnits = max(0, (int) ($r['stock_units'] ?? 0));
             $committedUnits = max(0, (int) ($r['stock_committed_units'] ?? 0));
-            $r['stock_available_units'] = max(0, $stockUnits - $committedUnits);
+            $r['stock_available_units'] = $stockUnits - $committedUnits;
             $r['category_context'] = $line;
         }
         unset($r);

@@ -79,6 +79,24 @@
                             <td class="px-3 py-2 align-top text-gray-800">
                                 <div><?= e($vendidoBody) ?></div>
                                 <div class="text-xs text-gray-500">= <?= (int) $r['total_units_needed'] ?> un. totales</div>
+                                <?php $demandDetails = is_array($r['demand_details'] ?? null) ? $r['demand_details'] : []; ?>
+                                <?php if ($demandDetails !== []): ?>
+                                    <details class="mt-1">
+                                        <summary class="text-xs text-[#1a6b3c] cursor-pointer">Ver presupuestos que lo demandan</summary>
+                                        <ul class="mt-1 space-y-1 text-xs text-gray-600">
+                                            <?php foreach ($demandDetails as $d): ?>
+                                                <li>
+                                                    <span class="font-mono"><?= e((string) ($d['quote_number'] ?? ('#' . (int) ($d['quote_id'] ?? 0)))) ?></span>
+                                                    — <?= e((string) ($d['client_name'] ?? '—')) ?>
+                                                    — <?= (int) ($d['units'] ?? 0) ?> un.
+                                                    <?php if (($d['source_type'] ?? '') === 'combo'): ?>
+                                                        (combo: <?= e((string) ($d['combo_name'] ?? 'sin nombre')) ?>)
+                                                    <?php endif; ?>
+                                                </li>
+                                            <?php endforeach; ?>
+                                        </ul>
+                                    </details>
+                                <?php endif; ?>
                             </td>
                             <td class="px-3 py-2 align-top text-gray-700"><?= (int) $stockUnits ?> un.</td>
                             <td class="px-3 py-2 align-top <?= $committedUnits > 0 ? 'text-amber-600 font-medium' : 'text-gray-500' ?>"><?= (int) $committedUnits ?> un.</td>
