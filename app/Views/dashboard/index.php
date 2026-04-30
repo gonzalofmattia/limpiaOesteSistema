@@ -248,10 +248,14 @@ $barMax = max(array_merge([1.0], $acceptedSeries, $collectedSeries, $supplierSer
             <?php if ($collectedSeries === []): ?>
                 <p class="text-sm text-gray-500 mt-3">Sin datos para graficar.</p>
             <?php else: ?>
-                <div class="mt-3 h-20 bg-gray-50 rounded-xl border border-gray-100 p-3">
-                    <svg viewBox="0 0 100 36" preserveAspectRatio="none" class="w-full h-full">
-                        <polyline fill="none" stroke="#1a6b3c" stroke-width="2.5" points="<?= e($sparkPoints($collectedSeries)) ?>"></polyline>
-                    </svg>
+                <div class="mt-3 h-20 bg-gray-50 rounded-xl border border-gray-100 p-3 flex items-end gap-1">
+                    <?php
+                    $sparkMax = max(array_merge([1.0], $collectedSeries));
+                    foreach ($collectedSeries as $value):
+                        $h = max(10, (int) round((((float) $value) / $sparkMax) * 100));
+                    ?>
+                        <span class="flex-1 rounded bg-primary/80" style="height: <?= $h ?>%"></span>
+                    <?php endforeach; ?>
                 </div>
                 <p class="text-xs text-gray-500 mt-2">Tendencia de cobros de los ultimos 6 meses.</p>
             <?php endif; ?>

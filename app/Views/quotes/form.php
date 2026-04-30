@@ -240,10 +240,7 @@ window.__quoteForm = {
                         @click="saveQuickClient()"
                         :disabled="quickClientSaving"
                         class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium hover:bg-[#14542f] disabled:opacity-60">
-                    <svg x-show="quickClientSaving" class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" class="opacity-25"></circle>
-                        <path d="M22 12a10 10 0 0 0-10-10" stroke="currentColor" stroke-width="3" class="opacity-90"></path>
-                    </svg>
+                    <i x-show="quickClientSaving" data-lucide="loader-circle" class="h-4 w-4 animate-spin"></i>
                     <span x-text="quickClientSaving ? 'Guardando...' : 'Guardar'"></span>
                 </button>
             </div>
