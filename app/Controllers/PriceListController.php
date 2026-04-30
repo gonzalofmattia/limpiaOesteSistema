@@ -17,8 +17,35 @@ final class PriceListController extends Controller
     public function index(): void
     {
         $db = Database::getInstance();
-        $rows = $db->fetchAll('SELECT * FROM price_lists ORDER BY created_at DESC');
-        $this->view('pricelists/index', ['title' => 'Listas de precios', 'lists' => $rows]);
+        $page = max(1, (int) $this->query('page', 1));
+        $perPage = (int) $this->query('per_page', 20);
+        $perPage = $perPage > 0 ? min($perPage, 100) : 20;
+        $search = trim((string) $this->query('search', ''));
+        $where = '';
+        $params = [];
+        if ($search !== '') {
+            $where = 'WHERE name LIKE ?';
+            $params[] = '%' . $search . '%';
+        }
+        $total = (int) $db->fetchColumn("SELECT COUNT(*) FROM price_lists {$where}", $params);
+        $totalPages = max(1, (int) ceil($total / $perPage));
+        if ($page > $totalPages) {
+            $page = $totalPages;
+        }
+        $offset = ($page - 1) * $perPage;
+        $rows = $db->fetchAll(
+            "SELECT * FROM price_lists {$where} ORDER BY created_at DESC LIMIT {$perPage} OFFSET {$offset}",
+            $params
+        );
+        $this->view('pricelists/index', [
+            'title' => 'Listas de precios',
+            'lists' => $rows,
+            'search' => $search,
+            'page' => $page,
+            'per_page' => $perPage,
+            'total' => $total,
+            'total_pages' => $totalPages,
+        ]);
     }
 
     public function generateForm(): void

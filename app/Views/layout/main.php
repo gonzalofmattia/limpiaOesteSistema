@@ -9,6 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
     <script>
         tailwind.config = {
             theme: {
@@ -27,7 +28,18 @@
         window.APP_BASE_URL = <?= json_encode(defined('BASE_URL_PATH') ? BASE_URL_PATH : (defined('BASE_URL') ? BASE_URL : ''), JSON_UNESCAPED_SLASHES) ?>;
     </script>
 </head>
-<body class="bg-[#F3F4F6] text-[#111827] font-sans antialiased" x-data="{ sidebarOpen: false }">
+<body
+    class="bg-[#F3F4F6] text-[#111827] font-sans antialiased"
+    x-data="{
+        sidebarOpen: false,
+        deleteModal: { open: false, formId: '', itemName: 'este registro' },
+        openDeleteModal(formId, itemName) {
+            this.deleteModal.formId = formId;
+            this.deleteModal.itemName = itemName || 'este registro';
+            this.deleteModal.open = true;
+        }
+    }"
+>
 <?php $flash = getFlash(); ?>
 <div class="min-h-screen flex flex-col md:flex-row">
     <aside class="fixed md:static inset-y-0 left-0 z-40 w-64 bg-gray-900 text-gray-100 transform transition-transform md:translate-x-0 flex flex-col"
@@ -173,6 +185,17 @@
     </div>
 </div>
 <div class="fixed inset-0 bg-black/40 z-30 md:hidden" x-show="sidebarOpen" x-cloak @click="sidebarOpen = false"></div>
+<?php require APP_PATH . '/Views/layout/delete_modal.php'; ?>
 <script src="<?= e(url('/assets/js/app.js')) ?>"></script>
+<script>
+    if (window.lucide) {
+        window.lucide.createIcons();
+    }
+    document.addEventListener('alpine:initialized', function () {
+        if (window.lucide) {
+            window.lucide.createIcons();
+        }
+    });
+</script>
 </body>
 </html>

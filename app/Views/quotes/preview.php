@@ -18,14 +18,6 @@ foreach ($items as $it) {
 $waPhone = preg_replace('/\D/', '', (string) ($quote['phone'] ?? ''));
 $st = $quote['status'];
 $quoteEditable = in_array((string) $st, ['draft', 'sent', 'accepted'], true);
-$badges = [
-    'draft' => 'bg-gray-100 text-gray-700',
-    'sent' => 'bg-blue-100 text-blue-800',
-    'accepted' => 'bg-green-100 text-green-800',
-    'rejected' => 'bg-red-100 text-red-800',
-    'expired' => 'bg-amber-100 text-amber-800',
-    'delivered' => 'bg-teal-100 text-teal-900',
-];
 ?>
 <div class="max-w-4xl space-y-6">
     <div class="flex flex-wrap justify-between gap-4">
@@ -44,7 +36,7 @@ $badges = [
             <?php endif; ?>
         </div>
         <div class="flex flex-wrap gap-2 items-start">
-            <span class="inline-flex px-2 py-1 rounded-full text-xs <?= $badges[$st] ?? 'bg-gray-100' ?>"><?= e($st) ?></span>
+            <span class="inline-flex px-2 py-1 rounded-full text-xs font-medium <?= e(statusBadgeClass((string) $st)) ?>"><?= e(statusLabel((string) $st)) ?></span>
             <a href="<?= e(url('/presupuestos/' . (int) $quote['id'] . '/pdf')) ?>" class="px-3 py-1.5 rounded-lg bg-[#1a6b3c] text-white text-sm">PDF</a>
             <?php if (empty($readonly)): ?>
                 <a href="#documentos-adjuntos" class="px-3 py-1.5 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50" title="Subir remito o factura">📎 Adjuntos</a>
@@ -68,7 +60,7 @@ $badges = [
         <?= csrfField() ?>
         <span class="text-sm text-gray-600">Cambiar estado:</span>
         <?php foreach (['draft', 'sent', 'accepted', 'rejected', 'expired', 'delivered'] as $s): ?>
-            <button type="submit" name="status" value="<?= e($s) ?>" class="px-3 py-1 rounded-lg text-xs border border-gray-200 hover:bg-gray-50"><?= e($s) ?></button>
+            <button type="submit" name="status" value="<?= e($s) ?>" class="px-3 py-1 rounded-lg text-xs border border-gray-200 hover:bg-gray-50"><?= e(statusLabel($s)) ?></button>
         <?php endforeach; ?>
     </form>
     <p class="text-xs text-gray-600 mt-2 mb-0">El estado <strong>delivered</strong> descuenta del <strong>stock</strong> de cada producto las unidades del presupuesto (según caja vs unidad). Si volvés a otro estado, se revierte el descuento.</p>

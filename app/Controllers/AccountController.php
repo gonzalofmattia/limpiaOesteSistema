@@ -26,14 +26,40 @@ final class AccountController extends Controller
         foreach ($supplierDebts as $supplier) {
             $totalPayable += (float) $supplier['debt'];
         }
-
+        $page = max(1, (int) $this->query('page', 1));
+        $perPage = (int) $this->query('per_page', 20);
+        $perPage = $perPage > 0 ? min($perPage, 100) : 20;
+        $search = trim((string) $this->query('search', ''));
+        $where = '';
+        $params = [];
+        if ($search !== '') {
+            $where = "WHERE (at.description LIKE ? OR c.name LIKE ? OR s.name LIKE ?)";
+            $params[] = '%' . $search . '%';
+            $params[] = '%' . $search . '%';
+            $params[] = '%' . $search . '%';
+        }
+        $total = (int) $db->fetchColumn(
+            "SELECT COUNT(*)
+             FROM account_transactions at
+             LEFT JOIN clients c ON c.id = at.account_id AND at.account_type = 'client'
+             LEFT JOIN suppliers s ON s.id = at.account_id AND at.account_type = 'supplier'
+             {$where}",
+            $params
+        );
+        $totalPages = max(1, (int) ceil($total / $perPage));
+        if ($page > $totalPages) {
+            $page = $totalPages;
+        }
+        $offset = ($page - 1) * $perPage;
         $recentTransactions = $db->fetchAll(
             "SELECT at.*, c.name AS client_name, s.name AS supplier_name
              FROM account_transactions at
              LEFT JOIN clients c ON c.id = at.account_id AND at.account_type = 'client'
              LEFT JOIN suppliers s ON s.id = at.account_id AND at.account_type = 'supplier'
+             {$where}
              ORDER BY at.transaction_date DESC, at.id DESC
-             LIMIT 20"
+             LIMIT {$perPage} OFFSET {$offset}",
+            $params
         );
 
         $txAgg = ClientReceivableSummary::sqlTxAggByClientSubquery();
@@ -58,6 +84,11 @@ final class AccountController extends Controller
             'supplierDebts' => $supplierDebts,
             'totalPayable' => $totalPayable,
             'recentTransactions' => $recentTransactions,
+            'search' => $search,
+            'page' => $page,
+            'per_page' => $perPage,
+            'total' => $total,
+            'total_pages' => $totalPages,
             'clientsForForm' => $clientsForForm,
             'suppliersForForm' => $suppliersForForm,
         ]);
@@ -71,6 +102,10 @@ final class AccountController extends Controller
         }
 
         $onlyWithDebt = (string) $this->query('only_with_debt', '0') === '1';
+        $search = trim((string) $this->query('search', ''));
+        $page = max(1, (int) $this->query('page', 1));
+        $perPage = (int) $this->query('per_page', 20);
+        $perPage = $perPage > 0 ? min($perPage, 100) : 20;
         $rows = $db->fetchAll(
             "SELECT c.id, c.name, c.balance,
                     COALESCE(SUM(CASE WHEN at.transaction_type = 'invoice' THEN at.amount ELSE 0 END), 0) AS total_invoiced,
@@ -111,12 +146,30 @@ final class AccountController extends Controller
                 static fn (array $row): bool => (float) $row['balance'] > 0
             ));
         }
+        if ($search !== '') {
+            $rows = array_values(array_filter(
+                $rows,
+                static fn (array $row): bool => stripos((string) ($row['name'] ?? ''), $search) !== false
+            ));
+        }
+        $total = count($rows);
+        $totalPages = max(1, (int) ceil($total / $perPage));
+        if ($page > $totalPages) {
+            $page = $totalPages;
+        }
+        $offset = ($page - 1) * $perPage;
+        $rows = array_slice($rows, $offset, $perPage);
 
         $this->view('cuenta-corriente/clients', [
             'title' => 'Cuentas a cobrar',
             'rows' => $rows,
             'onlyWithDebt' => $onlyWithDebt,
             'totalReceivable' => round($totalReceivable, 2),
+            'search' => $search,
+            'page' => $page,
+            'per_page' => $perPage,
+            'total' => $total,
+            'total_pages' => $totalPages,
         ]);
     }
 
@@ -150,6 +203,22 @@ final class AccountController extends Controller
             $tx['haber'] = $this->transactionImpact($tx) < 0 ? abs((float) $tx['amount']) : 0.0;
         }
         unset($tx);
+        $search = trim((string) $this->query('search', ''));
+        if ($search !== '') {
+            $transactions = array_values(array_filter(
+                $transactions,
+                static fn (array $tx): bool => stripos((string) ($tx['description'] ?? ''), $search) !== false
+            ));
+        }
+        $page = max(1, (int) $this->query('page', 1));
+        $perPage = (int) $this->query('per_page', 20);
+        $perPage = $perPage > 0 ? min($perPage, 100) : 20;
+        $total = count($transactions);
+        $totalPages = max(1, (int) ceil($total / $perPage));
+        if ($page > $totalPages) {
+            $page = $totalPages;
+        }
+        $transactions = array_slice($transactions, ($page - 1) * $perPage, $perPage);
 
         $this->view('cuenta-corriente/client-detail', [
             'title' => 'Cuenta corriente - ' . $client['name'],
@@ -157,6 +226,11 @@ final class AccountController extends Controller
             'transactions' => $transactions,
             'openingBalance' => $openingBalance,
             'balance' => ClientReceivableSummary::hybridBalanceForClient($db, $clientId),
+            'search' => $search,
+            'page' => $page,
+            'per_page' => $perPage,
+            'total' => $total,
+            'total_pages' => $totalPages,
         ]);
     }
 
@@ -190,12 +264,33 @@ final class AccountController extends Controller
             $tx['pago'] = $impact < 0 ? abs((float) $tx['amount']) : 0.0;
         }
         unset($tx);
+        $search = trim((string) $this->query('search', ''));
+        if ($search !== '') {
+            $transactions = array_values(array_filter(
+                $transactions,
+                static fn (array $tx): bool => stripos((string) ($tx['description'] ?? ''), $search) !== false
+            ));
+        }
+        $page = max(1, (int) $this->query('page', 1));
+        $perPage = (int) $this->query('per_page', 20);
+        $perPage = $perPage > 0 ? min($perPage, 100) : 20;
+        $total = count($transactions);
+        $totalPages = max(1, (int) ceil($total / $perPage));
+        if ($page > $totalPages) {
+            $page = $totalPages;
+        }
+        $transactions = array_slice($transactions, ($page - 1) * $perPage, $perPage);
 
         $this->view('cuenta-corriente/seiq', [
             'title' => 'Cuenta proveedor - ' . $supplier['name'],
             'supplier' => $supplier,
             'transactions' => $transactions,
             'debt' => round($runningDebt, 2),
+            'search' => $search,
+            'page' => $page,
+            'per_page' => $perPage,
+            'total' => $total,
+            'total_pages' => $totalPages,
         ]);
     }
 

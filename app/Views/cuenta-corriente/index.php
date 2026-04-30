@@ -88,6 +88,13 @@
     <div class="px-4 py-3 border-b border-gray-200 bg-gray-50">
         <h2 class="font-semibold text-gray-800">Últimos movimientos</h2>
     </div>
+    <form method="get" class="p-4 border-b border-gray-100 flex gap-2">
+        <input type="hidden" name="per_page" value="<?= (int) ($per_page ?? 20) ?>">
+        <input type="text" name="search" value="<?= e((string) ($search ?? '')) ?>" placeholder="Buscar..." class="flex-1 rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+        <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700" title="Buscar">
+            <i data-lucide="search" class="w-5 h-5 text-white"></i>
+        </button>
+    </form>
     <table class="min-w-full text-sm">
         <thead class="bg-gray-50 text-gray-600">
             <tr>
@@ -102,12 +109,13 @@
             <?php foreach ($recentTransactions as $tx): ?>
                 <?php
                 $type = (string) $tx['transaction_type'];
-                $badge = $type === 'payment' ? '🟢 Cobro/Pago' : ($type === 'invoice' ? '🔴 Cargo' : '🟡 Ajuste');
+                $badgeStatus = $type === 'payment' ? 'received' : ($type === 'invoice' ? 'pending' : 'draft');
+                $badge = $type === 'payment' ? 'Cobro/Pago' : ($type === 'invoice' ? 'Cargo' : 'Ajuste');
                 $accountName = $tx['account_type'] === 'client' ? ($tx['client_name'] ?? 'Cliente') : ($tx['supplier_name'] ?? 'Proveedor');
                 ?>
                 <tr>
                     <td class="px-4 py-2"><?= e(date('d/m/Y', strtotime((string) $tx['transaction_date']))) ?></td>
-                    <td class="px-4 py-2"><?= e($badge) ?></td>
+                    <td class="px-4 py-2"><span class="inline-flex px-2 py-1 rounded-full text-xs font-medium <?= e(statusBadgeClass($badgeStatus)) ?>"><?= e($badge) ?></span></td>
                     <td class="px-4 py-2"><?= e((string) $accountName) ?></td>
                     <td class="px-4 py-2"><?= e((string) $tx['description']) ?></td>
                     <td class="px-4 py-2 text-right"><?= formatPrice((float) $tx['amount']) ?></td>
@@ -116,3 +124,4 @@
         </tbody>
     </table>
 </div>
+<?php require APP_PATH . '/Views/layout/pagination.php'; ?>

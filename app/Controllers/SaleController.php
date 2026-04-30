@@ -16,14 +16,28 @@ final class SaleController extends Controller
     {
         $db = Database::getInstance();
         $filters = $this->filtersFromQuery();
-        $sales = $this->fetchSales($db, $filters);
-        $summary = $this->buildSummary($sales);
+        $allSales = $this->fetchSales($db, $filters);
+        $summary = $this->buildSummary($allSales);
+        $page = max(1, (int) $this->query('page', 1));
+        $perPage = (int) $this->query('per_page', 20);
+        $perPage = $perPage > 0 ? min($perPage, 100) : 20;
+        $total = count($allSales);
+        $totalPages = max(1, (int) ceil($total / $perPage));
+        if ($page > $totalPages) {
+            $page = $totalPages;
+        }
+        $offset = ($page - 1) * $perPage;
+        $sales = array_slice($allSales, $offset, $perPage);
 
         $this->view('sales/index', [
             'title' => 'Ventas',
             'sales' => $sales,
             'filters' => $filters,
             'summary' => $summary,
+            'page' => $page,
+            'per_page' => $perPage,
+            'total' => $total,
+            'total_pages' => $totalPages,
         ]);
     }
 
@@ -356,13 +370,17 @@ final class SaleController extends Controller
     /** @return array{from:string,to:string,client:string,delivery:string,payment:string,q:string} */
     private function filtersFromQuery(): array
     {
+        $q = trim((string) $this->query('search', ''));
+        if ($q === '') {
+            $q = trim((string) $this->query('q', ''));
+        }
         return [
             'from' => trim((string) $this->query('from', '')),
             'to' => trim((string) $this->query('to', '')),
             'client' => trim((string) $this->query('client', '')),
             'delivery' => trim((string) $this->query('delivery', '')),
             'payment' => trim((string) $this->query('payment', '')),
-            'q' => trim((string) $this->query('q', '')),
+            'q' => $q,
         ];
     }
 

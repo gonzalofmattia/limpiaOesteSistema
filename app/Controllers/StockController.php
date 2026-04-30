@@ -13,7 +13,13 @@ final class StockController extends Controller
     {
         $db = Database::getInstance();
         $hasAdjustmentsTable = $this->hasAdjustmentsTable($db);
-        $q = trim((string) $this->query('q', ''));
+        $page = max(1, (int) $this->query('page', 1));
+        $perPage = (int) $this->query('per_page', 20);
+        $perPage = $perPage > 0 ? min($perPage, 100) : 20;
+        $q = trim((string) $this->query('search', ''));
+        if ($q === '') {
+            $q = trim((string) $this->query('q', ''));
+        }
         $where = ['p.is_active = 1', 'COALESCE(p.stock_units, 0) > 0'];
         $params = [];
 
@@ -23,13 +29,26 @@ final class StockController extends Controller
             $params['q2'] = '%' . $q . '%';
         }
 
+        $total = (int) $db->fetchColumn(
+            'SELECT COUNT(*)
+             FROM products p
+             JOIN categories c ON c.id = p.category_id
+             WHERE ' . implode(' AND ', $where),
+            $params
+        );
+        $totalPages = max(1, (int) ceil($total / $perPage));
+        if ($page > $totalPages) {
+            $page = $totalPages;
+        }
+        $offset = ($page - 1) * $perPage;
         $rows = $db->fetchAll(
             'SELECT p.id, p.code, p.name, p.stock_units, COALESCE(p.stock_committed_units, 0) AS stock_committed_units, p.units_per_box,
                     c.name AS category_name
              FROM products p
              JOIN categories c ON c.id = p.category_id
              WHERE ' . implode(' AND ', $where) . '
-             ORDER BY p.stock_units DESC, p.name ASC',
+             ORDER BY p.stock_units DESC, p.name ASC
+             LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
             $params
         );
 
@@ -48,6 +67,10 @@ final class StockController extends Controller
             'title' => 'Stock actual',
             'products' => $rows,
             'q' => $q,
+            'page' => $page,
+            'per_page' => $perPage,
+            'total' => $total,
+            'total_pages' => $totalPages,
             'adjustments' => $adjustments,
             'hasAdjustmentsTable' => $hasAdjustmentsTable,
         ]);

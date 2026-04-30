@@ -19,29 +19,67 @@ final class QuoteController extends Controller
     public function index(): void
     {
         $db = Database::getInstance();
+        $page = max(1, (int) $this->query('page', 1));
+        $perPage = (int) $this->query('per_page', 20);
+        $perPage = $perPage > 0 ? min($perPage, 100) : 20;
+        $search = trim((string) $this->query('search', ''));
+        $where = [];
+        $params = [];
+        if ($search !== '') {
+            $where[] = '(q.quote_number LIKE ? OR c.name LIKE ?)';
+            $params[] = '%' . $search . '%';
+            $params[] = '%' . $search . '%';
+        }
+        $whereSql = $where === [] ? '' : ('WHERE ' . implode(' AND ', $where));
         $hasAttach = false;
         try {
             $hasAttach = (bool) $db->fetchColumn("SHOW TABLES LIKE 'quote_attachments'");
         } catch (\Throwable) {
             $hasAttach = false;
         }
+        $total = (int) $db->fetchColumn(
+            "SELECT COUNT(*)
+             FROM quotes q
+             LEFT JOIN clients c ON c.id = q.client_id
+             {$whereSql}",
+            $params
+        );
+        $totalPages = max(1, (int) ceil($total / $perPage));
+        if ($page > $totalPages) {
+            $page = $totalPages;
+        }
+        $offset = ($page - 1) * $perPage;
         if ($hasAttach) {
             $rows = $db->fetchAll(
                 'SELECT q.*, c.name AS client_name,
                         (SELECT COUNT(*) FROM quote_attachments qa WHERE qa.quote_id = q.id) AS attachments_count
                  FROM quotes q
                  LEFT JOIN clients c ON c.id = q.client_id
-                 ORDER BY q.created_at DESC'
+                 ' . $whereSql . '
+                 ORDER BY q.created_at DESC
+                 LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
+                $params
             );
         } else {
             $rows = $db->fetchAll(
                 'SELECT q.*, c.name AS client_name, 0 AS attachments_count
                  FROM quotes q
                  LEFT JOIN clients c ON c.id = q.client_id
-                 ORDER BY q.created_at DESC'
+                 ' . $whereSql . '
+                 ORDER BY q.created_at DESC
+                 LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
+                $params
             );
         }
-        $this->view('quotes/index', ['title' => 'Presupuestos', 'quotes' => $rows]);
+        $this->view('quotes/index', [
+            'title' => 'Presupuestos',
+            'quotes' => $rows,
+            'search' => $search,
+            'page' => $page,
+            'per_page' => $perPage,
+            'total' => $total,
+            'total_pages' => $totalPages,
+        ]);
     }
 
     public function create(): void

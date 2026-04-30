@@ -20,13 +20,47 @@ final class SeiqOrderController extends Controller
         if (!$this->ensureSeiqSchema($db)) {
             return;
         }
+        $page = max(1, (int) $this->query('page', 1));
+        $perPage = (int) $this->query('per_page', 20);
+        $perPage = $perPage > 0 ? min($perPage, 100) : 20;
+        $search = trim((string) $this->query('search', ''));
+        $where = '';
+        $params = [];
+        if ($search !== '') {
+            $where = 'WHERE (so.order_number LIKE ? OR s.name LIKE ?)';
+            $params[] = '%' . $search . '%';
+            $params[] = '%' . $search . '%';
+        }
+        $total = (int) $db->fetchColumn(
+            "SELECT COUNT(*)
+             FROM seiq_orders so
+             LEFT JOIN suppliers s ON s.id = so.supplier_id
+             {$where}",
+            $params
+        );
+        $totalPages = max(1, (int) ceil($total / $perPage));
+        if ($page > $totalPages) {
+            $page = $totalPages;
+        }
+        $offset = ($page - 1) * $perPage;
         $rows = $db->fetchAll(
             'SELECT so.*, s.name AS supplier_name, s.slug AS supplier_slug
              FROM seiq_orders so
              LEFT JOIN suppliers s ON s.id = so.supplier_id
-             ORDER BY so.created_at DESC'
+             ' . $where . '
+             ORDER BY so.created_at DESC
+             LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
+            $params
         );
-        $this->view('pedido-seiq/index', ['title' => 'Pedidos a Proveedores', 'orders' => $rows]);
+        $this->view('pedido-seiq/index', [
+            'title' => 'Pedidos a Proveedores',
+            'orders' => $rows,
+            'search' => $search,
+            'page' => $page,
+            'per_page' => $perPage,
+            'total' => $total,
+            'total_pages' => $totalPages,
+        ]);
     }
 
     public function generate(): void

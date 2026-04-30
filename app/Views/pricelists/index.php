@@ -2,6 +2,13 @@
     <p class="text-sm text-gray-600">Listas generadas con PDF descargable.</p>
     <a href="<?= e(url('/listas/generar')) ?>" class="px-4 py-2 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium hover:bg-[#2db368]">Generar nueva</a>
 </div>
+<form method="get" class="mb-4 flex gap-2">
+    <input type="hidden" name="per_page" value="<?= (int) ($per_page ?? 20) ?>">
+    <input type="text" name="search" value="<?= e((string) ($search ?? '')) ?>" placeholder="Buscar..." class="flex-1 rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700" title="Buscar">
+        <i data-lucide="search" class="w-5 h-5 text-white"></i>
+    </button>
+</form>
 <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto">
     <table class="min-w-full text-sm">
         <thead class="bg-gray-50 border-b border-gray-200 text-gray-600">
@@ -20,28 +27,32 @@
                     <td class="px-4 py-3 text-gray-600"><?= e($l['generated_at'] ?? $l['created_at']) ?></td>
                     <td class="px-4 py-3 text-right"><?= $l['custom_markup'] !== null && $l['custom_markup'] !== '' ? formatPercent((float) $l['custom_markup']) : 'Global' ?></td>
                     <td class="px-4 py-3 text-center">
-                        <?php
-                        $st = $l['status'];
-                        $cls = match ($st) {
-                            'active' => 'bg-green-100 text-green-800',
-                            'draft' => 'bg-amber-100 text-amber-800',
-                            default => 'bg-gray-100 text-gray-600',
-                        };
-                        ?>
-                        <span class="inline-flex px-2 py-0.5 rounded-full text-xs <?= $cls ?>"><?= e($st) ?></span>
+                        <?php $st = (string) ($l['status'] ?? ''); ?>
+                        <span class="inline-flex px-2 py-1 rounded-full text-xs font-medium <?= e(statusBadgeClass($st)) ?>"><?= e(statusLabel($st)) ?></span>
                     </td>
-                    <td class="px-4 py-3 text-right space-x-2 whitespace-nowrap">
-                        <a href="<?= e(url('/listas/' . (int) $l['id'])) ?>" class="text-[#1565C0] hover:underline">Ver</a>
+                    <td class="px-4 py-3">
+                        <div class="flex items-center justify-end gap-2">
+                        <a href="<?= e(url('/listas/' . (int) $l['id'])) ?>" class="text-slate-600 hover:text-blue-600 transition hover:scale-105" title="Ver detalle">
+                            <i data-lucide="eye" class="w-5 h-5 text-gray-500 hover:text-blue-600"></i>
+                        </a>
                         <?php if (!empty($l['pdf_path'])): ?>
-                            <a href="<?= e(url('/listas/' . (int) $l['id'] . '/pdf')) ?>" class="text-[#1a6b3c] hover:underline">PDF</a>
+                            <a href="<?= e(url('/listas/' . (int) $l['id'] . '/pdf')) ?>" class="text-green-600 hover:text-green-700 transition hover:scale-105" title="Descargar PDF">
+                                <i data-lucide="file-text" class="w-5 h-5 text-green-500 hover:text-green-700"></i>
+                            </a>
                         <?php endif; ?>
-                        <form method="post" action="<?= e(url('/listas/' . (int) $l['id'] . '/eliminar')) ?>" class="inline" onsubmit="return confirm('¿Seguro que querés eliminar esta lista de precios?');">
+                        <?php $deleteFormId = 'delete-list-' . (int) $l['id']; ?>
+                        <span class="mx-1 h-4 w-px bg-gray-200 inline-block"></span>
+                        <form id="<?= e($deleteFormId) ?>" method="post" action="<?= e(url('/listas/' . (int) $l['id'] . '/eliminar')) ?>" class="inline">
                             <?= csrfField() ?>
-                            <button type="submit" class="text-red-600 hover:underline">Eliminar</button>
+                            <button type="button" @click="openDeleteModal('<?= e($deleteFormId) ?>', 'la lista <?= e((string) $l['name']) ?>')" class="text-red-600 hover:text-red-700 transition hover:scale-105" title="Eliminar">
+                                <i data-lucide="trash-2" class="w-5 h-5 text-red-400 hover:text-red-600"></i>
+                            </button>
                         </form>
+                        </div>
                     </td>
                 </tr>
             <?php endforeach; ?>
         </tbody>
     </table>
 </div>
+<?php require APP_PATH . '/Views/layout/pagination.php'; ?>

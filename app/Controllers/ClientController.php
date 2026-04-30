@@ -14,26 +14,77 @@ final class ClientController extends Controller
     public function index(): void
     {
         $db = Database::getInstance();
+        $page = max(1, (int) $this->query('page', 1));
+        $perPage = (int) $this->query('per_page', 20);
+        $perPage = $perPage > 0 ? min($perPage, 100) : 20;
+        $search = trim((string) $this->query('search', ''));
+        $where = [];
+        $params = [];
+        if ($search !== '') {
+            $where[] = '(c.name LIKE :search OR c.business_name LIKE :search OR c.phone LIKE :search OR c.city LIKE :search)';
+            $params['search'] = '%' . $search . '%';
+        }
+        $whereSql = $where === [] ? '' : ('WHERE ' . implode(' AND ', $where));
         try {
             $hasAccountTable = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
             if ($hasAccountTable) {
                 $txAgg = ClientReceivableSummary::sqlTxAggByClientSubquery();
                 $qAgg = ClientReceivableSummary::sqlQuotesAcceptedByClientSubquery();
                 $hybrid = ClientReceivableSummary::sqlCaseHybridBalance();
+                $total = (int) $db->fetchColumn(
+                    "SELECT COUNT(*)
+                     FROM clients c
+                     {$whereSql}",
+                    $params
+                );
+                $totalPages = max(1, (int) ceil($total / $perPage));
+                if ($page > $totalPages) {
+                    $page = $totalPages;
+                }
+                $offset = ($page - 1) * $perPage;
                 $rows = $db->fetchAll(
                     "SELECT c.*, ROUND({$hybrid}, 2) AS effective_balance
                      FROM clients c
                      LEFT JOIN ({$txAgg}) tx ON tx.account_id = c.id
                      LEFT JOIN ({$qAgg}) q ON q.client_id = c.id
-                     ORDER BY c.name"
+                     {$whereSql}
+                     ORDER BY c.name
+                     LIMIT {$perPage} OFFSET {$offset}",
+                    $params
                 );
             } else {
-                $rows = $db->fetchAll('SELECT * FROM clients ORDER BY name');
+                $total = (int) $db->fetchColumn("SELECT COUNT(*) FROM clients c {$whereSql}", $params);
+                $totalPages = max(1, (int) ceil($total / $perPage));
+                if ($page > $totalPages) {
+                    $page = $totalPages;
+                }
+                $offset = ($page - 1) * $perPage;
+                $rows = $db->fetchAll(
+                    "SELECT c.* FROM clients c {$whereSql} ORDER BY c.name LIMIT {$perPage} OFFSET {$offset}",
+                    $params
+                );
             }
         } catch (\Throwable) {
-            $rows = $db->fetchAll('SELECT * FROM clients ORDER BY name');
+            $total = (int) $db->fetchColumn("SELECT COUNT(*) FROM clients c {$whereSql}", $params);
+            $totalPages = max(1, (int) ceil($total / $perPage));
+            if ($page > $totalPages) {
+                $page = $totalPages;
+            }
+            $offset = ($page - 1) * $perPage;
+            $rows = $db->fetchAll(
+                "SELECT c.* FROM clients c {$whereSql} ORDER BY c.name LIMIT {$perPage} OFFSET {$offset}",
+                $params
+            );
         }
-        $this->view('clients/index', ['title' => 'Clientes', 'clients' => $rows]);
+        $this->view('clients/index', [
+            'title' => 'Clientes',
+            'clients' => $rows,
+            'search' => $search,
+            'page' => $page,
+            'per_page' => $perPage,
+            'total' => $total ?? count($rows),
+            'total_pages' => $totalPages ?? 1,
+        ]);
     }
 
     public function create(): void

@@ -51,6 +51,11 @@
         </form>
     </div>
 </div>
+<form method="get" class="mb-4 flex gap-2">
+    <input type="hidden" name="per_page" value="<?= (int) ($per_page ?? 20) ?>">
+    <input type="text" name="search" value="<?= e((string) ($search ?? '')) ?>" placeholder="Buscar..." class="flex-1 rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700" title="Buscar"><i data-lucide="search" class="w-5 h-5 text-white"></i></button>
+</form>
 
 <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto">
     <table class="min-w-full text-sm">
@@ -83,13 +88,17 @@
                     <td class="px-4 py-2 text-right"><?= (float) $tx['debe'] > 0 ? formatPrice((float) $tx['debe']) : '' ?></td>
                     <td class="px-4 py-2 text-right"><?= (float) $tx['haber'] > 0 ? formatPrice((float) $tx['haber']) : '' ?></td>
                     <td class="px-4 py-2 text-right font-medium"><?= formatPrice((float) $tx['running_balance']) ?></td>
-                    <td class="px-4 py-2 text-right whitespace-nowrap space-x-2">
+                    <td class="px-4 py-2">
                         <?php if ($canEdit): ?>
-                            <a href="<?= e(url('/cuenta-corriente/movimiento/' . (int) $tx['id'] . '/editar')) ?>" class="text-[#1565C0] hover:underline text-sm">Editar</a>
-                            <form method="post" action="<?= e(url('/cuenta-corriente/movimiento/' . (int) $tx['id'] . '/eliminar')) ?>" class="inline" onsubmit="return confirm('¿Eliminar movimiento?');">
+                            <div class="flex items-center justify-end gap-3">
+                            <a href="<?= e(url('/cuenta-corriente/movimiento/' . (int) $tx['id'] . '/editar')) ?>" class="text-sm" title="Editar"><i data-lucide="pencil" class="w-5 h-5 text-blue-500 hover:text-blue-700"></i></a>
+                            <?php $deleteFormId = 'delete-movement-client-' . (int) $tx['id']; ?>
+                            <span class="border-l border-gray-200 h-5 mx-1"></span>
+                            <form id="<?= e($deleteFormId) ?>" method="post" action="<?= e(url('/cuenta-corriente/movimiento/' . (int) $tx['id'] . '/eliminar')) ?>" class="inline">
                                 <?= csrfField() ?>
-                                <button type="submit" class="text-red-600 hover:underline text-sm">Eliminar</button>
+                                <button type="button" @click="openDeleteModal('<?= e($deleteFormId) ?>', 'el movimiento seleccionado')" class="text-sm" title="Eliminar"><i data-lucide="trash-2" class="w-5 h-5 text-red-400 hover:text-red-600"></i></button>
                             </form>
+                            </div>
                         <?php endif; ?>
                     </td>
                 </tr>
@@ -97,3 +106,4 @@
         </tbody>
     </table>
 </div>
+<?php require APP_PATH . '/Views/layout/pagination.php'; ?>

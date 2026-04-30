@@ -8,7 +8,7 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
     $activeTab = 'productos';
 }
 ?>
-<div x-data="{ tab: '<?= e($activeTab) ?>' }">
+<div x-data="{ tab: '<?= e($activeTab) ?>' }" x-effect="$nextTick(() => window.lucide && window.lucide.createIcons())">
     <div class="flex items-center gap-2 mb-6">
         <button type="button" class="px-4 py-2 rounded-lg text-sm font-medium"
                 :class="tab === 'productos' ? 'bg-[#1a6b3c] text-white' : 'bg-white border border-gray-300 text-gray-700'"
@@ -46,9 +46,10 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
                 </div>
                 <div>
                     <label class="block text-xs text-gray-500 mb-1">Buscar</label>
-                    <input type="text" name="q" value="<?= e($q) ?>" placeholder="Código o nombre"
+                    <input type="text" name="search" value="<?= e($q) ?>" placeholder="Buscar..."
                            class="border border-gray-300 rounded-lg text-sm px-3 py-2 w-48 focus:ring-2 focus:ring-[#1a6b3c]">
                 </div>
+                <input type="hidden" name="per_page" value="<?= (int) ($per_page ?? 25) ?>">
                 <div>
                     <label class="block text-xs text-gray-500 mb-1">Estado</label>
                     <select name="status" class="border border-gray-300 rounded-lg text-sm px-3 py-2">
@@ -105,26 +106,34 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
                             <td class="px-3 py-2 text-right"><?= formatPrice($calc['costo']) ?></td>
                             <td class="px-3 py-2 text-right font-medium"><?= formatPrice($calc['precio_venta']) ?></td>
                             <td class="px-3 py-2 text-right text-green-700"><?= formatPrice($calc['margen_pesos']) ?></td>
-                            <td class="px-3 py-2 text-center"><?= $p['is_active'] ? '<span class="text-green-600">●</span>' : '<span class="text-gray-300">●</span>' ?></td>
-                            <td class="px-3 py-2 text-right whitespace-nowrap">
-                                <a href="<?= e(url('/productos/' . (int) $p['id'] . '/editar')) ?>" class="text-[#1565C0] hover:underline">Editar</a>
-                                <form action="<?= e(url('/productos/' . (int) $p['id'] . '/toggle')) ?>" method="post" class="inline ml-2">
+                            <td class="px-3 py-2 text-center">
+                                <span class="inline-flex px-2 py-1 rounded-full text-xs font-medium <?= e(statusBadgeClass((int) ($p['is_active'] ?? 0) === 1 ? 'active' : 'inactive')) ?>">
+                                    <?= e(statusLabel((int) ($p['is_active'] ?? 0) === 1 ? 'active' : 'inactive')) ?>
+                                </span>
+                            </td>
+                            <td class="px-3 py-2">
+                                <div class="flex items-center justify-end gap-2">
+                                <a href="<?= e(url('/productos/' . (int) $p['id'] . '/editar')) ?>" class="text-blue-600 hover:text-blue-700 transition hover:scale-105" title="Editar">
+                                    <i data-lucide="pencil" class="w-5 h-5 text-blue-500 hover:text-blue-700"></i>
+                                </a>
+                                <form action="<?= e(url('/productos/' . (int) $p['id'] . '/toggle')) ?>" method="post" class="inline">
                                     <?= csrfField() ?>
-                                    <button type="submit" class="text-xs text-gray-500 hover:text-gray-800"><?= $p['is_active'] ? 'Off' : 'On' ?></button>
+                                    <button type="submit" class="<?= $p['is_active'] ? 'text-gray-500 hover:text-gray-700' : 'text-green-600 hover:text-green-700' ?> transition hover:scale-105" title="<?= $p['is_active'] ? 'Desactivar' : 'Activar' ?>">
+                                        <i data-lucide="<?= $p['is_active'] ? 'toggle-right' : 'toggle-left' ?>" class="w-5 h-5 <?= $p['is_active'] ? 'text-green-500' : 'text-gray-400' ?>"></i>
+                                    </button>
                                 </form>
+                                </div>
                             </td>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>
             </table>
         </div>
-        <?php if ($pages > 1): ?>
-            <div class="flex justify-center gap-2 mt-6">
-                <?php $qs = $_GET; for ($i = 1; $i <= $pages; $i++): $qs['page'] = $i; $url = rtrim(url('/productos'), '/') . '?' . http_build_query($qs); ?>
-                    <a href="<?= e($url) ?>" class="px-3 py-1 rounded text-sm <?= $i === (int) $page ? 'bg-[#1a6b3c] text-white' : 'bg-white border border-gray-200 hover:bg-gray-50' ?>"><?= $i ?></a>
-                <?php endfor; ?>
-            </div>
-        <?php endif; ?>
+        <?php
+        $per_page = $per_page ?? 25;
+        $total_pages = $pages ?? 1;
+        require APP_PATH . '/Views/layout/pagination.php';
+        ?>
     </div>
 
     <div x-show="tab === 'combos'" x-cloak>
@@ -158,22 +167,30 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
                             <td class="px-3 py-2 text-right"><?= number_format($discount, 2, ',', '.') ?>%</td>
                             <td class="px-3 py-2 text-right font-medium"><?= formatPrice($final) ?></td>
                             <td class="px-3 py-2 text-center">
-                                <?php if ((int) ($c['is_active'] ?? 0) === 1): ?>
-                                    <span class="inline-flex px-2 py-1 rounded-full text-xs bg-green-100 text-green-700">Activo</span>
-                                <?php else: ?>
-                                    <span class="inline-flex px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-600">Inactivo</span>
-                                <?php endif; ?>
+                                <span class="inline-flex px-2 py-1 rounded-full text-xs font-medium <?= e(statusBadgeClass((int) ($c['is_active'] ?? 0) === 1 ? 'active' : 'inactive')) ?>">
+                                    <?= e(statusLabel((int) ($c['is_active'] ?? 0) === 1 ? 'active' : 'inactive')) ?>
+                                </span>
                             </td>
-                            <td class="px-3 py-2 text-right whitespace-nowrap">
-                                <a href="<?= e(url('/combos/' . (int) $c['id'] . '/editar')) ?>" class="text-[#1565C0] hover:underline">Editar</a>
-                                <form action="<?= e(url('/combos/' . (int) $c['id'] . '/toggle')) ?>" method="post" class="inline ml-2">
+                            <td class="px-3 py-2">
+                                <div class="flex items-center justify-end gap-2">
+                                <a href="<?= e(url('/combos/' . (int) $c['id'] . '/editar')) ?>" class="text-blue-600 hover:text-blue-700 transition hover:scale-105" title="Editar">
+                                    <i data-lucide="pencil" class="w-5 h-5 text-blue-500 hover:text-blue-700"></i>
+                                </a>
+                                <form action="<?= e(url('/combos/' . (int) $c['id'] . '/toggle')) ?>" method="post" class="inline">
                                     <?= csrfField() ?>
-                                    <button type="submit" class="text-xs text-gray-500 hover:text-gray-800"><?= (int) ($c['is_active'] ?? 0) === 1 ? 'Off' : 'On' ?></button>
+                                    <button type="submit" class="<?= (int) ($c['is_active'] ?? 0) === 1 ? 'text-gray-500 hover:text-gray-700' : 'text-green-600 hover:text-green-700' ?> transition hover:scale-105" title="<?= (int) ($c['is_active'] ?? 0) === 1 ? 'Desactivar' : 'Activar' ?>">
+                                        <i data-lucide="<?= (int) ($c['is_active'] ?? 0) === 1 ? 'toggle-right' : 'toggle-left' ?>" class="w-5 h-5 <?= (int) ($c['is_active'] ?? 0) === 1 ? 'text-green-500' : 'text-gray-400' ?>"></i>
+                                    </button>
                                 </form>
-                                <form action="<?= e(url('/combos/' . (int) $c['id'] . '/eliminar')) ?>" method="post" class="inline ml-2" onsubmit="return confirm('¿Eliminar combo?');">
+                                <?php $deleteFormId = 'delete-combo-' . (int) $c['id']; ?>
+                                <span class="mx-1 h-4 w-px bg-gray-200 inline-block"></span>
+                                <form id="<?= e($deleteFormId) ?>" action="<?= e(url('/combos/' . (int) $c['id'] . '/eliminar')) ?>" method="post" class="inline">
                                     <?= csrfField() ?>
-                                    <button type="submit" class="text-xs text-red-600 hover:text-red-800">Eliminar</button>
+                                    <button type="button" @click="openDeleteModal('<?= e($deleteFormId) ?>', 'el combo <?= e((string) $c['name']) ?>')" class="text-red-600 hover:text-red-700 transition hover:scale-105" title="Eliminar">
+                                        <i data-lucide="trash-2" class="w-5 h-5 text-red-400 hover:text-red-600"></i>
+                                    </button>
                                 </form>
+                                </div>
                             </td>
                         </tr>
                     <?php endforeach; ?>

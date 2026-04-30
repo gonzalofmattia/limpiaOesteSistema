@@ -289,6 +289,37 @@ function priceIvaLegendLine(bool $includeIva): string
         : '* Los precios expresados no incluyen IVA';
 }
 
+function statusLabel(string $status): string
+{
+    return match (strtolower(trim($status))) {
+        'draft' => 'Borrador',
+        'sent' => 'Enviado',
+        'accepted' => 'Aceptado',
+        'rejected' => 'Rechazado',
+        'expired' => 'Vencido',
+        'delivered' => 'Entregado',
+        'active' => 'Activo',
+        'inactive' => 'Inactivo',
+        'pending' => 'Pendiente',
+        'received' => 'Recibido',
+        'cancelled' => 'Cancelado',
+        default => ucfirst(str_replace('_', ' ', trim($status))),
+    };
+}
+
+function statusBadgeClass(string $status): string
+{
+    return match (strtolower(trim($status))) {
+        'draft', 'inactive' => 'bg-gray-100 text-gray-700',
+        'sent' => 'bg-blue-100 text-blue-800',
+        'accepted', 'active', 'received' => 'bg-green-100 text-green-800',
+        'rejected', 'cancelled' => 'bg-red-100 text-red-800',
+        'expired', 'pending' => 'bg-amber-100 text-amber-800',
+        'delivered' => 'bg-emerald-100 text-emerald-800',
+        default => 'bg-gray-100 text-gray-700',
+    };
+}
+
 function quoteItemIndividualUnitPrice(array $it, array $quote): float
 {
     if ((int) ($it['combo_id'] ?? 0) > 0) {

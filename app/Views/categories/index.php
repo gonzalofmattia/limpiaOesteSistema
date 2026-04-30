@@ -5,6 +5,13 @@
     <p class="text-sm text-gray-600">Administrá descuentos por defecto Seiq y presentación.</p>
     <a href="<?= e(url('/categorias/crear')) ?>" class="inline-flex px-4 py-2 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium hover:bg-[#2db368]">Nueva categoría</a>
 </div>
+<form method="get" class="mb-4 flex gap-2">
+    <input type="hidden" name="per_page" value="<?= (int) ($per_page ?? 20) ?>">
+    <input type="text" name="search" value="<?= e((string) ($search ?? '')) ?>" placeholder="Buscar..." class="flex-1 rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700" title="Buscar">
+        <i data-lucide="search" class="w-5 h-5 text-white"></i>
+    </button>
+</form>
 <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
     <table class="min-w-full text-sm">
         <thead class="bg-gray-50 text-gray-600 border-b border-gray-200">
@@ -39,12 +46,18 @@
                             <span class="inline-flex px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">Inactiva</span>
                         <?php endif; ?>
                     </td>
-                    <td class="px-4 py-3 text-right space-x-2 whitespace-nowrap">
-                        <a href="<?= e(url('/categorias/' . (int) $root['id'] . '/editar')) ?>" class="text-[#1565C0] hover:underline">Editar</a>
+                    <td class="px-4 py-3">
+                        <div class="flex items-center justify-end gap-2">
+                        <a href="<?= e(url('/categorias/' . (int) $root['id'] . '/editar')) ?>" class="text-blue-600 hover:text-blue-700 transition hover:scale-105" title="Editar">
+                            <i data-lucide="pencil" class="w-5 h-5 text-blue-500 hover:text-blue-700"></i>
+                        </a>
                         <form action="<?= e(url('/categorias/' . (int) $root['id'] . '/toggle')) ?>" method="post" class="inline">
                             <?= csrfField() ?>
-                            <button type="submit" class="text-gray-500 hover:text-gray-800 text-xs"><?= $root['is_active'] ? 'Desactivar' : 'Activar' ?></button>
+                            <button type="submit" class="<?= $root['is_active'] ? 'text-gray-500 hover:text-gray-700' : 'text-green-600 hover:text-green-700' ?> transition hover:scale-105" title="<?= $root['is_active'] ? 'Desactivar' : 'Activar' ?>">
+                                    <i data-lucide="<?= $root['is_active'] ? 'toggle-right' : 'toggle-left' ?>" class="w-5 h-5 <?= $root['is_active'] ? 'text-green-500' : 'text-gray-400' ?>"></i>
+                            </button>
                         </form>
+                        </div>
                     </td>
                 </tr>
                 <?php
@@ -79,12 +92,18 @@
                                 <span class="inline-flex px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">Inactiva</span>
                             <?php endif; ?>
                         </td>
-                        <td class="px-4 py-3 text-right space-x-2 whitespace-nowrap">
-                            <a href="<?= e(url('/categorias/' . (int) $c['id'] . '/editar')) ?>" class="text-[#1565C0] hover:underline">Editar</a>
+                        <td class="px-4 py-3">
+                            <div class="flex items-center justify-end gap-2">
+                            <a href="<?= e(url('/categorias/' . (int) $c['id'] . '/editar')) ?>" class="text-blue-600 hover:text-blue-700 transition hover:scale-105" title="Editar">
+                                <i data-lucide="pencil" class="w-5 h-5 text-blue-500 hover:text-blue-700"></i>
+                            </a>
                             <form action="<?= e(url('/categorias/' . (int) $c['id'] . '/toggle')) ?>" method="post" class="inline">
                                 <?= csrfField() ?>
-                                <button type="submit" class="text-gray-500 hover:text-gray-800 text-xs"><?= $c['is_active'] ? 'Desactivar' : 'Activar' ?></button>
+                                <button type="submit" class="<?= $c['is_active'] ? 'text-gray-500 hover:text-gray-700' : 'text-green-600 hover:text-green-700' ?> transition hover:scale-105" title="<?= $c['is_active'] ? 'Desactivar' : 'Activar' ?>">
+                                    <i data-lucide="<?= $c['is_active'] ? 'toggle-right' : 'toggle-left' ?>" class="w-5 h-5 <?= $c['is_active'] ? 'text-green-500' : 'text-gray-400' ?>"></i>
+                                </button>
                             </form>
+                            </div>
                         </td>
                     </tr>
                 <?php endforeach; ?>
@@ -92,3 +111,4 @@
         </tbody>
     </table>
 </div>
+<?php require APP_PATH . '/Views/layout/pagination.php'; ?>

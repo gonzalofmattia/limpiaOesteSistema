@@ -13,16 +13,43 @@ final class CategoryController extends Controller
     public function index(): void
     {
         $db = Database::getInstance();
+        $page = max(1, (int) $this->query('page', 1));
+        $perPage = (int) $this->query('per_page', 20);
+        $perPage = $perPage > 0 ? min($perPage, 100) : 20;
+        $search = trim((string) $this->query('search', ''));
+        $where = '';
+        $params = [];
+        if ($search !== '') {
+            $where = 'WHERE c.name LIKE ?';
+            $params[] = '%' . $search . '%';
+        }
+        $total = (int) $db->fetchColumn("SELECT COUNT(*) FROM categories c {$where}", $params);
+        $totalPages = max(1, (int) ceil($total / $perPage));
+        if ($page > $totalPages) {
+            $page = $totalPages;
+        }
+        $offset = ($page - 1) * $perPage;
         $rows = $db->fetchAll(
             'SELECT c.*, COUNT(p.id) AS product_count, pc.name AS parent_name, pc.default_discount AS parent_default_discount
              FROM categories c
              LEFT JOIN products p ON p.category_id = c.id AND p.is_active = 1
              LEFT JOIN categories pc ON c.parent_id = pc.id
+             ' . $where . '
              GROUP BY c.id
-             ORDER BY COALESCE(c.parent_id, c.id), c.parent_id IS NOT NULL, c.sort_order, c.name'
+             ORDER BY COALESCE(c.parent_id, c.id), c.parent_id IS NOT NULL, c.sort_order, c.name
+             LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
+            $params
         );
         $tree = CategoryHierarchy::buildTree($rows);
-        $this->view('categories/index', ['title' => 'Categorías', 'categoryTree' => $tree]);
+        $this->view('categories/index', [
+            'title' => 'Categorías',
+            'categoryTree' => $tree,
+            'search' => $search,
+            'page' => $page,
+            'per_page' => $perPage,
+            'total' => $total,
+            'total_pages' => $totalPages,
+        ]);
     }
 
     public function create(): void

@@ -5,6 +5,12 @@
     </div>
     <a href="<?= e(url('/cuenta-corriente')) ?>" class="px-3 py-1.5 rounded-lg border border-gray-300 text-sm">Registrar cobro</a>
 </div>
+<form method="get" class="mb-4 flex gap-2">
+    <input type="hidden" name="only_with_debt" value="<?= $onlyWithDebt ? '1' : '0' ?>">
+    <input type="hidden" name="per_page" value="<?= (int) ($per_page ?? 20) ?>">
+    <input type="text" name="search" value="<?= e((string) ($search ?? '')) ?>" placeholder="Buscar..." class="flex-1 rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700" title="Buscar"><i data-lucide="search" class="w-5 h-5 text-white"></i></button>
+</form>
 
 <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto">
     <table class="min-w-full text-sm">
@@ -30,9 +36,11 @@
                     <td class="px-4 py-3 text-right"><?= formatPrice((float) $r['total_invoiced']) ?></td>
                     <td class="px-4 py-3 text-right"><?= formatPrice((float) $r['total_paid']) ?></td>
                     <td class="px-4 py-3 text-right font-semibold <?= $balance > 0 ? 'text-red-700' : 'text-green-700' ?>"><?= formatPrice($balance) ?></td>
-                    <td class="px-4 py-3 text-right whitespace-nowrap space-x-2">
-                        <a href="<?= e(url('/cuenta-corriente/cliente/' . (int) $r['id'])) ?>" class="text-[#1565C0] hover:underline">Ver</a>
-                        <a href="<?= e(url('/cuenta-corriente/cliente/' . (int) $r['id'] . '/pdf')) ?>" class="text-[#1a6b3c] hover:underline">PDF</a>
+                    <td class="px-4 py-3">
+                        <div class="flex items-center justify-end gap-3">
+                            <a href="<?= e(url('/cuenta-corriente/cliente/' . (int) $r['id'])) ?>" title="Ver detalle"><i data-lucide="eye" class="w-5 h-5 text-gray-500 hover:text-blue-600"></i></a>
+                            <a href="<?= e(url('/cuenta-corriente/cliente/' . (int) $r['id'] . '/pdf')) ?>" title="Descargar PDF"><i data-lucide="file-text" class="w-5 h-5 text-green-500 hover:text-green-700"></i></a>
+                        </div>
                     </td>
                 </tr>
             <?php endforeach; ?>
@@ -46,3 +54,4 @@
         </tfoot>
     </table>
 </div>
+<?php require APP_PATH . '/Views/layout/pagination.php'; ?>

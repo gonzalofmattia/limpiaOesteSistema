@@ -21,7 +21,7 @@ $deliveryDelivered = ((string) ($quote['status'] ?? '') === 'delivered');
         </div>
         <div class="bg-white border border-gray-200 rounded-xl p-4">
             <p class="text-sm font-semibold text-gray-800 mb-1">Estado</p>
-            <p><span class="inline-flex px-2 py-0.5 rounded-full text-xs <?= $deliveryDelivered ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800' ?>"><?= $deliveryDelivered ? 'Entregado' : 'Pendiente' ?></span></p>
+            <p><span class="inline-flex px-2 py-1 rounded-full text-xs font-medium <?= e(statusBadgeClass($deliveryDelivered ? 'delivered' : 'pending')) ?>"><?= e(statusLabel($deliveryDelivered ? 'delivered' : 'pending')) ?></span></p>
             <p class="mt-2"><span class="inline-flex px-2 py-0.5 rounded-full text-xs <?= e((string) $payment['badge']) ?>"><?= e((string) $payment['label']) ?></span></p>
             <p class="text-lg font-semibold mt-2"><?= formatPrice((float) ($quote['total'] ?? 0)) ?></p>
         </div>

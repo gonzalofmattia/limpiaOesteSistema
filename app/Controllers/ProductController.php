@@ -15,15 +15,19 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
 
 final class ProductController extends Controller
 {
-    private const PER_PAGE = 25;
 
     public function index(): void
     {
         $db = Database::getInstance();
         $page = max(1, (int) $this->query('page', 1));
+        $perPage = (int) $this->query('per_page', 25);
+        $perPage = $perPage > 0 ? min($perPage, 100) : 25;
         $catFilter = $this->query('category_id', '');
         $supplierFilter = trim((string) $this->query('supplier', ''));
-        $q = trim((string) $this->query('q', ''));
+        $q = trim((string) $this->query('search', ''));
+        if ($q === '') {
+            $q = trim((string) $this->query('q', ''));
+        }
         $status = $this->query('status', '');
 
         $where = ['1=1'];
@@ -63,11 +67,11 @@ final class ProductController extends Controller
              WHERE {$whereSql}",
             $params
         );
-        $pages = max(1, (int) ceil($total / self::PER_PAGE));
+        $pages = max(1, (int) ceil($total / $perPage));
         if ($page > $pages) {
             $page = $pages;
         }
-        $offset = ($page - 1) * self::PER_PAGE;
+        $offset = ($page - 1) * $perPage;
 
         $sql = "SELECT p.*,
                        COALESCE(pc.slug, c.slug) AS category_slug,
@@ -85,7 +89,7 @@ final class ProductController extends Controller
                 LEFT JOIN suppliers s ON s.id = COALESCE(c.supplier_id, pc.supplier_id)
                 WHERE {$whereSql}
                 ORDER BY COALESCE(pc.sort_order, c.sort_order), c.parent_id IS NOT NULL, c.sort_order, p.sort_order, p.name
-                LIMIT " . self::PER_PAGE . " OFFSET " . (int) $offset;
+                LIMIT " . (int) $perPage . " OFFSET " . (int) $offset;
 
         $rows = $db->fetchAll($sql, $params);
 
@@ -148,6 +152,8 @@ final class ProductController extends Controller
             'categoryFilterOptions' => $categoryFilterOptions,
             'page' => $page,
             'pages' => $pages,
+            'per_page' => $perPage,
+            'total_pages' => $pages,
             'total' => $total,
             'filters' => [
                 'category_id' => $catFilter,

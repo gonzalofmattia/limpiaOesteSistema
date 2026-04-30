@@ -1,8 +1,9 @@
 <div class="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4 mb-6">
     <form method="get" class="flex gap-3 items-end">
+        <input type="hidden" name="per_page" value="<?= (int) ($per_page ?? 20) ?>">
         <div>
             <label class="block text-xs text-gray-500 mb-1">Buscar producto</label>
-            <input type="text" name="q" value="<?= e((string) ($q ?? '')) ?>" placeholder="Código o nombre"
+            <input type="text" name="search" value="<?= e((string) ($q ?? '')) ?>" placeholder="Buscar..."
                    class="border border-gray-300 rounded-lg text-sm px-3 py-2 w-64 focus:ring-2 focus:ring-[#1a6b3c]">
         </div>
         <button type="submit" class="px-4 py-2 rounded-lg bg-gray-800 text-white text-sm">Filtrar</button>
@@ -39,7 +40,7 @@
     <?php endif; ?>
 </div>
 
-<p class="text-sm text-gray-500 mb-2"><?= count($products) ?> productos con stock mayor a 0</p>
+<p class="text-sm text-gray-500 mb-2"><?= (int) ($total ?? count($products)) ?> productos con stock mayor a 0</p>
 
 <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto">
     <table class="min-w-full text-sm">
@@ -79,6 +80,7 @@
         </tbody>
     </table>
 </div>
+<?php require APP_PATH . '/Views/layout/pagination.php'; ?>
 
 <?php if (!empty($hasAdjustmentsTable)): ?>
     <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto mt-6">
