@@ -1,264 +1,166 @@
 <?php
-$labels = is_array($monthlyLabels ?? null) ? $monthlyLabels : [];
-$acceptedSeries = is_array($monthlyAccepted ?? null) ? $monthlyAccepted : [];
-$collectedSeries = is_array($monthlyCollected ?? null) ? $monthlyCollected : [];
-$supplierSeries = is_array($monthlySupplierPayments ?? null) ? $monthlySupplierPayments : [];
-
-$sparkPoints = static function (array $values): string {
-    if ($values === []) {
-        return '';
-    }
-    $count = count($values);
-    $max = max($values);
-    $min = min($values);
-    $range = $max - $min;
-    $width = 100.0;
-    $height = 36.0;
-    $points = [];
-    foreach ($values as $i => $value) {
-        $x = $count <= 1 ? 0 : ($i * ($width / ($count - 1)));
-        $ratio = $range <= 0.00001 ? 0.5 : (($value - $min) / $range);
-        $y = $height - ($ratio * $height);
-        $points[] = round($x, 2) . ',' . round($y, 2);
-    }
-    return implode(' ', $points);
-};
-
-$barMax = max(array_merge([1.0], $acceptedSeries, $collectedSeries, $supplierSeries));
+$labels = $monthlyLabels ?? [];
+$values = $monthlySales ?? [];
+$currentMonthIndex = count($labels) > 0 ? count($labels) - 1 : 0;
+$pendingMore = max(0, (int) ($pendingDeliveryTotalRows ?? 0) - count($pendingDeliveryQuotes ?? []));
 ?>
-
 <div class="space-y-5">
-    <section class="bg-white rounded-2xl border border-gray-200 p-4 sm:p-5 shadow-sm">
-        <p class="text-xs uppercase tracking-wide text-gray-500">Panel comercial</p>
-        <h2 class="text-xl sm:text-2xl font-semibold text-gray-900 mt-1">Resumen rápido de tu negocio</h2>
-        <p class="text-sm text-gray-600 mt-1">Vista simple para tomar decisiones desde el celular.</p>
-    </section>
-
-    <?php if (!empty($accountsEnabled)): ?>
-        <section class="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm space-y-3">
-            <h3 class="text-sm font-semibold text-gray-800">Ventas</h3>
-            <div class="grid md:grid-cols-4 gap-3 text-sm">
-                <div><p class="text-gray-500">Hoy</p><p class="font-semibold"><?= (int) ($salesTodayCount ?? 0) ?> · <?= formatPrice((float) ($salesTodayAmount ?? 0)) ?></p></div>
-                <div><p class="text-gray-500">Semana</p><p class="font-semibold"><?= (int) ($salesWeekCount ?? 0) ?> · <?= formatPrice((float) ($salesWeekAmount ?? 0)) ?></p></div>
-                <div><p class="text-gray-500">Mes</p><p class="font-semibold"><?= (int) ($salesMonthCount ?? 0) ?> · <?= formatPrice((float) ($salesMonthAmount ?? 0)) ?></p></div>
-                <div><p class="text-gray-500">Ticket prom. mes</p><p class="font-semibold"><?= formatPrice((float) ($salesMonthAvgTicket ?? 0)) ?></p></div>
-            </div>
-            <div class="grid md:grid-cols-3 gap-3 text-sm">
-                <div>
-                    <p class="text-gray-500 mb-1">Top 5 productos mes</p>
-                    <?php foreach (($topProductsMonth ?? []) as $row): ?>
-                        <p><?= e((string) $row['name']) ?> · <strong><?= (int) $row['units'] ?></strong></p>
-                    <?php endforeach; ?>
-                </div>
-                <div>
-                    <p class="text-gray-500 mb-1">Top 5 clientes mes</p>
-                    <?php foreach (($topClientsMonth ?? []) as $row): ?>
-                        <p><?= e((string) $row['name']) ?> · <strong><?= formatPrice((float) $row['total_amount']) ?></strong></p>
-                    <?php endforeach; ?>
-                </div>
-                <div>
-                    <p class="text-gray-500 mb-1">Top combos mes</p>
-                    <?php foreach (($topCombosMonth ?? []) as $row): ?>
-                        <p><?= e((string) $row['name']) ?> · <strong><?= (int) $row['qty'] ?></strong></p>
-                    <?php endforeach; ?>
-                </div>
-            </div>
-            <div class="grid md:grid-cols-2 gap-3 text-sm">
-                <p>Pendientes de entrega: <strong><?= (int) ($pendingDeliveryCount ?? 0) ?></strong> · <strong><?= formatPrice((float) ($pendingDeliveryAmount ?? 0)) ?></strong></p>
-                <p>Cobros pendientes (entregadas): <strong><?= formatPrice((float) ($pendingCollectionDelivered ?? 0)) ?></strong></p>
-            </div>
-        </section>
-
-        <section class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-            <a href="<?= e(url('/dashboard/detalle/aceptados')) ?>" class="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm hover:border-primary transition">
-                <p class="text-xs text-gray-500">Presupuestos aceptados</p>
-                <p class="text-2xl font-bold text-gray-900 mt-1"><?= formatPrice((float) $acceptedQuotesTotal) ?></p>
-                <p class="text-xs text-gray-500 mt-1"><?= (int) $acceptedQuotesCount ?> presupuestos (tap para desglose)</p>
-                <p class="text-[11px] text-gray-400 mt-1">Formula: sum(total) donde estado = accepted/delivered.</p>
-            </a>
-            <a href="<?= e(url('/dashboard/detalle/cobrado')) ?>" class="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm hover:border-primary transition">
-                <p class="text-xs text-gray-500">Cobrado</p>
-                <p class="text-2xl font-bold text-primary mt-1"><?= formatPrice((float) $collectedTotal) ?></p>
-                <p class="text-xs text-gray-500 mt-1">Cobros registrados (tap para desglose)</p>
-                <p class="text-[11px] text-gray-400 mt-1">Formula: sum(cobros clientes) en cuenta corriente.</p>
-            </a>
-            <a href="<?= e(url('/dashboard/detalle/ganancia')) ?>" class="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm hover:border-primary transition">
-                <p class="text-xs text-gray-500">Ganancia estimada</p>
-                <p class="text-2xl font-bold mt-1 <?= (float) $deliveredProfit >= 0 ? 'text-emerald-600' : 'text-red-600' ?>">
-                    <?= formatPrice((float) $deliveredProfit) ?>
-                </p>
-                <p class="text-xs text-gray-500 mt-1">Entregado neto - costo estimado (tap para desglose)</p>
-                <p class="text-[11px] text-gray-400 mt-1">Formula: sum(entregado neto) - sum(costo estimado).</p>
-            </a>
-            <a href="<?= e(url('/dashboard/detalle/pendiente')) ?>" class="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm hover:border-primary transition">
-                <p class="text-xs text-gray-500">Pendiente de cobro</p>
-                <p class="text-2xl font-bold text-amber-600 mt-1"><?= formatPrice((float) $receivable) ?></p>
-                <p class="text-xs text-gray-500 mt-1"><?= (int) $clientsWithDebt ?> clientes con deuda (tap para desglose)</p>
-                <p class="text-[11px] text-gray-400 mt-1">Formula: suma de saldos positivos por cliente.</p>
-            </a>
-        </section>
-
-        <section class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div class="lg:col-span-2 bg-white rounded-2xl border border-gray-200 p-4 shadow-sm">
-                <div class="flex items-center justify-between mb-3">
-                    <h3 class="text-sm font-semibold text-gray-800">Evolución mensual (6 meses)</h3>
-                    <span class="text-xs text-gray-500">Aceptados / Cobrado</span>
-                </div>
-                <div class="h-40 bg-gray-50 rounded-xl border border-gray-100 p-3 flex items-end gap-2">
-                    <?php foreach ($labels as $index => $label): ?>
-                        <?php
-                        $accepted = (float) ($acceptedSeries[$index] ?? 0.0);
-                        $col = (float) ($collectedSeries[$index] ?? 0.0);
-                        $sup = (float) ($supplierSeries[$index] ?? 0.0);
-                        $hAccepted = max(6, (int) round(($accepted / $barMax) * 100));
-                        $hCol = max(6, (int) round(($col / $barMax) * 100));
-                        $hSup = max(6, (int) round(($sup / $barMax) * 100));
-                        ?>
-                        <div class="flex-1 min-w-0">
-                            <div class="h-24 flex items-end justify-center gap-1">
-                                <div class="w-2 rounded bg-blue-300" style="height: <?= $hAccepted ?>%"></div>
-                                <div class="w-2 rounded bg-primary/80" style="height: <?= $hCol ?>%"></div>
-                                <div class="w-2 rounded bg-rose-300" style="height: <?= $hSup ?>%"></div>
-                            </div>
-                            <p class="text-[10px] text-center text-gray-500 mt-2 truncate"><?= e($label) ?></p>
-                        </div>
-                    <?php endforeach; ?>
-                </div>
-                <div class="flex flex-wrap items-center gap-3 mt-3 text-xs text-gray-600">
-                    <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded bg-blue-300"></span>Aceptados</span>
-                    <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded bg-primary/80"></span>Cobrado</span>
-                    <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded bg-rose-300"></span>Pago proveedor</span>
-                </div>
-            </div>
-            <div class="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm">
-                <h3 class="text-sm font-semibold text-gray-800 mb-2">Saldo proveedores</h3>
-                <?php if (($supplierDebts ?? []) === []): ?>
-                    <p class="text-sm text-gray-500">Sin movimientos aún.</p>
-                <?php else: ?>
-                    <div class="space-y-2">
-                        <?php foreach (array_slice($supplierDebts, 0, 5) as $supplier): ?>
-                            <a href="<?= e(url('/cuenta-corriente/proveedor/' . (int) $supplier['id'])) ?>" class="flex items-center justify-between text-sm hover:text-accent">
-                                <span class="truncate pr-2"><?= e($supplier['name']) ?></span>
-                                <span class="font-medium"><?= formatPrice((float) $supplier['debt']) ?></span>
-                            </a>
-                        <?php endforeach; ?>
-                    </div>
-                <?php endif; ?>
-                <div class="mt-4 pt-3 border-t border-gray-100">
-                    <p class="text-xs text-gray-500">Entregado neto / costo</p>
-                    <p class="text-sm font-semibold text-gray-800">
-                        <?= formatPrice((float) $deliveredNetTotal) ?> / <?= formatPrice((float) $deliveredCostTotal) ?>
-                    </p>
-                </div>
-            </div>
-        </section>
-    <?php endif; ?>
-
-    <section class="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div class="bg-white rounded-2xl border border-gray-200 p-4">
-            <p class="text-xs text-gray-500">Productos</p>
-            <p class="text-xl font-semibold text-gray-900"><?= (int) $productsActive ?></p>
+    <section class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="rounded-lg bg-gray-100 p-4">
+            <p class="text-[13px] text-gray-600">Ventas hoy</p>
+            <p class="text-2xl font-medium text-gray-900 mt-1"><?= formatPrice((float) ($salesTodayAmount ?? 0)) ?></p>
+            <p class="text-xs text-gray-500 mt-1"><?= (int) ($salesTodayCount ?? 0) ?> ventas</p>
         </div>
-        <div class="bg-white rounded-2xl border border-gray-200 p-4">
-            <p class="text-xs text-gray-500">Categorias</p>
-            <p class="text-xl font-semibold text-gray-900"><?= (int) $categoriesCount ?></p>
+        <div class="rounded-lg bg-gray-100 p-4">
+            <p class="text-[13px] text-gray-600">Ventas semana</p>
+            <p class="text-2xl font-medium text-gray-900 mt-1"><?= formatPrice((float) ($salesWeekAmount ?? 0)) ?></p>
+            <p class="text-xs text-gray-500 mt-1"><?= (int) ($salesWeekCount ?? 0) ?> ventas</p>
         </div>
-        <div class="bg-white rounded-2xl border border-gray-200 p-4">
-            <p class="text-xs text-gray-500">Clientes activos</p>
-            <p class="text-xl font-semibold text-gray-900"><?= (int) $clientsCount ?></p>
+        <div class="rounded-lg bg-gray-100 p-4">
+            <p class="text-[13px] text-gray-600">Ventas mes</p>
+            <p class="text-2xl font-medium text-gray-900 mt-1"><?= formatPrice((float) ($salesMonthAmount ?? 0)) ?></p>
+            <p class="text-xs text-gray-500 mt-1"><?= (int) ($salesMonthCount ?? 0) ?> ventas</p>
         </div>
-        <div class="bg-white rounded-2xl border border-gray-200 p-4">
-            <p class="text-xs text-gray-500">Presupuestos</p>
-            <p class="text-xl font-semibold text-gray-900"><?= (int) $quotesCount ?></p>
+        <div class="rounded-lg bg-gray-100 p-4">
+            <p class="text-[13px] text-gray-600">Ticket promedio</p>
+            <p class="text-2xl font-medium text-gray-900 mt-1"><?= formatPrice((float) ($salesMonthAvgTicket ?? 0)) ?></p>
+            <p class="text-xs text-gray-500 mt-1">este mes</p>
         </div>
     </section>
 
-    <section class="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm">
-        <div class="flex items-center justify-between gap-3 mb-3">
-            <h3 class="text-sm font-semibold text-gray-800">Stock bajo / comprometido</h3>
-            <a href="<?= e(url('/stock-actual')) ?>" class="text-xs text-accent hover:underline">Ver todo el stock</a>
-        </div>
-        <?php if (($lowStockProducts ?? []) === []): ?>
-            <p class="text-sm text-gray-500">Sin alertas de stock disponible.</p>
-        <?php else: ?>
-            <div class="overflow-x-auto">
-                <table class="min-w-full text-sm">
-                    <thead class="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs uppercase tracking-wide">
-                        <tr>
-                            <th class="text-left px-3 py-2">Producto</th>
-                            <th class="text-right px-3 py-2">Total</th>
-                            <th class="text-right px-3 py-2">Comprometido</th>
-                            <th class="text-right px-3 py-2">Disponible</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-100">
-                        <?php foreach (($lowStockProducts ?? []) as $p): ?>
-                            <?php $available = (int) ($p['stock_available_units'] ?? 0); ?>
-                            <tr>
-                                <td class="px-3 py-2"><?= e((string) ($p['name'] ?? '')) ?></td>
-                                <td class="px-3 py-2 text-right"><?= (int) ($p['stock_units'] ?? 0) ?></td>
-                                <td class="px-3 py-2 text-right text-amber-600 font-medium"><?= (int) ($p['stock_committed_units'] ?? 0) ?></td>
-                                <td class="px-3 py-2 text-right font-semibold <?= $available > 0 ? 'text-green-700' : 'text-red-700' ?>"><?= $available ?></td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
+    <section class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <article class="rounded-xl border border-gray-200 bg-white px-5 py-4">
+            <div class="flex items-center justify-between">
+                <h3 class="text-sm font-semibold text-gray-800">Cobros pendientes</h3>
+                <span class="text-xs px-2 py-1 rounded-full bg-red-100 text-red-700"><?= (int) ($clientsWithDebt ?? 0) ?> clientes</span>
             </div>
-        <?php endif; ?>
+            <p class="text-2xl font-medium text-red-600 mt-3"><?= formatPrice((float) ($receivable ?? 0)) ?></p>
+            <div class="mt-3 space-y-1 text-sm">
+                <?php foreach (($topDebtors ?? []) as $d): ?>
+                    <p class="flex justify-between"><span class="text-gray-700 truncate pr-2"><?= e((string) ($d['name'] ?? '')) ?></span><span class="text-red-600 font-medium"><?= formatPrice((float) ($d['balance'] ?? 0)) ?></span></p>
+                <?php endforeach; ?>
+                <?php if (($topDebtors ?? []) === []): ?><p class="text-gray-500">Sin deuda pendiente</p><?php endif; ?>
+            </div>
+        </article>
+
+        <article class="rounded-xl border border-gray-200 bg-white px-5 py-4">
+            <div class="flex items-center justify-between">
+                <h3 class="text-sm font-semibold text-gray-800">Pendientes de entrega</h3>
+                <span class="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-700"><?= (int) ($pendingDeliveryCount ?? 0) ?> presupuestos</span>
+            </div>
+            <p class="text-2xl font-medium text-amber-600 mt-3"><?= formatPrice((float) ($pendingDeliveryAmount ?? 0)) ?></p>
+            <div class="mt-3 space-y-1 text-sm">
+                <?php foreach (($pendingDeliveryQuotes ?? []) as $q): ?>
+                    <p class="flex justify-between"><span class="text-gray-700 truncate pr-2"><?= e((string) ($q['client_name'] ?? '')) ?></span><span class="text-amber-700 font-medium"><?= formatPrice((float) ($q['total'] ?? 0)) ?></span></p>
+                <?php endforeach; ?>
+                <?php if ($pendingMore > 0): ?><p class="text-gray-500">y <?= $pendingMore ?> más...</p><?php endif; ?>
+                <?php if (($pendingDeliveryQuotes ?? []) === []): ?><p class="text-gray-500">Sin pendientes de entrega</p><?php endif; ?>
+            </div>
+        </article>
+
+        <article class="rounded-xl border border-gray-200 bg-white px-5 py-4">
+            <div class="flex items-center justify-between">
+                <h3 class="text-sm font-semibold text-gray-800">Ganancia estimada</h3>
+                <span class="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">este mes</span>
+            </div>
+            <p class="text-2xl font-medium text-green-600 mt-3"><?= formatPrice((float) ($profitEstimated ?? 0)) ?></p>
+            <div class="mt-3 space-y-1 text-sm">
+                <p class="flex justify-between"><span class="text-gray-600">Facturado neto:</span><span class="font-medium"><?= formatPrice((float) ($deliveredMonthNet ?? 0)) ?></span></p>
+                <p class="flex justify-between"><span class="text-gray-600">Costo estimado:</span><span class="font-medium"><?= formatPrice((float) ($deliveredMonthCost ?? 0)) ?></span></p>
+                <p class="flex justify-between"><span class="text-gray-600">Margen:</span><span class="font-medium text-green-600"><?= number_format((float) ($profitMarginPercent ?? 0), 1, ',', '.') ?>%</span></p>
+                <?php if ((int) ($deliveredMonthCostNullCount ?? 0) > 0): ?><p class="text-gray-500">Sin datos de costo en algunos ítems.</p><?php endif; ?>
+            </div>
+        </article>
     </section>
 
-    <section class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <a href="<?= e(url('/presupuestos/crear')) ?>" class="inline-flex items-center justify-center px-4 py-3 rounded-xl bg-accent text-white text-sm font-medium hover:bg-blue-700">
-            Nuevo presupuesto
-        </a>
-        <a href="<?= e(url('/productos/crear')) ?>" class="inline-flex items-center justify-center px-4 py-3 rounded-xl bg-primary text-white text-sm font-medium hover:bg-primary-light">
-            Nuevo producto
-        </a>
-        <a href="<?= e(url('/cuenta-corriente')) ?>" class="inline-flex items-center justify-center px-4 py-3 rounded-xl bg-white border border-gray-300 text-sm font-medium hover:bg-gray-50">
-            Ver cuenta corriente
-        </a>
+    <section class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <article class="lg:col-span-2 rounded-xl border border-gray-200 bg-white p-4">
+            <h3 class="text-sm font-semibold text-gray-800 mb-3">Ventas últimos 6 meses</h3>
+            <div class="h-[240px]">
+                <canvas id="sales6mChart"></canvas>
+            </div>
+            <div class="mt-3 flex items-center gap-3 text-xs text-gray-600">
+                <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded bg-[#378ADD]"></span>Meses anteriores</span>
+                <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded bg-[#1f5d99]"></span>Mes actual</span>
+            </div>
+        </article>
+        <article class="rounded-xl border border-gray-200 bg-white p-4">
+            <h3 class="text-sm font-semibold text-gray-800 mb-3">Top 5 productos</h3>
+            <div class="space-y-2 text-sm">
+                <?php foreach (($topProductsMonth ?? []) as $p): ?>
+                    <p class="flex justify-between"><span class="truncate pr-2"><?= e((string) ($p['name'] ?? '')) ?></span><span class="font-medium"><?= (int) ($p['units'] ?? 0) ?> u</span></p>
+                <?php endforeach; ?>
+                <?php if (($topProductsMonth ?? []) === []): ?><p class="text-gray-500">Sin ventas este mes</p><?php endif; ?>
+            </div>
+        </article>
+    </section>
+
+    <section class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <a href="<?= e(url('/presupuestos/crear')) ?>" class="inline-flex items-center justify-center px-4 py-3 rounded-xl bg-[#1a6b3c] text-white text-sm font-medium hover:bg-[#14542f]">Nuevo presupuesto</a>
+        <a href="<?= e(url('/productos/crear')) ?>" class="inline-flex items-center justify-center px-4 py-3 rounded-xl bg-[#1565C0] text-white text-sm font-medium hover:bg-[#0f4e98]">Nuevo producto</a>
+        <a href="<?= e(url('/cuenta-corriente')) ?>" class="inline-flex items-center justify-center px-4 py-3 rounded-xl bg-white border border-gray-300 text-gray-800 text-sm font-medium hover:bg-gray-50">Ver cuenta corriente</a>
     </section>
 
     <section class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div class="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm">
-            <div class="flex items-center justify-between">
-                <h3 class="text-sm font-semibold text-gray-800">Ultimos presupuestos</h3>
-                <a href="<?= e(url('/presupuestos')) ?>" class="text-xs text-accent hover:underline">Ver todos</a>
+        <article class="rounded-xl border border-gray-200 bg-white p-4">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-semibold text-gray-800">Últimos presupuestos</h3>
+                <a href="<?= e(url('/presupuestos')) ?>" class="text-sm text-[#1565C0] hover:underline">Ver todos</a>
             </div>
-            <div class="mt-3 space-y-2">
-                <?php if (!$recentQuotes): ?>
-                    <p class="text-sm text-gray-500">Sin presupuestos aun.</p>
-                <?php endif; ?>
-                <?php foreach ($recentQuotes as $q): ?>
-                    <a href="<?= e(url('/presupuestos/' . (int) $q['id'])) ?>" class="block rounded-xl border border-gray-100 p-3 hover:border-gray-300">
-                        <div class="flex items-start justify-between gap-3">
-                            <div class="min-w-0">
-                                <p class="text-sm font-medium text-gray-900 truncate"><?= e($q['quote_number']) ?></p>
-                                <p class="text-xs text-gray-500 truncate"><?= e($q['client_name'] ?? 'Sin cliente') ?></p>
-                            </div>
-                            <p class="text-sm font-semibold text-gray-800 whitespace-nowrap"><?= formatPrice((float) $q['total']) ?></p>
-                        </div>
+            <div class="divide-y divide-gray-100">
+                <?php foreach (($recentQuotes ?? []) as $q): ?>
+                    <a href="<?= e(url('/presupuestos/' . (int) ($q['id'] ?? 0))) ?>" class="flex items-start justify-between py-2">
+                        <span class="min-w-0 pr-3">
+                            <span class="block text-sm font-medium text-gray-900"><?= e((string) ($q['quote_number'] ?? '')) ?></span>
+                            <span class="block text-xs text-gray-500 truncate"><?= e((string) ($q['client_name'] ?? '—')) ?></span>
+                        </span>
+                        <span class="text-sm font-medium text-gray-900 whitespace-nowrap"><?= formatPrice((float) ($q['total'] ?? 0)) ?></span>
                     </a>
                 <?php endforeach; ?>
+                <?php if (($recentQuotes ?? []) === []): ?><p class="text-sm text-gray-500 py-2">Sin presupuestos aún</p><?php endif; ?>
             </div>
-        </div>
+        </article>
 
-        <div class="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm">
-            <h3 class="text-sm font-semibold text-gray-800">Actividad de cobros</h3>
-            <?php if ($collectedSeries === []): ?>
-                <p class="text-sm text-gray-500 mt-3">Sin datos para graficar.</p>
-            <?php else: ?>
-                <div class="mt-3 h-20 bg-gray-50 rounded-xl border border-gray-100 p-3 flex items-end gap-1">
-                    <?php
-                    $sparkMax = max(array_merge([1.0], $collectedSeries));
-                    foreach ($collectedSeries as $value):
-                        $h = max(10, (int) round((((float) $value) / $sparkMax) * 100));
-                    ?>
-                        <span class="flex-1 rounded bg-primary/80" style="height: <?= $h ?>%"></span>
-                    <?php endforeach; ?>
-                </div>
-                <p class="text-xs text-gray-500 mt-2">Tendencia de cobros de los ultimos 6 meses.</p>
-            <?php endif; ?>
-        </div>
+        <article class="rounded-xl border border-gray-200 bg-white p-4">
+            <h3 class="text-sm font-semibold text-gray-800 mb-3">Top 5 clientes del mes</h3>
+            <div class="divide-y divide-gray-100">
+                <?php foreach (($topClientsMonth ?? []) as $c): ?>
+                    <p class="flex justify-between py-2 text-sm"><span class="truncate pr-2"><?= e((string) ($c['name'] ?? '')) ?></span><span class="font-medium"><?= formatPrice((float) ($c['total_amount'] ?? 0)) ?></span></p>
+                <?php endforeach; ?>
+                <?php if (($topClientsMonth ?? []) === []): ?><p class="text-sm text-gray-500 py-2">Sin ventas este mes</p><?php endif; ?>
+            </div>
+        </article>
     </section>
 </div>
+
+<script>
+(() => {
+    const labels = <?= json_encode($labels, JSON_UNESCAPED_UNICODE) ?> || [];
+    const values = <?= json_encode($values, JSON_UNESCAPED_UNICODE) ?> || [];
+    const currentMonthIndex = <?= (int) $currentMonthIndex ?>;
+    const canvas = document.getElementById('sales6mChart');
+    if (!canvas || !window.Chart) return;
+    const colors = values.map((_, i) => i === currentMonthIndex ? '#1f5d99' : '#378ADD');
+    new Chart(canvas, {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [{
+                data: values,
+                backgroundColor: colors,
+                borderRadius: 6,
+                borderSkipped: false,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { grid: { display: false } },
+                y: { ticks: { callback: (v) => '$ ' + Number(v).toLocaleString('es-AR') } }
+            }
+        }
+    });
+})();
+</script>
