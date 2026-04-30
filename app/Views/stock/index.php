@@ -12,8 +12,7 @@ foreach (($products ?? []) as $p) {
 }
 ?>
 <div class="space-y-5">
-<div class="flex items-center justify-between">
-    <div><h2 class="text-2xl font-semibold">Stock actual</h2><p class="text-sm text-slate-500">Movimientos de entrada y salida y alertas de reposición.</p></div>
+<div class="flex items-center justify-end">
     <div class="flex gap-2">
         <button class="h-10 px-4 rounded-xl border border-lo-border bg-white text-sm font-medium">Salida</button>
         <button class="h-10 px-4 rounded-xl bg-lo-blue text-white text-sm font-medium">Ingreso</button>
@@ -25,20 +24,19 @@ foreach (($products ?? []) as $p) {
     <div class="lo-card p-4"><p class="text-xs text-slate-500">Sin stock</p><p class="text-2xl font-semibold text-red-600"><?= $sinStock ?></p></div>
     <div class="lo-card p-4"><p class="text-xs text-slate-500">Para reponer</p><p class="text-2xl font-semibold text-amber-600"><?= $reponer ?></p></div>
 </div>
-<div class="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4">
-    <form method="get" class="flex gap-3 items-end">
+<form method="get" class="flex items-center gap-2">
         <input type="hidden" name="per_page" value="<?= (int) ($per_page ?? 20) ?>">
-        <div>
-            <label class="block text-xs text-gray-500 mb-1">Buscar producto</label>
-            <input type="text" name="search" value="<?= e((string) ($q ?? '')) ?>" placeholder="Buscar..."
-                   class="border border-gray-300 rounded-lg text-sm px-3 py-2 w-64 focus:ring-2 focus:ring-[#1a6b3c]">
-        </div>
-        <button type="submit" class="px-4 py-2 rounded-lg bg-gray-800 text-white text-sm">Filtrar</button>
-    </form>
-    <a href="<?= e(url('/productos')) ?>" class="px-4 py-2 rounded-lg border border-gray-300 text-sm hover:bg-gray-50">Ir a Productos</a>
+    <div class="flex-1 h-11 rounded-xl border border-lo-border bg-white px-3 flex items-center gap-2"><i data-lucide="search" class="h-4 w-4 text-slate-400"></i><input type="text" name="search" value="<?= e((string) ($q ?? '')) ?>" placeholder="Buscar producto..." class="w-full bg-transparent outline-none text-sm"></div>
+    <button class="h-11 w-11 rounded-xl border border-lo-border bg-white grid place-items-center"><i data-lucide="sliders-horizontal" class="h-4 w-4"></i></button>
+</form>
+<div class="flex gap-2 overflow-x-auto pb-1">
+    <span class="px-3 h-8 rounded-full bg-slate-900 text-white inline-flex items-center text-xs font-semibold">Todos <span class="ml-1 text-[10px]"><?= $skuCount ?></span></span>
+    <span class="px-3 h-8 rounded-full border border-slate-200 inline-flex items-center text-xs text-slate-600">Sin stock <span class="ml-1 text-[10px]"><?= $sinStock ?></span></span>
+    <span class="px-3 h-8 rounded-full border border-slate-200 inline-flex items-center text-xs text-slate-600">Reponer <span class="ml-1 text-[10px]"><?= $reponer ?></span></span>
+    <span class="px-3 h-8 rounded-full border border-slate-200 inline-flex items-center text-xs text-slate-600">OK <span class="ml-1 text-[10px]"><?= max(0, $skuCount - $sinStock - $reponer) ?></span></span>
 </div>
 
-<div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 mb-6">
+<div class="lo-card p-6">
     <h3 class="text-sm font-semibold text-gray-800 mb-3">Ajuste manual de stock</h3>
     <?php if (empty($hasAdjustmentsTable)): ?>
         <p class="text-sm text-red-700">
@@ -86,7 +84,7 @@ foreach (($products ?? []) as $p) {
             <?php foreach ($products as $p): ?>
                 <tr class="hover:bg-gray-50">
                     <td class="px-3 py-2 font-mono text-xs"><?= e((string) $p['code']) ?></td>
-                    <td class="px-3 py-2"><?= e((string) $p['name']) ?></td>
+                    <td class="px-3 py-2"><span class="lo-truncate" title="<?= e((string) $p['name']) ?>"><?= e((string) $p['name']) ?></span></td>
                     <td class="px-3 py-2 text-gray-600"><?= e((string) $p['category_name']) ?></td>
                     <td class="px-3 py-2 text-right text-gray-600"><?= (int) ($p['units_per_box'] ?? 1) ?></td>
                     <?php
@@ -110,11 +108,11 @@ foreach (($products ?? []) as $p) {
 <?php require APP_PATH . '/Views/layout/pagination.php'; ?>
 
 <?php if (!empty($hasAdjustmentsTable)): ?>
-    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto mt-6">
+    <div class="lo-table-wrap mt-6">
         <div class="px-4 py-3 border-b border-gray-200 bg-gray-50">
             <h3 class="text-sm font-semibold text-gray-800">Últimos ajustes</h3>
         </div>
-        <table class="min-w-full text-sm">
+        <table class="min-w-full text-sm lo-table">
             <thead class="bg-gray-50 text-gray-600 border-b border-gray-200">
                 <tr>
                     <th class="text-left px-3 py-2">Fecha</th>
@@ -132,7 +130,7 @@ foreach (($products ?? []) as $p) {
                     <tr>
                         <td class="px-3 py-2 text-gray-600"><?= e((string) ($a['created_at'] ?? '')) ?></td>
                         <td class="px-3 py-2 font-mono text-xs"><?= e((string) ($a['code'] ?? '')) ?></td>
-                        <td class="px-3 py-2"><?= e((string) ($a['name'] ?? '')) ?></td>
+                        <td class="px-3 py-2"><span class="lo-truncate" title="<?= e((string) ($a['name'] ?? '')) ?>"><?= e((string) ($a['name'] ?? '')) ?></span></td>
                         <td class="px-3 py-2 text-right"><?= (int) ($a['previous_stock'] ?? 0) ?></td>
                         <td class="px-3 py-2 text-right"><?= (int) ($a['new_stock'] ?? 0) ?></td>
                         <td class="px-3 py-2 text-right <?= (int) ($a['difference'] ?? 0) >= 0 ? 'text-green-700' : 'text-red-700' ?>">

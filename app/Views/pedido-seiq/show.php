@@ -13,9 +13,7 @@ $remainderRows = array_values(array_filter($items, static fn ($it) => (int) ($it
 <div class="max-w-6xl space-y-6">
     <div class="flex flex-wrap justify-between gap-4 items-start">
         <div>
-            <p class="text-sm text-gray-500">Pedido a proveedor</p>
-            <h2 class="text-xl font-semibold text-gray-900"><?= e($order['order_number']) ?></h2>
-            <p class="text-sm text-gray-700"><?= e((string) ($order['supplier_name'] ?? '—')) ?></p>
+            <p class="text-sm text-gray-700 font-medium"><?= e($order['order_number']) ?> · <?= e((string) ($order['supplier_name'] ?? '—')) ?></p>
             <p class="text-sm text-gray-600 mt-1"><?= e($order['created_at']) ?></p>
         </div>
         <div class="flex flex-wrap gap-2">
@@ -78,15 +76,14 @@ $remainderRows = array_values(array_filter($items, static fn ($it) => (int) ($it
             <h3 class="text-sm font-semibold text-gray-800">Detalle del pedido</h3>
         </div>
         <div class="overflow-x-auto">
-            <table class="min-w-full text-sm">
+            <table class="min-w-full text-xs table-auto lo-table">
                 <thead class="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs uppercase tracking-wide">
                     <tr>
-                        <th class="text-left px-3 py-2">Categoría</th>
-                        <th class="text-left px-3 py-2">Código</th>
-                        <th class="text-left px-3 py-2">Producto</th>
-                        <th class="text-left px-3 py-2">Vendido</th>
-                        <th class="text-left px-3 py-2">Pedir</th>
-                        <th class="text-left px-3 py-2">Remanente</th>
+                        <th class="text-left px-2 py-2">Cód.</th>
+                        <th class="text-left px-2 py-2 w-[30%]">Producto</th>
+                        <th class="text-left px-2 py-2 whitespace-nowrap">Vendido</th>
+                        <th class="text-left px-2 py-2 whitespace-nowrap">Pedir</th>
+                        <th class="text-left px-2 py-2 whitespace-nowrap">Rem.</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
@@ -109,20 +106,14 @@ $remainderRows = array_values(array_filter($items, static fn ($it) => (int) ($it
                         $pedir = (int) $r['boxes_to_order'] . ' ' . $pack . ' (×' . (int) $r['units_per_box'] . ' u.)';
                         ?>
                         <tr class="hover:bg-gray-50/80">
-                            <td class="px-3 py-2 align-top text-gray-600 whitespace-nowrap">
-                                <?= e($group) ?>
-                                <?php if ($sub !== ''): ?>
-                                    <span class="text-gray-400">›</span> <?= e($sub) ?>
-                                <?php endif; ?>
-                            </td>
-                            <td class="px-3 py-2 align-top font-mono text-xs"><?= e($r['code']) ?></td>
-                            <td class="px-3 py-2 align-top"><?= e($r['product_name']) ?></td>
-                            <td class="px-3 py-2 align-top">
+                            <td class="px-2 py-2 align-top font-mono text-xs whitespace-nowrap"><?= e($r['code']) ?></td>
+                            <td class="px-2 py-2 align-top"><span class="block truncate max-w-[220px]" title="<?= e($r['product_name']) ?>"><?= e($r['product_name']) ?></span></td>
+                            <td class="px-2 py-2 align-top whitespace-nowrap">
                                 <div><?= e($vendidoBody) ?></div>
-                                <div class="text-xs text-gray-500">= <?= (int) $r['total_units_needed'] ?> un. totales</div>
+                                <div class="text-[11px] text-gray-500">= <?= (int) $r['total_units_needed'] ?></div>
                             </td>
-                            <td class="px-3 py-2 align-top font-medium text-[#1a6b3c]"><?= e($pedir) ?></td>
-                            <td class="px-3 py-2 align-top"><?= e(seiqRemainderLabel($r)) ?></td>
+                            <td class="px-2 py-2 align-top font-medium text-[#1a6b3c] whitespace-nowrap"><?= e($pedir) ?></td>
+                            <td class="px-2 py-2 align-top whitespace-nowrap"><?= e(seiqRemainderLabel($r)) ?></td>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>
@@ -140,7 +131,7 @@ $remainderRows = array_values(array_filter($items, static fn ($it) => (int) ($it
                 <h3 class="text-sm font-semibold text-gray-900">Remanente (stock que queda después de entregar)</h3>
             </div>
             <div class="overflow-x-auto">
-                <table class="min-w-full text-sm">
+                <table class="min-w-full text-xs lo-table">
                     <thead class="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs uppercase tracking-wide">
                         <tr>
                             <th class="text-left px-3 py-2">Código</th>

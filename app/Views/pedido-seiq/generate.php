@@ -4,11 +4,6 @@
 /** @var list<array{supplier: array<string,mixed>, bundle: array{consolidated: list<array<string,mixed>>, total_products: int, total_boxes: int}}> $supplierBundles */
 ?>
 <div class="max-w-6xl space-y-6">
-    <div>
-        <h2 class="text-lg font-semibold text-gray-900">Generar pedidos a proveedores</h2>
-        <p class="text-sm text-gray-600 mt-1">Se consolidan los presupuestos <strong>accepted</strong>, se descuenta el stock disponible (total - comprometido) y se arma una sugerencia editable por proveedor.</p>
-    </div>
-
     <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
         <p class="text-sm font-medium text-gray-800">Presupuestos aceptados incluidos: <?= count($acceptedQuotes) ?></p>
         <ul class="mt-2 space-y-1 text-sm text-gray-700 list-disc list-inside">
@@ -31,19 +26,18 @@
             <h3 class="text-sm font-semibold text-gray-800">Pedido a <?= e((string) $supplier['name']) ?></h3>
         </div>
         <div class="overflow-x-auto">
-            <table class="min-w-full text-sm">
+            <table class="min-w-full text-xs table-auto lo-table">
                 <thead class="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs uppercase tracking-wide">
                     <tr>
-                        <th class="text-left px-3 py-2">Categoría</th>
-                        <th class="text-left px-3 py-2">Código</th>
-                        <th class="text-left px-3 py-2">Producto</th>
-                        <th class="text-left px-3 py-2">Vendido</th>
-                        <th class="text-left px-3 py-2">Stock total</th>
-                        <th class="text-left px-3 py-2">Comprometido</th>
-                        <th class="text-left px-3 py-2">Disponible</th>
-                        <th class="text-left px-3 py-2">Faltante</th>
-                        <th class="text-left px-3 py-2">Pedir</th>
-                        <th class="text-left px-3 py-2">Remanente</th>
+                        <th class="text-left px-2 py-2">Cód.</th>
+                        <th class="text-left px-2 py-2 w-[28%]">Producto</th>
+                        <th class="text-left px-2 py-2 whitespace-nowrap">Vendido</th>
+                        <th class="text-left px-2 py-2 whitespace-nowrap">Stock</th>
+                        <th class="text-left px-2 py-2 whitespace-nowrap">Comp.</th>
+                        <th class="text-left px-2 py-2 whitespace-nowrap">Disp.</th>
+                        <th class="text-left px-2 py-2 whitespace-nowrap">Falt.</th>
+                        <th class="text-left px-2 py-2 whitespace-nowrap">Pedir</th>
+                        <th class="text-left px-2 py-2 whitespace-nowrap">Rem.</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
@@ -68,17 +62,11 @@
                         $defaultBoxes = max(0, (int) ($r['boxes_to_order'] ?? 0));
                         ?>
                         <tr class="hover:bg-gray-50/80">
-                            <td class="px-3 py-2 align-top text-gray-600 whitespace-nowrap">
-                                <?= e($group) ?>
-                                <?php if (!empty($r['subcategory'])): ?>
-                                    <span class="text-gray-400">›</span> <?= e((string) $r['subcategory']) ?>
-                                <?php endif; ?>
-                            </td>
-                            <td class="px-3 py-2 align-top font-mono text-xs"><?= e($r['code']) ?></td>
-                            <td class="px-3 py-2 align-top"><?= e($r['name']) ?></td>
-                            <td class="px-3 py-2 align-top text-gray-800">
+                            <td class="px-2 py-2 align-top font-mono text-xs whitespace-nowrap"><?= e($r['code']) ?></td>
+                            <td class="px-2 py-2 align-top"><span class="block truncate max-w-[220px]" title="<?= e($r['name']) ?>"><?= e($r['name']) ?></span></td>
+                            <td class="px-2 py-2 align-top text-gray-800 whitespace-nowrap">
                                 <div><?= e($vendidoBody) ?></div>
-                                <div class="text-xs text-gray-500">= <?= (int) $r['total_units_needed'] ?> un. totales</div>
+                                <div class="text-[11px] text-gray-500">= <?= (int) $r['total_units_needed'] ?></div>
                                 <?php $demandDetails = is_array($r['demand_details'] ?? null) ? $r['demand_details'] : []; ?>
                                 <?php if ($demandDetails !== []): ?>
                                     <details class="mt-1">
@@ -88,7 +76,7 @@
                                                 <li>
                                                     <span class="font-mono"><?= e((string) ($d['quote_number'] ?? ('#' . (int) ($d['quote_id'] ?? 0)))) ?></span>
                                                     — <?= e((string) ($d['client_name'] ?? '—')) ?>
-                                                    — <?= (int) ($d['units'] ?? 0) ?> un.
+                                                    — <?= (int) ($d['units'] ?? 0) ?>
                                                     <?php if (($d['source_type'] ?? '') === 'combo'): ?>
                                                         (combo: <?= e((string) ($d['combo_name'] ?? 'sin nombre')) ?>)
                                                     <?php endif; ?>
@@ -98,11 +86,11 @@
                                     </details>
                                 <?php endif; ?>
                             </td>
-                            <td class="px-3 py-2 align-top text-gray-700"><?= (int) $stockUnits ?> un.</td>
-                            <td class="px-3 py-2 align-top <?= $committedUnits > 0 ? 'text-amber-600 font-medium' : 'text-gray-500' ?>"><?= (int) $committedUnits ?> un.</td>
-                            <td class="px-3 py-2 align-top font-semibold <?= $stockAvailable > 0 ? 'text-green-700' : 'text-red-700' ?>"><?= (int) $stockAvailable ?> un.</td>
-                            <td class="px-3 py-2 align-top text-gray-700"><?= (int) $shortageUnits ?> un.</td>
-                            <td class="px-3 py-2 align-top">
+                            <td class="px-2 py-2 align-top text-gray-700 whitespace-nowrap"><?= (int) $stockUnits ?></td>
+                            <td class="px-2 py-2 align-top whitespace-nowrap <?= $committedUnits > 0 ? 'text-amber-600 font-medium' : 'text-gray-500' ?>"><?= (int) $committedUnits ?></td>
+                            <td class="px-2 py-2 align-top font-semibold whitespace-nowrap <?= $stockAvailable > 0 ? 'text-green-700' : 'text-red-700' ?>"><?= (int) $stockAvailable ?></td>
+                            <td class="px-2 py-2 align-top text-gray-700 whitespace-nowrap"><?= (int) $shortageUnits ?></td>
+                            <td class="px-2 py-2 align-top whitespace-nowrap">
                                 <label class="sr-only" for="boxes_to_order_<?= $productId ?>">Cajas a pedir</label>
                                 <div class="flex items-center gap-2">
                                     <input
@@ -112,12 +100,12 @@
                                         step="1"
                                         name="boxes_to_order[<?= $productId ?>]"
                                         value="<?= (int) $defaultBoxes ?>"
-                                        class="w-24 border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-medium text-[#1a6b3c] focus:ring-2 focus:ring-[#1a6b3c]"
+                                        class="w-20 border border-gray-300 rounded-lg px-2 py-1 text-xs font-medium text-[#1a6b3c] focus:ring-2 focus:ring-[#1a6b3c]"
                                     >
-                                    <span class="text-xs text-gray-500"><?= e($pack) ?> (×<?= (int) $r['units_per_box'] ?> u.)</span>
+                                    <span class="text-[11px] text-gray-500"><?= e($pack) ?> (×<?= (int) $r['units_per_box'] ?>)</span>
                                 </div>
                             </td>
-                            <td class="px-3 py-2 align-top"><?= e(seiqRemainderLabel($r)) ?></td>
+                            <td class="px-2 py-2 align-top whitespace-nowrap"><?= e(seiqRemainderLabel($r)) ?></td>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>

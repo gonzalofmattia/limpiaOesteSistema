@@ -1,4 +1,5 @@
-<div class="flex justify-between items-center mb-4">
+<div class="space-y-4">
+<div class="flex justify-between items-center">
     <div class="flex gap-2">
         <a href="<?= e(url('/cuenta-corriente/clientes?only_with_debt=1')) ?>" class="px-3 py-1.5 rounded-lg border text-sm <?= $onlyWithDebt ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-300' ?>">Solo con deuda</a>
         <a href="<?= e(url('/cuenta-corriente/clientes')) ?>" class="px-3 py-1.5 rounded-lg border text-sm <?= !$onlyWithDebt ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-300' ?>">Todos</a>
@@ -12,8 +13,8 @@
     <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700" title="Buscar"><i data-lucide="search" class="w-5 h-5 text-white"></i></button>
 </form>
 
-<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto">
-    <table class="min-w-full text-sm">
+<div class="lo-table-wrap">
+    <table class="min-w-full text-sm lo-table">
         <thead class="bg-gray-50 border-b border-gray-200 text-gray-600">
             <tr>
                 <th class="text-left px-4 py-3">Cliente</th>
@@ -28,7 +29,7 @@
                 <?php $balance = (float) $r['balance']; ?>
                 <tr>
                     <td class="px-4 py-3 font-medium">
-                        <?= e($r['name']) ?>
+                        <span class="lo-truncate" title="<?= e($r['name']) ?>"><?= e($r['name']) ?></span>
                         <?php if ($balance <= 0): ?>
                             <span class="ml-2 text-xs inline-flex px-2 py-0.5 rounded-full bg-green-100 text-green-700">✓ Al día</span>
                         <?php endif; ?>
@@ -55,3 +56,4 @@
     </table>
 </div>
 <?php require APP_PATH . '/Views/layout/pagination.php'; ?>
+</div>

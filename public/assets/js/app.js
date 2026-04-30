@@ -16,5 +16,22 @@ window.appUrl = function (path) {
 };
 
 document.addEventListener('DOMContentLoaded', function () {
-    // Reservado para extensiones futuras
+    window.rebuildLucideIcons = function () {
+        if (window.lucide && typeof window.lucide.createIcons === 'function') {
+            window.lucide.createIcons();
+        }
+    };
+
+    window.renderLoChart = function (chartId, canvas, config) {
+        if (!window.Chart || !canvas) return null;
+        window.__loCharts = window.__loCharts || {};
+        if (window.__loCharts[chartId]) {
+            window.__loCharts[chartId].destroy();
+        }
+        window.__loCharts[chartId] = new window.Chart(canvas, config);
+        return window.__loCharts[chartId];
+    };
+
+    window.rebuildLucideIcons();
+
 });

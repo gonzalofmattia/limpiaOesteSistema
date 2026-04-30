@@ -17,11 +17,7 @@ foreach ($categoryTree as $root) {
 }
 ?>
 <div class="space-y-5">
-    <div class="flex justify-between items-center">
-        <div>
-            <h2 class="text-2xl font-semibold">Categorías</h2>
-            <p class="text-sm text-slate-500">Agrupá productos para encontrarlos más rápido y armar listas.</p>
-        </div>
+    <div class="flex justify-end items-center">
         <a href="<?= e(url('/categorias/crear')) ?>" class="lo-btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Nueva categoría</a>
     </div>
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -35,6 +31,11 @@ foreach ($categoryTree as $root) {
         <div class="flex-1 h-11 rounded-xl border border-lo-border bg-white px-3 flex items-center gap-2"><i data-lucide="search" class="h-4 w-4 text-slate-400"></i><input type="text" name="search" value="<?= e((string) ($search ?? '')) ?>" placeholder="Buscar categoría..." class="w-full bg-transparent outline-none text-sm"></div>
         <button class="h-11 w-11 rounded-xl border border-lo-border bg-white grid place-items-center"><i data-lucide="sliders-horizontal" class="h-4 w-4"></i></button>
     </form>
+    <div class="flex gap-2 overflow-x-auto pb-1">
+        <span class="px-3 h-8 rounded-full bg-slate-900 text-white inline-flex items-center text-xs font-semibold">Todas <span class="ml-1 text-[10px]"><?= $totalCategories ?></span></span>
+        <span class="px-3 h-8 rounded-full border border-slate-200 inline-flex items-center text-xs text-slate-600">Con productos <span class="ml-1 text-[10px]"><?= $totalCategories - $emptyCategories ?></span></span>
+        <span class="px-3 h-8 rounded-full border border-slate-200 inline-flex items-center text-xs text-slate-600">Vacías <span class="ml-1 text-[10px]"><?= $emptyCategories ?></span></span>
+    </div>
     <div class="lo-table-wrap">
     <table class="min-w-full text-sm lo-table">
         <thead class="bg-gray-50 text-gray-600 border-b border-gray-200">
@@ -57,7 +58,7 @@ foreach ($categoryTree as $root) {
                     : 'Global ' . formatPercent($globalMarkup);
                 ?>
                 <tr class="hover:bg-gray-50">
-                    <td class="px-4 py-3 font-medium text-gray-900"><?= e($root['name']) ?></td>
+                    <td class="px-4 py-3 font-medium text-gray-900"><span class="lo-truncate" title="<?= e($root['name']) ?>"><?= e($root['name']) ?></span></td>
                     <td class="px-4 py-3 text-right"><?= formatPercent((float) $root['default_discount']) ?></td>
                     <td class="px-4 py-3 text-right text-gray-600"><?= e($rootMarkupLabel) ?></td>
                     <td class="px-4 py-3 text-gray-600 max-w-xs truncate"><?= e($root['presentation_info'] ?? '—') ?></td>
@@ -102,7 +103,7 @@ foreach ($categoryTree as $root) {
                     ?>
                     <tr class="hover:bg-gray-50 bg-gray-50/50">
                         <td class="px-4 py-3 pl-8 text-gray-800">
-                            <span class="text-gray-400 font-mono text-xs mr-1"><?= e($branch) ?></span><?= e($c['name']) ?>
+                            <span class="text-gray-400 font-mono text-xs mr-1"><?= e($branch) ?></span><span class="inline-block align-middle truncate max-w-[220px]" title="<?= e($c['name']) ?>"><?= e($c['name']) ?></span>
                         </td>
                         <td class="px-4 py-3 text-right"><?= $showDisc ? formatPercent($pd) : '—' ?></td>
                         <td class="px-4 py-3 text-right text-gray-600"><?= $showMarkup ? e($markupLabel) : '—' ?></td>
@@ -135,3 +136,4 @@ foreach ($categoryTree as $root) {
     </table>
 </div>
 <?php require APP_PATH . '/Views/layout/pagination.php'; ?>
+</div>

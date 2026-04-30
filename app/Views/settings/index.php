@@ -24,12 +24,26 @@ foreach ($labels as $key => $meta) {
 }
 ?>
 <div class="space-y-5">
-    <div><h2 class="text-2xl font-semibold">Configuración</h2><p class="text-sm text-slate-500">Personalizá Limpia Oeste según tu operación.</p></div>
     <form method="post" action="<?= e(url('/settings')) ?>" class="grid lg:grid-cols-[280px_1fr] gap-6">
         <?= csrfField() ?>
         <nav class="space-y-2">
-            <?php foreach (['Empresa','Usuarios y permisos','Notificaciones','Seguridad','Marca y apariencia','Facturación'] as $s): ?>
-                <div class="rounded-xl border border-lo-border bg-white px-3 py-2.5 text-sm <?= $s === 'Empresa' ? 'bg-sky-50 border-sky-200' : '' ?>"><?= e($s) ?></div>
+            <?php
+            $menu = [
+                ['label' => 'Empresa', 'icon' => 'building-2'],
+                ['label' => 'Usuarios y permisos', 'icon' => 'users'],
+                ['label' => 'Notificaciones', 'icon' => 'bell'],
+                ['label' => 'Seguridad', 'icon' => 'shield'],
+                ['label' => 'Marca y apariencia', 'icon' => 'palette'],
+                ['label' => 'Facturación', 'icon' => 'credit-card'],
+            ];
+            foreach ($menu as $m):
+            ?>
+                <div class="rounded-xl border border-lo-border bg-white px-3 py-2.5 text-sm <?= $m['label'] === 'Empresa' ? 'bg-sky-50 border-sky-200' : '' ?>">
+                    <div class="flex items-center gap-2">
+                        <span class="h-8 w-8 rounded-lg bg-slate-100 grid place-items-center"><i data-lucide="<?= e($m['icon']) ?>" class="h-4 w-4 text-slate-600"></i></span>
+                        <span><?= e($m['label']) ?></span>
+                    </div>
+                </div>
             <?php endforeach; ?>
         </nav>
         <div class="space-y-6">

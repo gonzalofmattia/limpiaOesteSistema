@@ -1,7 +1,15 @@
 <div class="space-y-5">
-<div class="flex justify-between">
-    <div><h2 class="text-2xl font-semibold">Ventas ML</h2><p class="text-sm text-slate-500">Ventas manuales de MercadoLibre para consolidar en pedidos.</p></div>
+<div class="flex justify-end">
     <a href="<?= e(url('/ventas-ml/crear')) ?>" class="lo-btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Nueva venta ML</a>
+</div>
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <div class="lo-card p-4"><p class="text-xs text-slate-500">Operaciones</p><p class="text-2xl font-semibold"><?= count($sales ?? []) ?></p></div>
+    <div class="lo-card p-4"><p class="text-xs text-slate-500">Total ML</p><p class="text-lg font-semibold"><?= formatPrice(array_sum(array_map(fn($s)=>(float)($s['ml_sale_total']??0), $sales ?? []))) ?></p></div>
+    <div class="lo-card p-4"><p class="text-xs text-slate-500">Neto MP</p><p class="text-lg font-semibold"><?= formatPrice(array_sum(array_map(fn($s)=>(float)($s['ml_net_amount']??0), $sales ?? []))) ?></p></div>
+    <div class="lo-card p-4"><p class="text-xs text-slate-500">Ganancia</p><p class="text-lg font-semibold"><?= formatPrice(array_sum(array_map(fn($s)=>(float)($s['gain']??0), $sales ?? []))) ?></p></div>
+</div>
+<div class="flex gap-2 overflow-x-auto pb-1">
+    <span class="px-3 h-8 rounded-full bg-slate-900 text-white inline-flex items-center text-xs font-semibold">Todas <span class="ml-1 text-[10px]"><?= count($sales ?? []) ?></span></span>
 </div>
 <div class="lo-table-wrap">
     <table class="min-w-full text-sm lo-table">
@@ -19,7 +27,12 @@
         <tbody class="divide-y divide-gray-100">
             <?php foreach ($sales as $s): ?>
                 <tr class="hover:bg-gray-50">
-                    <td class="px-4 py-3 text-gray-600"><?= e((string) ($s['created_at'] ?? '')) ?></td>
+                    <td class="px-4 py-3">
+                        <div class="flex items-center gap-2 text-gray-600">
+                            <span class="h-8 w-8 rounded-lg bg-amber-50 text-amber-700 grid place-items-center"><i data-lucide="store" class="h-4 w-4"></i></span>
+                            <span><?= e((string) ($s['created_at'] ?? '')) ?></span>
+                        </div>
+                    </td>
                     <td class="px-4 py-3"><?= (int) ($s['products_count'] ?? 0) ?> productos</td>
                     <td class="px-4 py-3 text-right font-medium"><?= formatPrice((float) ($s['ml_sale_total'] ?? 0)) ?></td>
                     <td class="px-4 py-3 text-right"><?= formatPrice((float) ($s['ml_net_amount'] ?? 0)) ?></td>

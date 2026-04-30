@@ -4,9 +4,7 @@ $summary = $summary ?? [];
 $sales = $sales ?? [];
 ?>
 <div class="space-y-5">
-    <div class="flex items-center justify-between">
-        <div><h2 class="text-2xl font-semibold">Ventas</h2><p class="text-sm text-slate-500">Seguimiento comercial y estado de entrega/cobro.</p></div>
-    </div>
+    <div class="flex items-center justify-end"></div>
     <form method="get" action="<?= e(url('/ventas')) ?>" class="lo-card p-4 grid md:grid-cols-6 gap-3">
         <input type="date" name="from" value="<?= e((string) ($filters['from'] ?? '')) ?>" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
         <input type="date" name="to" value="<?= e((string) ($filters['to'] ?? '')) ?>" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
@@ -30,6 +28,12 @@ $sales = $sales ?? [];
             <a href="<?= e(url('/ventas/reportes')) ?>" class="px-4 py-2 rounded-lg border border-gray-300 text-sm">Reportes</a>
         </div>
     </form>
+
+    <div class="flex gap-2 overflow-x-auto pb-1">
+        <span class="px-3 h-8 rounded-full bg-slate-900 text-white inline-flex items-center text-xs font-semibold">Todos <span class="ml-1 text-[10px]"><?= (int) ($summary['count'] ?? 0) ?></span></span>
+        <span class="px-3 h-8 rounded-full border border-slate-200 inline-flex items-center text-xs text-slate-600">Pendientes entrega <span class="ml-1 text-[10px]"><?= (int) ($summary['pending_delivery_count'] ?? 0) ?></span></span>
+        <span class="px-3 h-8 rounded-full border border-slate-200 inline-flex items-center text-xs text-slate-600">Pendientes cobro <span class="ml-1 text-[10px]"><?= (int) ($summary['pending_collection_count'] ?? 0) ?></span></span>
+    </div>
 
     <div class="grid md:grid-cols-5 gap-3">
         <div class="lo-card p-4"><p class="text-xs text-gray-500">Total ventas</p><p class="text-lg font-semibold"><?= formatPrice((float) ($summary['total_amount'] ?? 0)) ?></p></div>
@@ -57,10 +61,15 @@ $sales = $sales ?? [];
             <tbody class="divide-y divide-gray-100">
             <?php foreach ($sales as $sale): ?>
                 <tr>
-                    <td class="px-4 py-2 font-mono"><?= e((string) ($sale['sale_number'] ?: '—')) ?></td>
+                    <td class="px-4 py-2">
+                        <div class="flex items-center gap-2">
+                            <span class="h-8 w-8 rounded-lg bg-sky-50 text-sky-700 grid place-items-center"><i data-lucide="shopping-cart" class="h-4 w-4"></i></span>
+                            <span class="font-mono"><?= e((string) ($sale['sale_number'] ?: '—')) ?></span>
+                        </div>
+                    </td>
                     <td class="px-4 py-2"><?= e((string) $sale['quote_number']) ?></td>
                     <td class="px-4 py-2"><?= e((string) $sale['created_date']) ?></td>
-                    <td class="px-4 py-2"><?= e((string) $sale['client_name']) ?></td>
+                    <td class="px-4 py-2"><span class="lo-truncate" title="<?= e((string) $sale['client_name']) ?>"><?= e((string) $sale['client_name']) ?></span></td>
                     <td class="px-4 py-2 text-right"><?= (int) $sale['items_count'] ?></td>
                     <td class="px-4 py-2 text-right"><?= formatPrice((float) $sale['total']) ?></td>
                     <td class="px-4 py-2 text-center"><span class="inline-flex px-2 py-1 rounded-full text-xs font-medium <?= e((string) $sale['delivery_badge']) ?>"><?= e((string) $sale['delivery_label']) ?></span></td>

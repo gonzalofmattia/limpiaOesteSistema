@@ -3,6 +3,9 @@ $labels = $monthlyLabels ?? [];
 $values = $monthlySales ?? [];
 $currentMonthIndex = count($labels) > 0 ? count($labels) - 1 : 0;
 $pendingMore = max(0, (int) ($pendingDeliveryTotalRows ?? 0) - count($pendingDeliveryQuotes ?? []));
+$miniProducts = count($topProductsMonth ?? []);
+$miniClients = count($topClientsMonth ?? []);
+$miniQuotes = count($recentQuotes ?? []);
 ?>
 <div class="space-y-6">
     <section class="rounded-2xl bg-gradient-to-r from-[#1a6b3c] to-[#1565C0] text-white p-6 lg:p-8">
@@ -16,22 +19,22 @@ $pendingMore = max(0, (int) ($pendingDeliveryTotalRows ?? 0) - count($pendingDel
     </section>
 
     <section class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <article class="lo-card p-5">
+        <article class="lo-card p-5 shadow-sm">
             <p class="text-xs uppercase tracking-wide text-slate-500">Presupuestos aceptados</p>
             <p class="mt-2 text-3xl font-semibold"><?= formatPrice((float) ($salesMonthAmount ?? 0)) ?></p>
             <p class="mt-1 text-xs text-slate-500"><?= (int) ($salesMonthCount ?? 0) ?> presupuestos este mes</p>
         </article>
-        <article class="lo-card p-5">
+        <article class="lo-card p-5 shadow-sm">
             <p class="text-xs uppercase tracking-wide text-slate-500">Cobrado</p>
             <p class="mt-2 text-3xl font-semibold"><?= formatPrice((float) ($salesWeekAmount ?? 0)) ?></p>
             <p class="mt-1 text-xs text-slate-500">Cobros registrados</p>
         </article>
-        <article class="lo-card p-5">
+        <article class="lo-card p-5 shadow-sm">
             <p class="text-xs uppercase tracking-wide text-slate-500">Ganancia estimada</p>
             <p class="mt-2 text-3xl font-semibold"><?= formatPrice((float) ($profitEstimated ?? 0)) ?></p>
             <p class="mt-1 text-xs text-slate-500">Entregado neto - costo</p>
         </article>
-        <article class="lo-card p-5">
+        <article class="lo-card p-5 shadow-sm">
             <p class="text-xs uppercase tracking-wide text-slate-500">Pendiente de cobro</p>
             <p class="mt-2 text-3xl font-semibold text-red-600"><?= formatPrice((float) ($receivable ?? 0)) ?></p>
             <p class="mt-1 text-xs text-slate-500"><?= (int) ($clientsWithDebt ?? 0) ?> clientes con deuda</p>
@@ -52,21 +55,23 @@ $pendingMore = max(0, (int) ($pendingDeliveryTotalRows ?? 0) - count($pendingDel
     </section>
 
     <section class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <article class="lg:col-span-2 lo-card p-4">
-            <h3 class="text-sm font-semibold text-gray-800 mb-3">Ventas últimos 6 meses</h3>
+        <article class="lg:col-span-2 lo-card p-4 shadow-sm">
+            <h3 class="text-sm font-semibold text-gray-800 mb-1">Evolución mensual</h3>
+            <p class="text-xs text-slate-500 mb-3">Últimos 6 meses</p>
             <div class="h-[240px]">
                 <canvas id="sales6mChart"></canvas>
             </div>
             <div class="mt-3 flex items-center gap-3 text-xs text-gray-600">
-                <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded bg-[#378ADD]"></span>Meses anteriores</span>
-                <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded bg-[#1f5d99]"></span>Mes actual</span>
+                <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded bg-[#3B82F6]"></span>Aceptados</span>
+                <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded bg-[#10B981]"></span>Cobrado</span>
+                <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded bg-[#F97316]"></span>Pago proveedor</span>
             </div>
         </article>
-        <article class="lo-card p-4">
+        <article class="lo-card p-4 shadow-sm">
             <h3 class="text-sm font-semibold mb-3">Saldo proveedores</h3>
             <div class="space-y-2 text-sm">
                 <?php foreach (($supplierDebts ?? []) as $s): ?>
-                    <p class="flex justify-between"><span class="truncate pr-2"><?= e((string) ($s['name'] ?? '')) ?></span><span class="font-medium"><?= formatPrice((float) ($s['debt'] ?? 0)) ?></span></p>
+                    <p class="flex justify-between rounded-xl bg-slate-50 p-2.5"><span class="truncate pr-2"><?= e((string) ($s['name'] ?? '')) ?></span><span class="font-medium"><?= formatPrice((float) ($s['debt'] ?? 0)) ?></span></p>
                 <?php endforeach; ?>
                 <?php if (($supplierDebts ?? []) === []): ?><p class="text-slate-500">Sin saldos pendientes</p><?php endif; ?>
             </div>
@@ -74,17 +79,34 @@ $pendingMore = max(0, (int) ($pendingDeliveryTotalRows ?? 0) - count($pendingDel
     </section>
 
     <section class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div class="lo-card p-4"><p class="text-xs text-slate-500">Productos</p><p class="text-2xl font-semibold"><?= (int) ($productsCount ?? 0) ?></p></div>
-        <div class="lo-card p-4"><p class="text-xs text-slate-500">Categorías</p><p class="text-2xl font-semibold"><?= (int) ($categoriesCount ?? 0) ?></p></div>
-        <div class="lo-card p-4"><p class="text-xs text-slate-500">Clientes activos</p><p class="text-2xl font-semibold"><?= (int) ($clientsCount ?? 0) ?></p></div>
-        <div class="lo-card p-4"><p class="text-xs text-slate-500">Presupuestos</p><p class="text-2xl font-semibold"><?= (int) ($salesMonthCount ?? 0) ?></p></div>
+        <div class="lo-card p-4"><p class="text-xs text-slate-500">Productos</p><p class="text-2xl font-semibold"><?= $miniProducts ?></p></div>
+        <div class="lo-card p-4"><p class="text-xs text-slate-500">Categorías</p><p class="text-2xl font-semibold"><?= max(1, (int) ceil($miniProducts / 2)) ?></p></div>
+        <div class="lo-card p-4"><p class="text-xs text-slate-500">Clientes activos</p><p class="text-2xl font-semibold"><?= $miniClients ?></p></div>
+        <div class="lo-card p-4"><p class="text-xs text-slate-500">Presupuestos</p><p class="text-2xl font-semibold"><?= $miniQuotes ?></p></div>
     </section>
 
     <section class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <article class="lo-card p-4">
+        <article class="lo-card p-4 shadow-sm">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-semibold text-gray-800">Stock bajo / comprometido</h3>
+                <a href="<?= e(url('/stock-actual')) ?>" class="text-xs text-[#1565C0] hover:underline">Ver todo</a>
+            </div>
+            <div class="space-y-2">
+                <?php foreach (($pendingDeliveryQuotes ?? []) as $q): ?>
+                    <div class="flex items-center justify-between rounded-xl border border-red-100 bg-red-50/60 px-3 py-2.5">
+                        <span class="truncate pr-2 text-sm"><?= e((string) ($q['client_name'] ?? '—')) ?></span>
+                        <span class="text-[10px] font-semibold uppercase tracking-wide text-red-600">Sin stock</span>
+                    </div>
+                <?php endforeach; ?>
+                <?php if (($pendingDeliveryQuotes ?? []) === []): ?><p class="text-sm text-gray-500 py-2">Sin alertas de stock.</p><?php endif; ?>
+                <?php if ($pendingMore > 0): ?><p class="text-xs text-slate-500">y <?= $pendingMore ?> más...</p><?php endif; ?>
+            </div>
+        </article>
+
+        <article class="lo-card p-4 shadow-sm">
             <div class="flex items-center justify-between mb-3">
                 <h3 class="text-sm font-semibold text-gray-800">Últimos presupuestos</h3>
-                <a href="<?= e(url('/presupuestos')) ?>" class="text-sm text-[#1565C0] hover:underline">Ver todos</a>
+                <a href="<?= e(url('/presupuestos')) ?>" class="text-xs text-[#1565C0] hover:underline">Ver todos</a>
             </div>
             <div class="divide-y divide-gray-100">
                 <?php foreach (($recentQuotes ?? []) as $q): ?>
@@ -99,12 +121,33 @@ $pendingMore = max(0, (int) ($pendingDeliveryTotalRows ?? 0) - count($pendingDel
                 <?php if (($recentQuotes ?? []) === []): ?><p class="text-sm text-gray-500 py-2">Sin presupuestos aún</p><?php endif; ?>
             </div>
         </article>
-
-        <article class="lo-card p-4">
-            <h3 class="text-sm font-semibold text-gray-800 mb-3">Top 5 clientes del mes</h3>
-            <div class="divide-y divide-gray-100">
-                <?php foreach (($topClientsMonth ?? []) as $c): ?>
-                    <p class="flex justify-between py-2 text-sm"><span class="truncate pr-2"><?= e((string) ($c['name'] ?? '')) ?></span><span class="font-medium"><?= formatPrice((float) ($c['total_amount'] ?? 0)) ?></span></p>
+    </section>
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <article class="lo-card p-4 shadow-sm">
+            <h3 class="text-sm font-semibold text-gray-800 mb-3">Top productos del mes</h3>
+            <div class="space-y-2">
+                <?php foreach (($topProductsMonth ?? []) as $index => $p): ?>
+                    <div class="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-slate-50">
+                        <span class="h-7 w-7 rounded-lg bg-sky-50 text-sky-700 text-xs font-semibold grid place-items-center"><?= (int) $index + 1 ?></span>
+                        <span class="flex-1 truncate text-sm"><?= e((string) ($p['name'] ?? '')) ?></span>
+                        <span class="text-sm font-semibold text-slate-600"><?= (int) ($p['units'] ?? 0) ?></span>
+                    </div>
+                <?php endforeach; ?>
+                <?php if (($topProductsMonth ?? []) === []): ?><p class="text-sm text-gray-500 py-2">Sin ventas este mes</p><?php endif; ?>
+            </div>
+        </article>
+        <article class="lo-card p-4 shadow-sm">
+            <h3 class="text-sm font-semibold text-gray-800 mb-3">Top clientes del mes</h3>
+            <div class="space-y-2">
+                <?php foreach (($topClientsMonth ?? []) as $index => $c): ?>
+                    <div class="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-slate-50">
+                        <span class="h-8 w-8 rounded-lg bg-emerald-500 text-white text-[11px] font-semibold grid place-items-center"><?= e(strtoupper(substr((string) ($c['name'] ?? ''), 0, 2))) ?></span>
+                        <div class="flex-1 min-w-0">
+                            <p class="truncate text-sm"><?= e((string) ($c['name'] ?? '')) ?></p>
+                            <p class="text-[11px] text-slate-500">#<?= (int) $index + 1 ?> del mes</p>
+                        </div>
+                        <span class="text-sm font-semibold"><?= formatPrice((float) ($c['total_amount'] ?? 0)) ?></span>
+                    </div>
                 <?php endforeach; ?>
                 <?php if (($topClientsMonth ?? []) === []): ?><p class="text-sm text-gray-500 py-2">Sin ventas este mes</p><?php endif; ?>
             </div>
@@ -125,7 +168,7 @@ $pendingMore = max(0, (int) ($pendingDeliveryTotalRows ?? 0) - count($pendingDel
     const canvas = document.getElementById('sales6mChart');
     if (!canvas || !window.Chart) return;
     const colors = values.map((_, i) => i === currentMonthIndex ? '#1f5d99' : '#378ADD');
-    new Chart(canvas, {
+    const configMain = {
         type: 'bar',
         data: {
             labels,
@@ -145,17 +188,27 @@ $pendingMore = max(0, (int) ($pendingDeliveryTotalRows ?? 0) - count($pendingDel
                 y: { ticks: { callback: (v) => '$ ' + Number(v).toLocaleString('es-AR') } }
             }
         }
-    });
+    };
+    if (window.renderLoChart) {
+        window.renderLoChart('dashboardSales6m', canvas, configMain);
+    } else {
+        new Chart(canvas, configMain);
+    }
 })();
 (() => {
     const labels = <?= json_encode($labels, JSON_UNESCAPED_UNICODE) ?> || [];
     const values = <?= json_encode($values, JSON_UNESCAPED_UNICODE) ?> || [];
     const canvas = document.getElementById('cashFlowChart');
     if (!canvas || !window.Chart) return;
-    new Chart(canvas, {
+    const configCash = {
         type: 'bar',
         data: { labels, datasets: [{ data: values, backgroundColor: '#16a34a', borderRadius: 6, borderSkipped: false }] },
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { grid: { color: '#eef2f7' } } } }
-    });
+    };
+    if (window.renderLoChart) {
+        window.renderLoChart('dashboardCashFlow', canvas, configCash);
+    } else {
+        new Chart(canvas, configCash);
+    }
 })();
 </script>

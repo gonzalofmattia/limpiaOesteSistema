@@ -6,8 +6,7 @@ $rejectedQuotes = count(array_filter($quotes ?? [], fn($q) => (string) ($q['stat
 $amountTotal = array_sum(array_map(fn($q) => (float) ($q['total'] ?? 0), $quotes ?? []));
 ?>
 <div class="space-y-5">
-<div class="flex justify-between items-center">
-    <div><h2 class="text-2xl font-semibold">Presupuestos</h2><p class="text-sm text-slate-500">Creá presupuestos rápidos, mandalos por WhatsApp y convertilos en venta.</p></div>
+<div class="flex justify-end items-center">
     <a href="<?= e(url('/presupuestos/crear')) ?>" class="lo-btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Nuevo presupuesto</a>
 </div>
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -16,12 +15,10 @@ $amountTotal = array_sum(array_map(fn($q) => (float) ($q['total'] ?? 0), $quotes
     <div class="lo-card p-4"><p class="text-xs text-slate-500">Pendientes</p><p class="text-2xl font-semibold"><?= $pendingQuotes ?></p></div>
     <div class="lo-card p-4"><p class="text-xs text-slate-500">Monto total</p><p class="text-xl font-semibold"><?= formatPrice($amountTotal) ?></p></div>
 </div>
-<form method="get" class="mb-4 flex gap-2">
+<form method="get" class="flex items-center gap-2">
     <input type="hidden" name="per_page" value="<?= (int) ($per_page ?? 20) ?>">
-    <input type="text" name="search" value="<?= e((string) ($search ?? '')) ?>" placeholder="Buscar..." class="flex-1 rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
-    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700" title="Buscar">
-        <i data-lucide="search" class="w-5 h-5 text-white"></i>
-    </button>
+    <div class="flex-1 h-11 rounded-xl border border-lo-border bg-white px-3 flex items-center gap-2"><i data-lucide="search" class="h-4 w-4 text-slate-400"></i><input type="text" name="search" value="<?= e((string) ($search ?? '')) ?>" placeholder="Buscar por nº o cliente..." class="w-full bg-transparent outline-none text-sm"></div>
+    <button class="h-11 w-11 rounded-xl border border-lo-border bg-white grid place-items-center"><i data-lucide="sliders-horizontal" class="h-4 w-4"></i></button>
 </form>
 <div class="flex gap-2 overflow-x-auto pb-1">
     <span class="px-3 h-8 rounded-full bg-slate-900 text-white inline-flex items-center text-xs font-semibold">Todos <span class="ml-1 text-[10px]"><?= $totalQuotes ?></span></span>
@@ -58,7 +55,7 @@ $amountTotal = array_sum(array_map(fn($q) => (float) ($q['total'] ?? 0), $quotes
                             </div>
                         </div>
                     </td>
-                    <td class="px-4 py-3"><?= e($q['client_name'] ?? '—') ?></td>
+                    <td class="px-4 py-3"><span class="lo-truncate" title="<?= e($q['client_name'] ?? '—') ?>"><?= e($q['client_name'] ?? '—') ?></span></td>
                     <td class="px-4 py-3 text-gray-600"><?= e($q['created_at']) ?></td>
                     <td class="px-4 py-3 text-right font-medium"><?= formatPrice((float) $q['total']) ?></td>
                     <td class="px-4 py-3 text-center">
@@ -97,5 +94,5 @@ $amountTotal = array_sum(array_map(fn($q) => (float) ($q['total'] ?? 0), $quotes
         </tbody>
     </table>
 </div>
- </div>
+</div>
 <?php require APP_PATH . '/Views/layout/pagination.php'; ?>

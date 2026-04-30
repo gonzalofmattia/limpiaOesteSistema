@@ -3,8 +3,7 @@ $activeLists = count(array_filter($lists ?? [], fn($l) => (string) ($l['status']
 $expiredLists = count(array_filter($lists ?? [], fn($l) => (string) ($l['status'] ?? '') !== 'active'));
 ?>
 <div class="space-y-5">
-<div class="flex justify-between items-center">
-    <div><h2 class="text-2xl font-semibold">Listas de precios</h2><p class="text-sm text-slate-500">Cargá nuevas listas, definí márgenes y aplicá precios masivamente.</p></div>
+<div class="flex justify-end items-center">
     <a href="<?= e(url('/listas/generar')) ?>" class="lo-btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Nueva lista</a>
 </div>
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -20,6 +19,11 @@ $expiredLists = count(array_filter($lists ?? [], fn($l) => (string) ($l['status'
         <i data-lucide="search" class="w-5 h-5 text-white"></i>
     </button>
 </form>
+<div class="flex gap-2 overflow-x-auto pb-1">
+    <span class="px-3 h-8 rounded-full bg-slate-900 text-white inline-flex items-center text-xs font-semibold">Todas <span class="ml-1 text-[10px]"><?= count($lists ?? []) ?></span></span>
+    <span class="px-3 h-8 rounded-full border border-slate-200 inline-flex items-center text-xs text-slate-600">Activas <span class="ml-1 text-[10px]"><?= $activeLists ?></span></span>
+    <span class="px-3 h-8 rounded-full border border-slate-200 inline-flex items-center text-xs text-slate-600">Vencidas <span class="ml-1 text-[10px]"><?= $expiredLists ?></span></span>
+</div>
 <div class="lo-table-wrap">
     <table class="min-w-full text-sm lo-table">
         <thead class="bg-gray-50 border-b border-gray-200 text-gray-600">
@@ -34,7 +38,7 @@ $expiredLists = count(array_filter($lists ?? [], fn($l) => (string) ($l['status'
         <tbody class="divide-y divide-gray-100">
             <?php foreach ($lists as $l): ?>
                 <tr class="hover:bg-gray-50">
-                    <td class="px-4 py-3 font-medium"><?= e($l['name']) ?></td>
+                    <td class="px-4 py-3 font-medium"><span class="lo-truncate" title="<?= e($l['name']) ?>"><?= e($l['name']) ?></span></td>
                     <td class="px-4 py-3 text-gray-600"><?= e($l['generated_at'] ?? $l['created_at']) ?></td>
                     <td class="px-4 py-3 text-right"><?= $l['custom_markup'] !== null && $l['custom_markup'] !== '' ? formatPercent((float) $l['custom_markup']) : 'Global' ?></td>
                     <td class="px-4 py-3 text-center">
@@ -66,5 +70,5 @@ $expiredLists = count(array_filter($lists ?? [], fn($l) => (string) ($l['status'
         </tbody>
     </table>
 </div>
- </div>
+</div>
 <?php require APP_PATH . '/Views/layout/pagination.php'; ?>

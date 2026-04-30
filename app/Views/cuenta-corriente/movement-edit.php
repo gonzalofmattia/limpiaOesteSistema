@@ -20,7 +20,7 @@ $amtDisplay = $type === 'adjustment'
         <?= $isClient ? 'Cliente' : 'Proveedor' ?> #<?= (int) ($movement['account_id'] ?? 0) ?>
     </p>
 
-    <form method="post" action="<?= e(url('/cuenta-corriente/movimiento/' . (int) $movement['id'] . '/actualizar')) ?>" class="bg-white rounded-xl border border-gray-200 shadow-sm p-5 space-y-4">
+    <form method="post" action="<?= e(url('/cuenta-corriente/movimiento/' . (int) $movement['id'] . '/actualizar')) ?>" class="lo-card p-5 space-y-4">
         <?= csrfField() ?>
 
         <div>
@@ -62,6 +62,6 @@ $amtDisplay = $type === 'adjustment'
             <textarea name="notes" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"><?= e((string) ($movement['notes'] ?? '')) ?></textarea>
         </div>
 
-        <button type="submit" class="w-full px-4 py-2 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium">Guardar cambios</button>
+        <button type="submit" class="w-full px-4 py-2 rounded-lg bg-[#1565C0] text-white text-sm font-medium">Guardar cambios</button>
     </form>
 </div>

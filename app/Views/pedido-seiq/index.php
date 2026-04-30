@@ -1,7 +1,12 @@
 <div class="space-y-5">
-<div class="flex flex-wrap justify-between gap-4">
-    <div><h2 class="text-2xl font-semibold">Pedidos a proveedores</h2><p class="text-sm text-slate-500">Generá órdenes de compra y controlá lo que llega a depósito.</p></div>
+<div class="flex flex-wrap justify-end gap-4">
     <a href="<?= e(url('/pedidos-proveedor/generar')) ?>" class="lo-btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Nuevo pedido</a>
+</div>
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <div class="lo-card p-4"><p class="text-xs text-slate-500">Proveedores</p><p class="text-2xl font-semibold"><?= count(array_unique(array_map(fn($o) => (string) ($o['supplier_name'] ?? ''), $orders ?? []))) ?></p></div>
+    <div class="lo-card p-4"><p class="text-xs text-slate-500">Pedidos abiertos</p><p class="text-2xl font-semibold"><?= count(array_filter($orders ?? [], fn($o) => (string) ($o['status'] ?? '') !== 'received')) ?></p></div>
+    <div class="lo-card p-4"><p class="text-xs text-slate-500">Comprado mes</p><p class="text-2xl font-semibold"><?= count($orders ?? []) ?></p></div>
+    <div class="lo-card p-4"><p class="text-xs text-slate-500">Saldo total</p><p class="text-2xl font-semibold"><?= array_sum(array_map(fn($o) => (int) ($o['total_boxes'] ?? 0), $orders ?? [])) ?></p></div>
 </div>
 <form method="get" class="mb-4 flex gap-2">
     <input type="hidden" name="per_page" value="<?= (int) ($per_page ?? 20) ?>">
@@ -10,6 +15,11 @@
         <i data-lucide="search" class="w-5 h-5 text-white"></i>
     </button>
 </form>
+<div class="flex gap-2 overflow-x-auto pb-1">
+    <span class="px-3 h-8 rounded-full bg-slate-900 text-white inline-flex items-center text-xs font-semibold">Todos <span class="ml-1 text-[10px]"><?= count($orders ?? []) ?></span></span>
+    <span class="px-3 h-8 rounded-full border border-slate-200 inline-flex items-center text-xs text-slate-600">Pendientes</span>
+    <span class="px-3 h-8 rounded-full border border-slate-200 inline-flex items-center text-xs text-slate-600">Recibidos</span>
+</div>
 <div class="lo-table-wrap">
     <table class="min-w-full text-sm lo-table">
         <thead class="bg-gray-50 border-b border-gray-200 text-gray-600">
@@ -32,7 +42,7 @@
                 <?php foreach ($orders as $o): ?>
                     <tr class="hover:bg-gray-50">
                         <td class="px-4 py-3 font-mono text-xs"><?= e($o['order_number']) ?></td>
-                        <td class="px-4 py-3"><?= e((string) ($o['supplier_name'] ?? '—')) ?></td>
+                        <td class="px-4 py-3"><span class="lo-truncate" title="<?= e((string) ($o['supplier_name'] ?? '—')) ?>"><?= e((string) ($o['supplier_name'] ?? '—')) ?></span></td>
                         <td class="px-4 py-3 text-gray-600"><?= e($o['created_at']) ?></td>
                         <td class="px-4 py-3 text-right"><?= (int) $o['total_products'] ?></td>
                         <td class="px-4 py-3 text-right font-medium"><?= (int) $o['total_boxes'] ?></td>
@@ -56,5 +66,5 @@
         </tbody>
     </table>
 </div>
- </div>
+</div>
 <?php require APP_PATH . '/Views/layout/pagination.php'; ?>

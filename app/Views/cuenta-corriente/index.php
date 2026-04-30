@@ -1,5 +1,9 @@
 <div class="space-y-5">
-<div><h2 class="text-2xl font-semibold">Cuenta Corriente</h2><p class="text-sm text-slate-500">Seguimiento de cobros y pagos.</p></div>
+<div class="flex gap-2 overflow-x-auto pb-1">
+    <a href="<?= e(url('/cuenta-corriente')) ?>" class="px-3 h-8 rounded-full bg-slate-900 text-white inline-flex items-center text-xs font-semibold">Resumen</a>
+    <a href="<?= e(url('/cuenta-corriente/clientes')) ?>" class="px-3 h-8 rounded-full border border-slate-200 inline-flex items-center text-xs text-slate-600">Clientes</a>
+    <a href="<?= e(url('/cuenta-corriente')) ?>" class="px-3 h-8 rounded-full border border-slate-200 inline-flex items-center text-xs text-slate-600">Proveedores</a>
+</div>
 <div class="grid lg:grid-cols-2 gap-6">
     <div class="lo-card p-5">
         <p class="text-sm text-gray-500">A COBRAR (clientes)</p>
@@ -92,10 +96,8 @@
     </div>
     <form method="get" class="p-4 border-b border-gray-100 flex gap-2">
         <input type="hidden" name="per_page" value="<?= (int) ($per_page ?? 20) ?>">
-        <input type="text" name="search" value="<?= e((string) ($search ?? '')) ?>" placeholder="Buscar..." class="flex-1 rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
-        <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700" title="Buscar">
-            <i data-lucide="search" class="w-5 h-5 text-white"></i>
-        </button>
+        <div class="flex-1 h-10 rounded-xl border border-lo-border bg-white px-3 flex items-center gap-2"><i data-lucide="search" class="h-4 w-4 text-slate-400"></i><input type="text" name="search" value="<?= e((string) ($search ?? '')) ?>" placeholder="Buscar..." class="w-full bg-transparent outline-none text-sm"></div>
+        <button class="h-10 w-10 rounded-xl border border-lo-border bg-white grid place-items-center"><i data-lucide="sliders-horizontal" class="h-4 w-4"></i></button>
     </form>
     <table class="min-w-full text-sm lo-table">
         <thead class="bg-gray-50 text-gray-600">
@@ -118,8 +120,8 @@
                 <tr>
                     <td class="px-4 py-2"><?= e(date('d/m/Y', strtotime((string) $tx['transaction_date']))) ?></td>
                     <td class="px-4 py-2"><span class="inline-flex px-2 py-1 rounded-full text-xs font-medium <?= e(statusBadgeClass($badgeStatus)) ?>"><?= e($badge) ?></span></td>
-                    <td class="px-4 py-2"><?= e((string) $accountName) ?></td>
-                    <td class="px-4 py-2"><?= e((string) $tx['description']) ?></td>
+                    <td class="px-4 py-2"><span class="lo-truncate" title="<?= e((string) $accountName) ?>"><?= e((string) $accountName) ?></span></td>
+                    <td class="px-4 py-2"><span class="lo-truncate" title="<?= e((string) $tx['description']) ?>"><?= e((string) $tx['description']) ?></span></td>
                     <td class="px-4 py-2 text-right"><?= formatPrice((float) $tx['amount']) ?></td>
                 </tr>
             <?php endforeach; ?>

@@ -1,7 +1,8 @@
-<div class="flex flex-wrap justify-between items-center gap-3 mb-4">
+<div class="space-y-4">
+<div class="flex flex-wrap justify-between items-center gap-3">
     <div>
-        <h2 class="text-xl font-semibold text-gray-900"><?= e($client['name']) ?> — Cuenta Corriente</h2>
-        <p class="text-sm text-gray-600">
+        <p class="text-sm text-gray-600 font-medium">
+            <?= e($client['name']) ?> ·
             <?php if ((float) ($openingBalance ?? 0) > 0): ?>
                 Saldo inicial: <span class="font-semibold"><?= formatPrice((float) $openingBalance) ?></span> ·
             <?php endif; ?>
@@ -14,7 +15,7 @@
 </div>
 
 <div class="grid lg:grid-cols-2 gap-4 mb-6">
-    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+    <div class="lo-card p-4">
         <h3 class="font-semibold mb-2">Registrar cobro</h3>
         <form method="post" action="<?= e(url('/cuenta-corriente/cobro')) ?>" class="space-y-2">
             <?= csrfField() ?>
@@ -35,7 +36,7 @@
             <button type="submit" class="px-4 py-2 rounded-lg bg-[#1a6b3c] text-white text-sm">Registrar cobro</button>
         </form>
     </div>
-    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+    <div class="lo-card p-4">
         <h3 class="font-semibold mb-2">Registrar ajuste</h3>
         <form method="post" action="<?= e(url('/cuenta-corriente/ajuste')) ?>" class="space-y-2">
             <?= csrfField() ?>
@@ -57,8 +58,8 @@
     <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700" title="Buscar"><i data-lucide="search" class="w-5 h-5 text-white"></i></button>
 </form>
 
-<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto">
-    <table class="min-w-full text-sm">
+<div class="lo-table-wrap">
+    <table class="min-w-full text-sm lo-table">
         <thead class="bg-gray-50 border-b border-gray-200 text-gray-600">
             <tr>
                 <th class="text-left px-4 py-3">Fecha</th>
@@ -84,7 +85,7 @@
                 <?php $canEdit = accountMovementIsEditable($tx); ?>
                 <tr>
                     <td class="px-4 py-2"><?= e(date('d/m/Y', strtotime((string) $tx['transaction_date']))) ?></td>
-                    <td class="px-4 py-2"><?= e((string) $tx['description']) ?></td>
+                    <td class="px-4 py-2"><span class="lo-truncate" title="<?= e((string) $tx['description']) ?>"><?= e((string) $tx['description']) ?></span></td>
                     <td class="px-4 py-2 text-right"><?= (float) $tx['debe'] > 0 ? formatPrice((float) $tx['debe']) : '' ?></td>
                     <td class="px-4 py-2 text-right"><?= (float) $tx['haber'] > 0 ? formatPrice((float) $tx['haber']) : '' ?></td>
                     <td class="px-4 py-2 text-right font-medium"><?= formatPrice((float) $tx['running_balance']) ?></td>
@@ -107,3 +108,4 @@
     </table>
 </div>
 <?php require APP_PATH . '/Views/layout/pagination.php'; ?>
+</div>

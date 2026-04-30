@@ -6,9 +6,11 @@ body { font-family: 'Poppins', sans-serif; }
 .lo-card { border-radius: 0.9rem; border: 1px solid #E2E8F0; background: #fff; }
 .lo-card-soft { border-radius: 0.9rem; border: 1px solid #E2E8F0; background: #F8FAFC; }
 .lo-table-wrap { border-radius: 0.9rem; border: 1px solid #E2E8F0; background: #fff; overflow-x: auto; }
-.lo-table th { font-size: 11px; line-height: 1rem; letter-spacing: .04em; text-transform: uppercase; color: #64748B; font-weight: 600; }
-.lo-table td { color: #1E293B; }
+.lo-table { font-size: 0.875rem; }
+.lo-table th { font-size: 0.75rem; line-height: 1rem; letter-spacing: .04em; text-transform: uppercase; color: #64748B; font-weight: 600; }
+.lo-table td { color: #1E293B; font-size: 0.875rem; line-height: 1.25rem; }
 .lo-table tr:hover td { background: #F8FAFC; }
+.lo-truncate { display: block; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .lo-status-pill { display: inline-flex; align-items: center; gap: .35rem; padding: .2rem .55rem; border-radius: 9999px; font-size: 11px; font-weight: 600; }
 .lo-dot { width: .38rem; height: .38rem; border-radius: 9999px; display: inline-block; }
@@ -18,3 +20,7 @@ body { font-family: 'Poppins', sans-serif; }
     padding: .62rem 1rem; background: #1565C0; color: #fff; font-size: .875rem; font-weight: 600;
 }
 .lo-btn-primary:hover { background: #0f4f9a; }
+
+@media (max-width: 767px) {
+    .lo-btn-primary { width: 100%; justify-content: center; }
+}

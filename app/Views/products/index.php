@@ -9,23 +9,28 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
 }
 ?>
 <div x-data="{ tab: '<?= e($activeTab) ?>' }" x-effect="$nextTick(() => window.lucide && window.lucide.createIcons())">
-    <div class="mb-5"><h2 class="text-2xl font-semibold">Productos</h2><p class="text-sm text-slate-500">Catálogo y combos con estado de stock.</p></div>
-    <div class="flex items-center gap-2 mb-6">
+    <div class="flex items-center gap-2 mb-4">
         <button type="button" class="px-4 py-2 rounded-lg text-sm font-medium"
-                :class="tab === 'productos' ? 'bg-[#1a6b3c] text-white' : 'bg-white border border-gray-300 text-gray-700'"
+                :class="tab === 'productos' ? 'bg-slate-900 text-white' : 'bg-white border border-gray-300 text-gray-700'"
                 @click="tab='productos'; history.replaceState(null, '', window.appUrl('/productos?tab=productos'))">
             Productos
         </button>
         <button type="button" class="px-4 py-2 rounded-lg text-sm font-medium"
-                :class="tab === 'combos' ? 'bg-[#1a6b3c] text-white' : 'bg-white border border-gray-300 text-gray-700'"
+                :class="tab === 'combos' ? 'bg-slate-900 text-white' : 'bg-white border border-gray-300 text-gray-700'"
                 @click="tab='combos'; history.replaceState(null, '', window.appUrl('/productos?tab=combos'))">
             Combos
         </button>
     </div>
 
-    <div x-show="tab === 'productos'">
+    <div x-show="tab === 'productos'" x-transition:enter="transition-opacity duration-150" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100">
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+            <div class="lo-card p-4"><p class="text-xs text-slate-500">Productos</p><p class="text-2xl font-semibold"><?= (int) ($total ?? 0) ?></p></div>
+            <div class="lo-card p-4"><p class="text-xs text-slate-500">Categorías</p><p class="text-2xl font-semibold"><?= count($categoryFilterOptions ?? []) ?></p></div>
+            <div class="lo-card p-4"><p class="text-xs text-slate-500">Proveedores</p><p class="text-2xl font-semibold"><?= count($suppliers ?? []) ?></p></div>
+            <div class="lo-card p-4"><p class="text-xs text-slate-500">Activos</p><p class="text-2xl font-semibold"><?= count(array_filter($products ?? [], fn($p) => (int) ($p['is_active'] ?? 0) === 1)) ?></p></div>
+        </div>
         <div class="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4 mb-6">
-            <form method="get" class="flex flex-wrap gap-3 items-end">
+            <form method="get" class="flex flex-wrap gap-2 items-end">
                 <input type="hidden" name="tab" value="productos">
                 <div>
                     <label class="block text-xs text-gray-500 mb-1">Categoría</label>
@@ -48,7 +53,7 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
                 <div>
                     <label class="block text-xs text-gray-500 mb-1">Buscar</label>
                     <input type="text" name="search" value="<?= e($q) ?>" placeholder="Buscar..."
-                           class="border border-gray-300 rounded-lg text-sm px-3 py-2 w-48 focus:ring-2 focus:ring-[#1a6b3c]">
+                           class="border border-gray-300 rounded-lg text-sm px-3 py-2 w-52 focus:ring-2 focus:ring-[#1a6b3c]">
                 </div>
                 <input type="hidden" name="per_page" value="<?= (int) ($per_page ?? 25) ?>">
                 <div>
@@ -59,12 +64,17 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
                         <option value="0" <?= $st === '0' ? 'selected' : '' ?>>Inactivos</option>
                     </select>
                 </div>
-                <button type="submit" class="px-4 py-2 rounded-lg bg-gray-800 text-white text-sm">Filtrar</button>
+                <button type="submit" class="h-10 px-4 rounded-lg bg-gray-900 text-white text-sm">Filtrar</button>
             </form>
             <div class="flex gap-2">
                 <a href="<?= e(url('/productos/importar')) ?>" class="px-4 py-2 rounded-lg border border-gray-300 text-sm hover:bg-gray-50">Importar CSV</a>
-                <a href="<?= e(url('/productos/crear')) ?>" class="px-4 py-2 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium hover:bg-[#2db368]">Nuevo producto</a>
+                <a href="<?= e(url('/productos/crear')) ?>" class="lo-btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Nuevo producto</a>
             </div>
+        </div>
+        <div class="flex gap-2 overflow-x-auto pb-1 mb-2">
+            <span class="px-3 h-8 rounded-full bg-slate-900 text-white inline-flex items-center text-xs font-semibold">Todos <span class="ml-1 text-[10px]"><?= (int) ($total ?? 0) ?></span></span>
+            <span class="px-3 h-8 rounded-full border border-slate-200 inline-flex items-center text-xs text-slate-600">Activos <span class="ml-1 text-[10px]"><?= count(array_filter($products ?? [], fn($p) => (int) ($p['is_active'] ?? 0) === 1)) ?></span></span>
+            <span class="px-3 h-8 rounded-full border border-slate-200 inline-flex items-center text-xs text-slate-600">Inactivos <span class="ml-1 text-[10px]"><?= count(array_filter($products ?? [], fn($p) => (int) ($p['is_active'] ?? 0) !== 1)) ?></span></span>
         </div>
 
         <p class="text-sm text-gray-500 mb-2"><?= (int) $total ?> productos · página <?= (int) $page ?> de <?= (int) $pages ?></p>
@@ -74,13 +84,13 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
                     <tr>
                         <th class="text-left px-3 py-2">Código</th>
                         <th class="text-left px-3 py-2">Nombre</th>
-                        <th class="text-left px-3 py-2">Cat.</th>
-                        <th class="text-left px-3 py-2">Proveedor</th>
-                        <th class="text-right px-3 py-2">Stock total</th>
-                        <th class="text-right px-3 py-2">Comprometido</th>
-                        <th class="text-right px-3 py-2">Disponible</th>
+                        <th class="text-left px-3 py-2 whitespace-nowrap text-[10px]">Cat.</th>
+                        <th class="text-left px-3 py-2 whitespace-nowrap text-[10px]">Prov.</th>
+                        <th class="text-right px-3 py-2 whitespace-nowrap text-[10px]">Stock</th>
+                        <th class="text-right px-3 py-2 whitespace-nowrap text-[10px]">Comp.</th>
+                        <th class="text-right px-3 py-2 whitespace-nowrap text-[10px]">Disp.</th>
                         <th class="text-right px-3 py-2">Lista</th>
-                        <th class="text-right px-3 py-2">Costo LO</th>
+                        <th class="text-right px-3 py-2 whitespace-nowrap text-[10px]">Costo LO</th>
                         <th class="text-right px-3 py-2">Venta</th>
                         <th class="text-right px-3 py-2">Margen</th>
                         <th class="text-center px-3 py-2">Estado</th>
@@ -93,8 +103,8 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
                         <tr class="hover:bg-gray-50">
                             <td class="px-3 py-2 font-mono text-xs"><?= e($p['code']) ?></td>
                             <td class="px-3 py-2 max-w-[200px] truncate" title="<?= e($p['name']) ?>"><?= e($p['name']) ?></td>
-                            <td class="px-3 py-2 text-gray-600"><?= e($p['category_name']) ?></td>
-                            <td class="px-3 py-2 text-gray-600"><?= e((string) ($p['supplier_name'] ?? '—')) ?></td>
+                            <td class="px-3 py-2 text-gray-600"><span class="lo-truncate" title="<?= e($p['category_name']) ?>"><?= e($p['category_name']) ?></span></td>
+                            <td class="px-3 py-2 text-gray-600"><span class="lo-truncate" title="<?= e((string) ($p['supplier_name'] ?? '—')) ?>"><?= e((string) ($p['supplier_name'] ?? '—')) ?></span></td>
                             <?php
                             $stockTotal = max(0, (int) ($p['stock_units'] ?? 0));
                             $stockCommitted = max(0, (int) ($p['stock_committed_units'] ?? 0));
@@ -103,10 +113,10 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
                             <td class="px-3 py-2 text-right"><?= $stockTotal ?></td>
                             <td class="px-3 py-2 text-right <?= $stockCommitted > 0 ? 'text-amber-600 font-medium' : 'text-gray-500' ?>"><?= $stockCommitted ?></td>
                             <td class="px-3 py-2 text-right font-semibold <?= $stockAvailable > 0 ? 'text-green-700' : 'text-red-700' ?>"><?= $stockAvailable ?></td>
-                            <td class="px-3 py-2 text-right"><?= formatPrice($calc['precio_lista_seiq']) ?></td>
-                            <td class="px-3 py-2 text-right"><?= formatPrice($calc['costo']) ?></td>
-                            <td class="px-3 py-2 text-right font-medium"><?= formatPrice($calc['precio_venta']) ?></td>
-                            <td class="px-3 py-2 text-right text-green-700"><?= formatPrice($calc['margen_pesos']) ?></td>
+                            <td class="px-3 py-2 text-right whitespace-nowrap"><?= formatPrice($calc['precio_lista_seiq']) ?></td>
+                            <td class="px-3 py-2 text-right whitespace-nowrap"><?= formatPrice($calc['costo']) ?></td>
+                            <td class="px-3 py-2 text-right font-medium whitespace-nowrap"><?= formatPrice($calc['precio_venta']) ?></td>
+                            <td class="px-3 py-2 text-right text-green-700 whitespace-nowrap"><?= formatPrice($calc['margen_pesos']) ?></td>
                             <td class="px-3 py-2 text-center">
                                 <span class="inline-flex px-2 py-1 rounded-full text-xs font-medium <?= e(statusBadgeClass((int) ($p['is_active'] ?? 0) === 1 ? 'active' : 'inactive')) ?>">
                                     <?= e(statusLabel((int) ($p['is_active'] ?? 0) === 1 ? 'active' : 'inactive')) ?>
@@ -137,9 +147,12 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
         ?>
     </div>
 
-    <div x-show="tab === 'combos'" x-cloak>
-        <div class="flex justify-end mb-4">
-            <a href="<?= e(url('/combos/crear')) ?>" class="px-4 py-2 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium hover:bg-[#2db368]">Crear combo</a>
+    <div x-show="tab === 'combos'" x-cloak x-transition:enter="transition-opacity duration-150" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100">
+        <div class="flex justify-between items-center mb-4">
+            <div class="flex gap-2 overflow-x-auto pb-1">
+                <span class="px-3 h-8 rounded-full bg-slate-900 text-white inline-flex items-center text-xs font-semibold">Combos <span class="ml-1 text-[10px]"><?= count($combos ?? []) ?></span></span>
+            </div>
+            <a href="<?= e(url('/combos/crear')) ?>" class="lo-btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Crear combo</a>
         </div>
         <div class="lo-table-wrap">
             <table class="min-w-full text-sm lo-table">
@@ -162,7 +175,7 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
                         $final = (float) ($c['_final_price'] ?? round($subtotal * (1 - ($discount / 100)), 2));
                         ?>
                         <tr class="hover:bg-gray-50">
-                            <td class="px-3 py-2"><?= e((string) $c['name']) ?></td>
+                            <td class="px-3 py-2"><span class="lo-truncate" title="<?= e((string) $c['name']) ?>"><?= e((string) $c['name']) ?></span></td>
                             <td class="px-3 py-2 text-right"><?= (int) ($c['products_count'] ?? 0) ?> productos</td>
                             <td class="px-3 py-2 text-right"><?= formatPrice($subtotal) ?></td>
                             <td class="px-3 py-2 text-right"><?= number_format($discount, 2, ',', '.') ?>%</td>

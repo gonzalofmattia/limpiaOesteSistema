@@ -11,8 +11,7 @@ foreach (($clients ?? []) as $c) {
 }
 ?>
 <div class="space-y-5">
-    <div class="flex justify-between items-center">
-        <div><h2 class="text-2xl font-semibold">Clientes</h2><p class="text-sm text-slate-500">Gestioná tu cartera, listas asignadas y cuenta corriente.</p></div>
+    <div class="flex justify-end items-center">
         <a href="<?= e(url('/clientes/crear')) ?>" class="lo-btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Nuevo cliente</a>
     </div>
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -52,7 +51,7 @@ foreach (($clients ?? []) as $c) {
                         <div class="flex items-center gap-3">
                             <span class="h-9 w-9 rounded-full bg-emerald-500 text-white text-xs font-semibold grid place-items-center"><?= e($initials !== '' ? $initials : 'CL') ?></span>
                             <div>
-                                <p class="font-medium"><?= e((string) ($c['name'] ?? '—')) ?></p>
+                                <p class="font-medium truncate max-w-[220px]" title="<?= e((string) ($c['name'] ?? '—')) ?>"><?= e((string) ($c['name'] ?? '—')) ?></p>
                                 <p class="text-xs text-slate-500"><?= e((string) ($c['email'] ?? '—')) ?></p>
                             </div>
                         </div>
@@ -84,5 +83,6 @@ foreach (($clients ?? []) as $c) {
             <?php endforeach; ?>
         </tbody>
     </table>
-</div></div>
+</div>
+</div>
 <?php require APP_PATH . '/Views/layout/pagination.php'; ?>
