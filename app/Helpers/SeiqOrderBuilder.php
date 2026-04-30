@@ -244,7 +244,10 @@ final class SeiqOrderBuilder
             $stockUnits = max(0, (int) ($row['stock_units'] ?? 0));
             $committedUnits = max(0, (int) ($row['stock_committed_units'] ?? 0));
             $stockAvailable = $stockUnits - $committedUnits;
-            $unitsToOrderAfterStock = max(0, $totalUnits - $stockAvailable);
+            // El faltante real para compra debe salir del compromiso total vs stock fisico.
+            // Si usamos "vendido de este lote - disponible", duplicamos el comprometido
+            // y terminamos pidiendo de mas (caso stock=2, comprometido=2 -> faltante debe ser 0).
+            $unitsToOrderAfterStock = max(0, $committedUnits - $stockUnits);
 
             $row['total_units_needed'] = $totalUnits;
             $row['stock_available_units'] = $stockAvailable;
