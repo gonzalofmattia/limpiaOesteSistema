@@ -37,6 +37,7 @@ $clientsJson = json_encode(array_map(fn ($c) => ['id' => (int) $c['id'], 'name' 
 window.__quoteForm = {
     lines: <?= $linesJson ?: '[]' ?>,
     clients: <?= $clientsJson ?>,
+    selectedClientId: <?= (int) ($q['client_id'] ?? 0) ?>,
     csrf: <?= json_encode(csrfToken(), JSON_UNESCAPED_UNICODE) ?>,
     customMarkup: <?= json_encode(isset($q['custom_markup']) && $q['custom_markup'] !== null && $q['custom_markup'] !== '' ? (string) $q['custom_markup'] : '', JSON_UNESCAPED_UNICODE) ?>,
     includeIva: <?= !empty($q['include_iva']) ? 'true' : 'false' ?>,
@@ -56,12 +57,19 @@ window.__quoteForm = {
         <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 grid sm:grid-cols-2 gap-4">
             <div class="sm:col-span-2">
                 <label class="block text-sm font-medium text-gray-700 mb-1">Cliente</label>
-                <select name="client_id" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-                    <option value="">Seleccionar…</option>
-                    <?php foreach ($clients as $c): ?>
-                        <option value="<?= (int) $c['id'] ?>" <?= (int) ($q['client_id'] ?? 0) === (int) $c['id'] ? 'selected' : '' ?>><?= e($c['name']) ?></option>
-                    <?php endforeach; ?>
-                </select>
+                <div class="flex items-center gap-2">
+                    <select name="client_id" required x-model.number="selectedClientId" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                        <option value="">Seleccionar…</option>
+                        <template x-for="client in clients" :key="client.id">
+                            <option :value="client.id" x-text="client.name"></option>
+                        </template>
+                    </select>
+                    <button type="button"
+                            @click="openQuickClientModal()"
+                            class="shrink-0 px-3 py-2 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50">
+                        + Nuevo
+                    </button>
+                </div>
             </div>
             <div class="sm:col-span-2">
                 <label class="block text-sm font-medium text-gray-700 mb-1">Título (opcional)</label>
@@ -192,18 +200,75 @@ window.__quoteForm = {
             <a href="<?= e(url('/presupuestos')) ?>" class="px-5 py-2.5 rounded-lg border border-gray-300 text-sm">Cancelar</a>
         </div>
     </form>
+
+    <div x-show="quickClientModalOpen"
+         x-transition.opacity
+         class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+         @click.self="closeQuickClientModal()"
+         @keydown.escape.window="closeQuickClientModal()">
+        <div x-show="quickClientModalOpen"
+             x-transition
+             class="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <h3 class="text-lg font-semibold text-gray-900">Nuevo cliente</h3>
+            <p class="mt-1 text-sm text-gray-500">Alta rápida para seleccionar el cliente y continuar el presupuesto.</p>
+
+            <div x-show="quickClientError" class="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" x-text="quickClientError"></div>
+
+            <div class="mt-4 space-y-3">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Nombre *</label>
+                    <input type="text" x-model.trim="quickClientForm.name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Nombre del cliente">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Teléfono *</label>
+                    <input type="text" x-model.trim="quickClientForm.phone" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Ej: 11 5555 5555">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Ciudad</label>
+                    <input type="text" x-model.trim="quickClientForm.city" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Opcional">
+                </div>
+            </div>
+
+            <div class="mt-6 flex justify-end gap-2">
+                <button type="button"
+                        @click="closeQuickClientModal()"
+                        :disabled="quickClientSaving"
+                        class="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60">
+                    Cancelar
+                </button>
+                <button type="button"
+                        @click="saveQuickClient()"
+                        :disabled="quickClientSaving"
+                        class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium hover:bg-[#14542f] disabled:opacity-60">
+                    <svg x-show="quickClientSaving" class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" class="opacity-25"></circle>
+                        <path d="M22 12a10 10 0 0 0-10-10" stroke="currentColor" stroke-width="3" class="opacity-90"></path>
+                    </svg>
+                    <span x-text="quickClientSaving ? 'Guardando...' : 'Guardar'"></span>
+                </button>
+            </div>
+        </div>
+    </div>
 </div>
 <script>
 function quoteForm() {
     return {
         lines: [],
         combos: [],
+        clients: [],
+        selectedClientId: '',
         customMarkup: '',
         includeIva: false,
         discountPercentage: '',
         discountAmount: '',
         discountManuallyEdited: false,
+        quickClientModalOpen: false,
+        quickClientSaving: false,
+        quickClientError: '',
+        quickClientForm: { name: '', phone: '', city: '' },
         async init(cfg) {
+            this.clients = Array.isArray(cfg.clients) ? cfg.clients : [];
+            this.selectedClientId = Number(cfg.selectedClientId || 0) || '';
             this.lines = (cfg.lines || []).map(l => ({
                 combo_id: Number(l.combo_id || 0),
                 product_id: l.product_id || 0,
@@ -234,6 +299,63 @@ function quoteForm() {
             this.refreshAllLinePrices(false);
             if (this.discountPercentage !== '' && !this.discountManuallyEdited) {
                 this.recalculateDiscountAmount();
+            }
+        },
+        openQuickClientModal() {
+            this.quickClientError = '';
+            this.quickClientSaving = false;
+            this.quickClientForm = { name: '', phone: '', city: '' };
+            this.quickClientModalOpen = true;
+        },
+        closeQuickClientModal() {
+            if (this.quickClientSaving) return;
+            this.quickClientModalOpen = false;
+        },
+        async saveQuickClient() {
+            const name = (this.quickClientForm.name || '').trim();
+            const phone = (this.quickClientForm.phone || '').trim();
+            const city = (this.quickClientForm.city || '').trim();
+            if (name === '') {
+                this.quickClientError = 'El nombre es obligatorio.';
+                return;
+            }
+            if (phone === '') {
+                this.quickClientError = 'El teléfono es obligatorio.';
+                return;
+            }
+            this.quickClientSaving = true;
+            this.quickClientError = '';
+            try {
+                const res = await fetch(window.appUrl('/api/clientes/crear'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({ name, phone, city })
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success || !data.client) {
+                    this.quickClientError = data && data.error ? data.error : 'No se pudo crear el cliente.';
+                    this.quickClientSaving = false;
+                    return;
+                }
+                const created = {
+                    id: Number(data.client.id),
+                    name: String(data.client.name || name),
+                    phone: data.client.phone || phone,
+                    city: data.client.city || city || null
+                };
+                const existingIdx = this.clients.findIndex(c => Number(c.id) === created.id);
+                if (existingIdx >= 0) {
+                    this.clients.splice(existingIdx, 1, created);
+                } else {
+                    this.clients.push(created);
+                    this.clients.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'es', { sensitivity: 'base' }));
+                }
+                this.selectedClientId = created.id;
+                this.quickClientModalOpen = false;
+            } catch (e) {
+                this.quickClientError = 'Error de conexión al crear cliente.';
+            } finally {
+                this.quickClientSaving = false;
             }
         },
         addLine() {

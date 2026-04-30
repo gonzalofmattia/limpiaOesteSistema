@@ -7,6 +7,7 @@ namespace App\Controllers;
 use App\Core\Controller;
 use App\Helpers\ClientReceivableSummary;
 use App\Models\Database;
+use PDOException;
 
 final class ClientController extends Controller
 {
@@ -158,6 +159,61 @@ final class ClientController extends Controller
         $db->delete('clients', 'id = :id', ['id' => $clientId]);
         flash('success', 'Cliente eliminado.');
         redirect('/clientes');
+    }
+
+    public function apiStore(): void
+    {
+        $raw = file_get_contents('php://input');
+        $payload = json_decode((string) $raw, true);
+        if (!is_array($payload)) {
+            $this->json(['success' => false, 'error' => 'JSON inválido.'], 400);
+            return;
+        }
+
+        $name = trim((string) ($payload['name'] ?? ''));
+        $phone = trim((string) ($payload['phone'] ?? ''));
+        $city = trim((string) ($payload['city'] ?? ''));
+
+        if ($name === '') {
+            $this->json(['success' => false, 'error' => 'El nombre es obligatorio.'], 422);
+            return;
+        }
+        if ($phone === '') {
+            $this->json(['success' => false, 'error' => 'El teléfono es obligatorio.'], 422);
+            return;
+        }
+
+        $db = Database::getInstance();
+        try {
+            $id = $db->insert('clients', [
+                'name' => $name,
+                'phone' => $phone !== '' ? $phone : null,
+                'city' => $city !== '' ? $city : null,
+            ]);
+            $client = $db->fetch('SELECT id, name, phone, city FROM clients WHERE id = ?', [(int) $id]);
+            if (!$client) {
+                $this->json(['success' => false, 'error' => 'No se pudo recuperar el cliente creado.'], 500);
+                return;
+            }
+            $this->json([
+                'success' => true,
+                'client' => [
+                    'id' => (int) $client['id'],
+                    'name' => (string) $client['name'],
+                    'phone' => $client['phone'],
+                    'city' => $client['city'],
+                ],
+            ]);
+        } catch (PDOException $e) {
+            $message = stripos($e->getMessage(), 'duplicate') !== false
+                || stripos($e->getMessage(), 'duplicado') !== false
+                || stripos($e->getMessage(), '1062') !== false
+                ? 'Ya existe un cliente con ese nombre.'
+                : 'No se pudo crear el cliente.';
+            $this->json(['success' => false, 'error' => $message], 422);
+        } catch (\Throwable) {
+            $this->json(['success' => false, 'error' => 'No se pudo crear el cliente.'], 500);
+        }
     }
 
     /** @return array<string, mixed> */

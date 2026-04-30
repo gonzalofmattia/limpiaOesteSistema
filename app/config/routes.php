@@ -132,5 +132,6 @@ return [
     ['GET', 'api/combos/{id}', 'ComboController@apiShow', []],
     ['GET', 'api/combos/{id}/precio', 'ComboController@apiPrice', []],
     ['GET', 'api/categorias/{id}/productos', 'ApiController@getCategoryProducts', []],
+    ['POST', 'api/clientes/crear', 'ClientController@apiStore', ['public' => false]],
     ['POST', 'api/pricing/preview', 'ApiController@previewPricing', []],
 ];
