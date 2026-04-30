@@ -103,6 +103,8 @@ return [
 
     ['GET', 'settings', 'SettingsController@index', []],
     ['POST', 'settings', 'SettingsController@update', []],
+    ['GET', 'fix-stock', 'ToolsController@fixStock', []],
+    ['POST', 'fix-stock/apply', 'ToolsController@fixStockApply', []],
     ['GET', 'sincronizacion', 'SyncController@index', []],
     ['POST', 'sincronizacion', 'SyncController@run', []],
     ['POST', 'sincronizacion/export-local', 'SyncController@exportLocalSql', []],

@@ -357,7 +357,7 @@ final class ComboController extends Controller
                 'quantity' => $qty,
                 'stock_units' => $stockUnits,
                 'stock_committed_units' => $committedUnits,
-                'stock_available_units' => max(0, $stockUnits - $committedUnits),
+                'stock_available_units' => $stockUnits - $committedUnits,
                 'unit_price' => $unit,
                 'subtotal' => $line,
             ];

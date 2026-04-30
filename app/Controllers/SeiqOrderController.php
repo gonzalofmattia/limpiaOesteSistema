@@ -541,10 +541,7 @@ final class SeiqOrderController extends Controller
                 if ((int) ($q['delivery_stock_applied'] ?? 0) === 1) {
                     continue;
                 }
-                if ((string) ($q['status'] ?? '') === 'accepted') {
-                    QuoteDeliveryStock::releaseCommittedStock($db, $qid);
-                }
-                QuoteDeliveryStock::applyDelivery($db, $qid);
+                QuoteDeliveryStock::markDelivered($db, $qid);
                 $db->update(
                     'quotes',
                     ['status' => 'delivered', 'delivery_stock_applied' => 1],
