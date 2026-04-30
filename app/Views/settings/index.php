@@ -13,6 +13,7 @@ $labels = [
     'moneda' => ['Sistema', 'Moneda'],
     'mostrar_iva' => ['Sistema', 'Mostrar IVA en listados (0/1)'],
     'quote_prefix' => ['Sistema', 'Prefijo presupuestos'],
+    'sale_prefix' => ['Sistema', 'Prefijo ventas'],
     'quote_validity_days' => ['Sistema', 'Validez presupuesto default (días)'],
     'catalog_markup_mayorista' => ['Catálogo API', 'Markup % mayorista (vacío = reglas normales)'],
     'catalog_markup_minorista' => ['Catálogo API', 'Markup % minorista (vacío = igual que mayorista)'],

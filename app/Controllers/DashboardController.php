@@ -6,6 +6,7 @@ namespace App\Controllers;
 
 use App\Core\Controller;
 use App\Helpers\ClientReceivableSummary;
+use App\Helpers\QuoteDeliveryStock;
 use App\Models\Database;
 
 final class DashboardController extends Controller
@@ -32,6 +33,19 @@ final class DashboardController extends Controller
         $monthlyAccepted = [];
         $monthlyCollected = [];
         $monthlySupplierPayments = [];
+        $salesTodayCount = 0;
+        $salesTodayAmount = 0.0;
+        $salesWeekCount = 0;
+        $salesWeekAmount = 0.0;
+        $salesMonthCount = 0;
+        $salesMonthAmount = 0.0;
+        $salesMonthAvgTicket = 0.0;
+        $topProductsMonth = [];
+        $topClientsMonth = [];
+        $topCombosMonth = [];
+        $pendingDeliveryCount = 0;
+        $pendingDeliveryAmount = 0.0;
+        $pendingCollectionDelivered = 0.0;
         $lowStockProducts = $db->fetchAll(
             "SELECT p.id, p.name, p.stock_units, COALESCE(p.stock_committed_units, 0) AS stock_committed_units,
                     (p.stock_units - COALESCE(p.stock_committed_units, 0)) AS stock_available_units
@@ -90,12 +104,15 @@ final class DashboardController extends Controller
             }
             $deliveredCostTotal = (float) $db->fetchColumn(
                 "SELECT COALESCE(SUM(
-                    (
-                        CASE
-                            WHEN q.include_iva = 1 THEN (qi.subtotal / ?)
-                            ELSE qi.subtotal
-                        END
-                    ) / (1 + (COALESCE(qi.markup_applied, 0) / 100))
+                    COALESCE(
+                        qi.cost_subtotal_snapshot,
+                        (
+                            CASE
+                                WHEN q.include_iva = 1 THEN (qi.subtotal / ?)
+                                ELSE qi.subtotal
+                            END
+                        ) / (1 + (COALESCE(qi.markup_applied, 0) / 100))
+                    )
                 ), 0) AS delivered_cost
                  FROM quote_items qi
                  INNER JOIN quotes q ON q.id = qi.quote_id
@@ -155,6 +172,83 @@ final class DashboardController extends Controller
                 $monthlyCollected[] = (float) $month['collected'];
                 $monthlySupplierPayments[] = (float) $month['supplier_payments'];
             }
+
+            $today = date('Y-m-d');
+            $salesTodayCount = (int) $db->fetchColumn("SELECT COUNT(*) FROM quotes WHERE status IN ('accepted','delivered') AND DATE(created_at) = ?", [$today]);
+            $salesTodayAmount = (float) $db->fetchColumn("SELECT COALESCE(SUM(total),0) FROM quotes WHERE status IN ('accepted','delivered') AND DATE(created_at) = ?", [$today]);
+            $salesWeekCount = (int) $db->fetchColumn("SELECT COUNT(*) FROM quotes WHERE status IN ('accepted','delivered') AND YEARWEEK(created_at, 1) = YEARWEEK(CURDATE(), 1)");
+            $salesWeekAmount = (float) $db->fetchColumn("SELECT COALESCE(SUM(total),0) FROM quotes WHERE status IN ('accepted','delivered') AND YEARWEEK(created_at, 1) = YEARWEEK(CURDATE(), 1)");
+            $salesMonthCount = (int) $db->fetchColumn("SELECT COUNT(*) FROM quotes WHERE status IN ('accepted','delivered') AND YEAR(created_at)=YEAR(CURDATE()) AND MONTH(created_at)=MONTH(CURDATE())");
+            $salesMonthAmount = (float) $db->fetchColumn("SELECT COALESCE(SUM(total),0) FROM quotes WHERE status IN ('accepted','delivered') AND YEAR(created_at)=YEAR(CURDATE()) AND MONTH(created_at)=MONTH(CURDATE())");
+            $salesMonthAvgTicket = $salesMonthCount > 0 ? round($salesMonthAmount / $salesMonthCount, 2) : 0.0;
+            $pendingDeliveryCount = (int) $db->fetchColumn("SELECT COUNT(*) FROM quotes WHERE status = 'accepted'");
+            $pendingDeliveryAmount = (float) $db->fetchColumn("SELECT COALESCE(SUM(total),0) FROM quotes WHERE status = 'accepted'");
+
+            $deliveredRows = $db->fetchAll(
+                "SELECT id, total FROM quotes
+                 WHERE status = 'delivered'
+                   AND YEAR(created_at)=YEAR(CURDATE())
+                   AND MONTH(created_at)=MONTH(CURDATE())"
+            );
+            $quoteIds = array_map(static fn (array $r): int => (int) $r['id'], $deliveredRows);
+            $monthProducts = [];
+            if ($quoteIds !== []) {
+                $byQuote = QuoteDeliveryStock::unitsByProductForQuotes($db, $quoteIds);
+                $allProducts = [];
+                foreach ($byQuote as $qProducts) {
+                    foreach ($qProducts as $pid => $units) {
+                        $allProducts[$pid] = ($allProducts[$pid] ?? 0) + (int) $units;
+                    }
+                }
+                if ($allProducts !== []) {
+                    $pids = array_keys($allProducts);
+                    $ph = implode(',', array_fill(0, count($pids), '?'));
+                    $products = $db->fetchAll("SELECT id, code, name FROM products WHERE id IN ({$ph})", $pids);
+                    foreach ($products as $p) {
+                        $pid = (int) $p['id'];
+                        $monthProducts[] = [
+                            'code' => (string) ($p['code'] ?? ''),
+                            'name' => (string) ($p['name'] ?? ''),
+                            'units' => (int) ($allProducts[$pid] ?? 0),
+                        ];
+                    }
+                    usort($monthProducts, static fn (array $a, array $b): int => $b['units'] <=> $a['units']);
+                }
+            }
+            $topProductsMonth = array_slice($monthProducts, 0, 5);
+            $topClientsMonth = $db->fetchAll(
+                "SELECT c.name, ROUND(SUM(q.total),2) AS total_amount
+                 FROM quotes q
+                 JOIN clients c ON c.id = q.client_id
+                 WHERE q.status IN ('accepted','delivered')
+                   AND YEAR(q.created_at)=YEAR(CURDATE()) AND MONTH(q.created_at)=MONTH(CURDATE())
+                 GROUP BY c.id, c.name
+                 ORDER BY total_amount DESC
+                 LIMIT 5"
+            );
+            $topCombosMonth = $db->fetchAll(
+                "SELECT cmb.name, SUM(qi.quantity) AS qty
+                 FROM quote_items qi
+                 JOIN quotes q ON q.id = qi.quote_id
+                 JOIN combos cmb ON cmb.id = qi.combo_id
+                 WHERE qi.combo_id IS NOT NULL
+                   AND q.status IN ('accepted','delivered')
+                   AND YEAR(q.created_at)=YEAR(CURDATE()) AND MONTH(q.created_at)=MONTH(CURDATE())
+                 GROUP BY cmb.id, cmb.name
+                 ORDER BY qty DESC
+                 LIMIT 5"
+            );
+            $pendingCollectionDelivered = (float) $db->fetchColumn(
+                "SELECT COALESCE(SUM(q.total), 0) - COALESCE(SUM(pay.paid),0)
+                 FROM quotes q
+                 LEFT JOIN (
+                    SELECT reference_id, SUM(amount) AS paid
+                    FROM account_transactions
+                    WHERE account_type='client' AND transaction_type='payment' AND reference_type='quote'
+                    GROUP BY reference_id
+                 ) pay ON pay.reference_id = q.id
+                 WHERE q.status = 'delivered'"
+            );
         }
 
         $catStats = $db->fetchAll(
@@ -198,6 +292,19 @@ final class DashboardController extends Controller
             'monthlyCollected' => $monthlyCollected,
             'monthlySupplierPayments' => $monthlySupplierPayments,
             'lowStockProducts' => $lowStockProducts,
+            'salesTodayCount' => $salesTodayCount,
+            'salesTodayAmount' => $salesTodayAmount,
+            'salesWeekCount' => $salesWeekCount,
+            'salesWeekAmount' => $salesWeekAmount,
+            'salesMonthCount' => $salesMonthCount,
+            'salesMonthAmount' => $salesMonthAmount,
+            'salesMonthAvgTicket' => $salesMonthAvgTicket,
+            'topProductsMonth' => $topProductsMonth,
+            'topClientsMonth' => $topClientsMonth,
+            'topCombosMonth' => $topCombosMonth,
+            'pendingDeliveryCount' => $pendingDeliveryCount,
+            'pendingDeliveryAmount' => $pendingDeliveryAmount,
+            'pendingCollectionDelivered' => max(0.0, round($pendingCollectionDelivered, 2)),
         ]);
     }
 
@@ -256,12 +363,15 @@ final class DashboardController extends Controller
             }
             $deliveredCostTotal = (float) $db->fetchColumn(
                 "SELECT COALESCE(SUM(
-                    (
-                        CASE
-                            WHEN q.include_iva = 1 THEN (qi.subtotal / ?)
-                            ELSE qi.subtotal
-                        END
-                    ) / (1 + (COALESCE(qi.markup_applied, 0) / 100))
+                    COALESCE(
+                        qi.cost_subtotal_snapshot,
+                        (
+                            CASE
+                                WHEN q.include_iva = 1 THEN (qi.subtotal / ?)
+                                ELSE qi.subtotal
+                            END
+                        ) / (1 + (COALESCE(qi.markup_applied, 0) / 100))
+                    )
                 ), 0) AS delivered_cost
                  FROM quote_items qi
                  INNER JOIN quotes q ON q.id = qi.quote_id
@@ -272,14 +382,15 @@ final class DashboardController extends Controller
             $explain = 'Ganancia = entregado neto - costo estimado de líneas entregadas.';
             $rows = $db->fetchAll(
                 "SELECT q.id, q.quote_number, q.subtotal AS delivered_net,
-                        COALESCE(SUM(
+                        COALESCE(SUM(COALESCE(
+                            qi.cost_subtotal_snapshot,
                             (
                                 CASE
                                     WHEN q.include_iva = 1 THEN (qi.subtotal / ?)
                                     ELSE qi.subtotal
                                 END
                             ) / (1 + (COALESCE(qi.markup_applied, 0) / 100))
-                        ), 0) AS estimated_cost
+                        )), 0) AS estimated_cost
                  FROM quotes q
                  LEFT JOIN quote_items qi ON qi.quote_id = q.id
                  WHERE q.status = 'delivered'

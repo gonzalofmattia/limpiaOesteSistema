@@ -45,7 +45,11 @@ $statusStyle = [
                     </td>
                     <td class="px-4 py-3 text-right whitespace-nowrap space-x-2">
                         <a href="<?= e(url('/presupuestos/' . (int) $q['id'])) ?>" class="text-[#1565C0] hover:underline">Ver</a>
-                        <a href="<?= e(url('/presupuestos/' . (int) $q['id'] . '/editar')) ?>" class="text-gray-600 hover:underline">Editar</a>
+                        <?php if (in_array((string) ($q['status'] ?? ''), ['draft', 'sent', 'accepted'], true)): ?>
+                            <a href="<?= e(url('/presupuestos/' . (int) $q['id'] . '/editar')) ?>" class="text-gray-600 hover:underline">Editar</a>
+                        <?php else: ?>
+                            <span class="text-gray-300 cursor-not-allowed" title="Solo se puede editar en draft, sent o accepted">Editar</span>
+                        <?php endif; ?>
                         <a href="<?= e(url('/presupuestos/' . (int) $q['id'] . '/pdf')) ?>" class="text-[#1a6b3c] hover:underline">PDF</a>
                         <form method="post" action="<?= e(url('/presupuestos/' . (int) $q['id'] . '/eliminar')) ?>" class="inline" onsubmit="return confirm('¿Seguro que querés eliminar este presupuesto?');">
                             <?= csrfField() ?>

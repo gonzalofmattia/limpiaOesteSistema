@@ -56,6 +56,75 @@ function formatPercent(?float $value): string
     return number_format($value, 1, ',', '.') . '%';
 }
 
+function parseArgentineAmount(string $raw): float
+{
+    $normalized = trim($raw);
+    if ($normalized === '') {
+        return 0.0;
+    }
+    $normalized = str_replace(['$', ' '], '', $normalized);
+    $negative = false;
+    if (str_starts_with($normalized, '-')) {
+        $negative = true;
+        $normalized = ltrim(substr($normalized, 1));
+    }
+
+    if (str_contains($normalized, ',')) {
+        $normalized = str_replace('.', '', $normalized);
+        $normalized = str_replace(',', '.', $normalized);
+    } elseif (str_contains($normalized, '.')) {
+        $normalized = str_replace('.', '', $normalized);
+    }
+
+    if (!is_numeric($normalized)) {
+        return 0.0;
+    }
+
+    $value = (float) $normalized;
+    if ($negative) {
+        $value *= -1;
+    }
+
+    return round($value, 2);
+}
+
+/**
+ * @return array{status:string,label:string,badge:string,paid:float,pending:float}
+ */
+function quotePaymentStatus(float $quoteTotal, float $paidAmount): array
+{
+    $total = round(max(0, $quoteTotal), 2);
+    $paid = round(max(0, $paidAmount), 2);
+    $pending = round(max(0, $total - $paid), 2);
+
+    if ($total > 0 && $pending <= 0.009) {
+        return [
+            'status' => 'paid',
+            'label' => 'Cobrado',
+            'badge' => 'bg-emerald-100 text-emerald-800',
+            'paid' => $paid,
+            'pending' => 0.0,
+        ];
+    }
+    if ($paid > 0.009) {
+        return [
+            'status' => 'partial',
+            'label' => 'Cobro parcial',
+            'badge' => 'bg-amber-100 text-amber-800',
+            'paid' => $paid,
+            'pending' => $pending,
+        ];
+    }
+
+    return [
+        'status' => 'pending',
+        'label' => 'Pendiente de cobro',
+        'badge' => 'bg-rose-100 text-rose-800',
+        'paid' => 0.0,
+        'pending' => $pending,
+    ];
+}
+
 function flash(string $type, string $message): void
 {
     $_SESSION['_flash'] = ['type' => $type, 'message' => $message];

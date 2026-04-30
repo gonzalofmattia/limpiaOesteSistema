@@ -212,6 +212,7 @@ CREATE TABLE IF NOT EXISTS price_list_items (
 CREATE TABLE IF NOT EXISTS quotes (
     id INT AUTO_INCREMENT PRIMARY KEY,
     quote_number VARCHAR(20) UNIQUE NOT NULL,
+    sale_number VARCHAR(20) NULL,
     client_id INT,
     title VARCHAR(255),
     notes TEXT,
@@ -229,7 +230,8 @@ CREATE TABLE IF NOT EXISTS quotes (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL,
     INDEX idx_status (status),
-    INDEX idx_number (quote_number)
+    INDEX idx_number (quote_number),
+    UNIQUE INDEX idx_sale_number (sale_number)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS quote_items (
@@ -246,6 +248,8 @@ CREATE TABLE IF NOT EXISTS quote_items (
     price_field_used VARCHAR(50) DEFAULT NULL,
     discount_applied DECIMAL(5,2),
     markup_applied DECIMAL(5,2),
+    cost_unit_snapshot DECIMAL(12,2) DEFAULT NULL,
+    cost_subtotal_snapshot DECIMAL(12,2) DEFAULT NULL,
     notes VARCHAR(255),
     sort_order INT DEFAULT 0,
     FOREIGN KEY (quote_id) REFERENCES quotes(id) ON DELETE CASCADE,

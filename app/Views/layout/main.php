@@ -84,6 +84,12 @@
                 </svg>
                 Presupuestos
             </a>
+            <a href="<?= e(url('/ventas')) ?>" class="flex items-center gap-2 px-4 py-2 <?= isActive('/ventas') ? 'bg-primary/20 border-l-4 border-primary-light text-white' : 'hover:bg-gray-800 border-l-4 border-transparent' ?>">
+                <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3.75 6.75h16.5m-16.5 5.25h16.5m-16.5 5.25h7.5"/>
+                </svg>
+                Ventas
+            </a>
             <a href="<?= e(url('/ventas-ml')) ?>" class="flex items-center gap-2 px-4 py-2 <?= isActive('/ventas-ml') ? 'bg-primary/20 border-l-4 border-primary-light text-white' : 'hover:bg-gray-800 border-l-4 border-transparent' ?>">
                 <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3.75 6.75h16.5m-16.5 4.5h16.5m-16.5 4.5h10.5m-7.5 3.75h10.5"/>

@@ -14,6 +14,8 @@ use Dompdf\Options;
 
 final class QuoteController extends Controller
 {
+    private const EDITABLE_STATUSES = ['draft', 'sent', 'accepted'];
+
     public function index(): void
     {
         $db = Database::getInstance();
@@ -132,6 +134,11 @@ final class QuoteController extends Controller
             flash('error', 'No encontrado.');
             redirect('/presupuestos');
         }
+        if (!$this->quoteIsEditable($quote)) {
+            flash('error', "No se puede editar un presupuesto en estado '{$quote['status']}'. Si necesitás hacer cambios, primero cambiá el estado a 'Aceptado' y luego editá.");
+            redirect('/presupuestos/' . (int) $id);
+            return;
+        }
         $items = $db->fetchAll(
             'SELECT qi.*, p.code, p.name, cmb.name AS combo_name, p.category_id, p.sale_unit_label, p.sale_unit_type, p.content,
                     p.units_per_box, p.stock_units, COALESCE(p.stock_committed_units, 0) AS stock_committed_units,
@@ -158,6 +165,18 @@ final class QuoteController extends Controller
         if (!verifyCsrf()) {
             flash('error', 'Token inválido.');
             redirect('/presupuestos/' . $id . '/editar');
+        }
+        $db = Database::getInstance();
+        $quote = $db->fetch('SELECT id, status FROM quotes WHERE id = ?', [(int) $id]);
+        if (!$quote) {
+            flash('error', 'No encontrado.');
+            redirect('/presupuestos');
+            return;
+        }
+        if (!$this->quoteIsEditable($quote)) {
+            flash('error', "No se puede editar un presupuesto en estado '{$quote['status']}'. Si necesitás hacer cambios, primero cambiá el estado a 'Aceptado' y luego editá.");
+            redirect('/presupuestos/' . $id);
+            return;
         }
         $res = $this->persistQuote((int) $id);
         if ($res['error']) {
@@ -228,6 +247,9 @@ final class QuoteController extends Controller
         $extra = [];
         if ($status === 'sent') {
             $extra['sent_at'] = date('Y-m-d H:i:s');
+        }
+        if ($status === 'accepted' && empty($quote['sale_number'])) {
+            $extra['sale_number'] = $this->nextSaleNumber($db);
         }
 
         $pdo = $db->getPdo();
@@ -440,6 +462,10 @@ final class QuoteController extends Controller
                     $db->getPdo()->rollBack();
                     return ['error' => 'No encontrado.'];
                 }
+                if (!$this->quoteIsEditable($existingQuote)) {
+                    $db->getPdo()->rollBack();
+                    return ['error' => 'No se puede editar un presupuesto en este estado.'];
+                }
                 if ((string) ($existingQuote['status'] ?? '') === 'accepted') {
                     QuoteDeliveryStock::releaseCommittedStock($db, $id);
                 }
@@ -483,8 +509,17 @@ final class QuoteController extends Controller
                         [$comboId]
                     );
                     $subtotalCalc = 0.0;
+                    $comboCostUnit = 0.0;
                     foreach ($comboProducts as $cp) {
                         $slug = strtolower((string) $cp['category_slug']);
+                        $resolvedCost = QuoteLinePricing::resolveListaForQuote($cp, $slug, 'unidad');
+                        $costCalc = PricingEngine::calculateWithListaSeiq(
+                            (float) $resolvedCost['lista_seiq'],
+                            $cp,
+                            $customMarkup,
+                            false
+                        );
+                        $comboCostUnit += round((float) ($costCalc['costo'] ?? 0) * (int) $cp['quantity'], 4);
                         $unitVenta = QuoteLinePricing::individualUnitSellingPrice(
                             $cp,
                             $slug,
@@ -498,6 +533,8 @@ final class QuoteController extends Controller
                     $comboDiscount = (float) $combo['discount_percentage'];
                     $comboFinalUnit = round($comboSubtotal * (1 - ($comboDiscount / 100)), 2);
                     $lineSub = round($comboFinalUnit * $qty, 2);
+                    $lineCostUnit = round(max(0, $comboCostUnit), 2);
+                    $lineCostSub = round($lineCostUnit * $qty, 2);
                     $subtotalNet += $lineSub;
                     $totalWithIva += $lineSub;
                     $db->insert('quote_items', [
@@ -514,6 +551,8 @@ final class QuoteController extends Controller
                         'price_field_used' => 'combo',
                         'discount_applied' => $comboDiscount,
                         'markup_applied' => (float) $combo['markup_percentage'],
+                        'cost_unit_snapshot' => $lineCostUnit,
+                        'cost_subtotal_snapshot' => $lineCostSub,
                         'notes' => null,
                         'sort_order' => $sort++,
                     ]);
@@ -552,6 +591,8 @@ final class QuoteController extends Controller
                     : $calcNet['precio_venta'];
                 $individualVenta = QuoteLinePricing::individualUnitSellingPrice($p, $slug, $customMarkup, $includeIva);
                 $lineSub = round($unitPrice * $qty, 2);
+                $lineCostUnit = round((float) ($calcNet['costo'] ?? 0), 2);
+                $lineCostSub = round($lineCostUnit * $qty, 2);
                 $subtotalNet += round($calcNet['precio_venta'] * $qty, 2);
                 $totalWithIva += $lineSub;
                 $db->insert('quote_items', [
@@ -567,6 +608,8 @@ final class QuoteController extends Controller
                     'price_field_used' => $resolved['price_field_used'],
                     'discount_applied' => $calcNet['discount_percent'],
                     'markup_applied' => $calcNet['markup_percent'],
+                    'cost_unit_snapshot' => $lineCostUnit,
+                    'cost_subtotal_snapshot' => $lineCostSub,
                     'notes' => null,
                     'sort_order' => $sort++,
                 ]);
@@ -635,16 +678,34 @@ final class QuoteController extends Controller
         if ($raw === '') {
             return null;
         }
-        $normalized = str_replace(['$', ' '], '', $raw);
-        if (str_contains($normalized, ',')) {
-            $normalized = str_replace('.', '', $normalized);
-            $normalized = str_replace(',', '.', $normalized);
-        }
-        if (!is_numeric($normalized)) {
+        if (!preg_match('/^-?\s*\$?\s*[\d\.,\s]+$/', $raw)) {
             return null;
         }
+        $normalized = parseArgentineAmount($raw);
+        return round($normalized, 2);
+    }
 
-        return (float) $normalized;
+    /** @param array<string,mixed> $quote */
+    private function quoteIsEditable(array $quote): bool
+    {
+        return in_array((string) ($quote['status'] ?? ''), self::EDITABLE_STATUSES, true);
+    }
+
+    private function nextSaleNumber(Database $db): string
+    {
+        $prefix = setting('sale_prefix', 'V-') ?? 'V-';
+        $prefix = trim($prefix);
+        if ($prefix === '') {
+            $prefix = 'V-';
+        }
+        $last = $db->fetchColumn(
+            'SELECT sale_number FROM quotes WHERE sale_number IS NOT NULL AND sale_number <> "" ORDER BY id DESC LIMIT 1'
+        );
+        $n = 0;
+        if (is_string($last) && preg_match('/(\d+)$/', $last, $m)) {
+            $n = (int) $m[1];
+        }
+        return sprintf('%s%04d', $prefix, $n + 1);
     }
 
     /** @param array<string,mixed> $quote @param list<array<string,mixed>> $items */

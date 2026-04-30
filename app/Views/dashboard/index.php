@@ -35,6 +35,40 @@ $barMax = max(array_merge([1.0], $acceptedSeries, $collectedSeries, $supplierSer
     </section>
 
     <?php if (!empty($accountsEnabled)): ?>
+        <section class="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm space-y-3">
+            <h3 class="text-sm font-semibold text-gray-800">Ventas</h3>
+            <div class="grid md:grid-cols-4 gap-3 text-sm">
+                <div><p class="text-gray-500">Hoy</p><p class="font-semibold"><?= (int) ($salesTodayCount ?? 0) ?> · <?= formatPrice((float) ($salesTodayAmount ?? 0)) ?></p></div>
+                <div><p class="text-gray-500">Semana</p><p class="font-semibold"><?= (int) ($salesWeekCount ?? 0) ?> · <?= formatPrice((float) ($salesWeekAmount ?? 0)) ?></p></div>
+                <div><p class="text-gray-500">Mes</p><p class="font-semibold"><?= (int) ($salesMonthCount ?? 0) ?> · <?= formatPrice((float) ($salesMonthAmount ?? 0)) ?></p></div>
+                <div><p class="text-gray-500">Ticket prom. mes</p><p class="font-semibold"><?= formatPrice((float) ($salesMonthAvgTicket ?? 0)) ?></p></div>
+            </div>
+            <div class="grid md:grid-cols-3 gap-3 text-sm">
+                <div>
+                    <p class="text-gray-500 mb-1">Top 5 productos mes</p>
+                    <?php foreach (($topProductsMonth ?? []) as $row): ?>
+                        <p><?= e((string) $row['name']) ?> · <strong><?= (int) $row['units'] ?></strong></p>
+                    <?php endforeach; ?>
+                </div>
+                <div>
+                    <p class="text-gray-500 mb-1">Top 5 clientes mes</p>
+                    <?php foreach (($topClientsMonth ?? []) as $row): ?>
+                        <p><?= e((string) $row['name']) ?> · <strong><?= formatPrice((float) $row['total_amount']) ?></strong></p>
+                    <?php endforeach; ?>
+                </div>
+                <div>
+                    <p class="text-gray-500 mb-1">Top combos mes</p>
+                    <?php foreach (($topCombosMonth ?? []) as $row): ?>
+                        <p><?= e((string) $row['name']) ?> · <strong><?= (int) $row['qty'] ?></strong></p>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            <div class="grid md:grid-cols-2 gap-3 text-sm">
+                <p>Pendientes de entrega: <strong><?= (int) ($pendingDeliveryCount ?? 0) ?></strong> · <strong><?= formatPrice((float) ($pendingDeliveryAmount ?? 0)) ?></strong></p>
+                <p>Cobros pendientes (entregadas): <strong><?= formatPrice((float) ($pendingCollectionDelivered ?? 0)) ?></strong></p>
+            </div>
+        </section>
+
         <section class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
             <a href="<?= e(url('/dashboard/detalle/aceptados')) ?>" class="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm hover:border-primary transition">
                 <p class="text-xs text-gray-500">Presupuestos aceptados</p>

@@ -421,7 +421,7 @@ final class SeiqOrderController extends Controller
             $data['sent_at'] = date('Y-m-d H:i:s');
         }
         if ($status === 'received') {
-            $manualAmount = (float) str_replace(['.', ','], ['', '.'], (string) $this->input('received_amount', '0'));
+            $manualAmount = parseArgentineAmount((string) $this->input('received_amount', '0'));
             if ($manualAmount <= 0) {
                 flash('error', 'Para recibir el pedido debés ingresar el monto del remito/factura.');
                 redirect('/pedidos-proveedor/' . $id);
@@ -600,7 +600,7 @@ final class SeiqOrderController extends Controller
                 return;
             }
             $supplierId = (int) ($order['supplier_id'] ?? 0);
-            $manualAmount = (float) str_replace(['.', ','], ['', '.'], (string) $this->input('received_amount', '0'));
+            $manualAmount = parseArgentineAmount((string) $this->input('received_amount', '0'));
             $amount = $manualAmount > 0 ? round($manualAmount, 2) : $this->calculateSeiqOrderTotal($orderId);
             $receivedDate = (string) $this->input('received_date', date('Y-m-d'));
             if ($amount <= 0) {

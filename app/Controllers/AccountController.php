@@ -219,7 +219,7 @@ final class AccountController extends Controller
             return;
         }
 
-        $amount = $this->parseAmount((string) $this->input('amount', '0'));
+        $amount = parseArgentineAmount((string) $this->input('amount', '0'));
         $method = (string) $this->input('payment_method', 'efectivo');
         $reference = trim((string) $this->input('payment_reference', ''));
         $date = (string) $this->input('transaction_date', date('Y-m-d'));
@@ -274,7 +274,7 @@ final class AccountController extends Controller
             return;
         }
 
-        $amount = $this->parseAmount((string) $this->input('amount', '0'));
+        $amount = parseArgentineAmount((string) $this->input('amount', '0'));
         $method = (string) $this->input('payment_method', 'efectivo');
         $reference = trim((string) $this->input('payment_reference', ''));
         $date = (string) $this->input('transaction_date', date('Y-m-d'));
@@ -323,7 +323,7 @@ final class AccountController extends Controller
 
         $accountType = (string) $this->input('account_type', '');
         $accountId = (int) $this->input('account_id', 0);
-        $amount = $this->parseSignedAmount((string) $this->input('amount', '0'));
+        $amount = parseArgentineAmount((string) $this->input('amount', '0'));
         $description = trim((string) $this->input('description', ''));
         $date = (string) $this->input('transaction_date', date('Y-m-d'));
         $notes = trim((string) $this->input('notes', ''));
@@ -446,7 +446,7 @@ final class AccountController extends Controller
         $notes = trim((string) $this->input('notes', ''));
 
         if ($type === 'payment') {
-            $amount = $this->parseAmount((string) $this->input('amount', '0'));
+            $amount = parseArgentineAmount((string) $this->input('amount', '0'));
             if ($amount <= 0) {
                 flash('error', 'El monto debe ser mayor a cero.');
                 redirect('/cuenta-corriente/movimiento/' . $id . '/editar');
@@ -476,7 +476,7 @@ final class AccountController extends Controller
                 ['id' => (int) $id]
             );
         } elseif ($type === 'adjustment') {
-            $amount = $this->parseSignedAmount((string) $this->input('amount', '0'));
+            $amount = parseArgentineAmount((string) $this->input('amount', '0'));
             if ($amount === 0.0) {
                 flash('error', 'El ajuste no puede ser cero.');
                 redirect('/cuenta-corriente/movimiento/' . $id . '/editar');
@@ -592,18 +592,6 @@ final class AccountController extends Controller
              GROUP BY s.id, s.name
              ORDER BY s.name"
         );
-    }
-
-    private function parseAmount(string $raw): float
-    {
-        $norm = str_replace(['.', ','], ['', '.'], $raw);
-        return round((float) $norm, 2);
-    }
-
-    private function parseSignedAmount(string $raw): float
-    {
-        $norm = str_replace(',', '.', str_replace('.', '', $raw));
-        return round((float) $norm, 2);
     }
 
     private function recalculateClientBalance(int $clientId): void

@@ -3,6 +3,8 @@
 use App\Helpers\QuoteLinePricing;
 
 $isEdit = $quote !== null;
+$quoteStatus = (string) ($quote['status'] ?? 'draft');
+$quoteEditable = !$isEdit || in_array($quoteStatus, ['draft', 'sent', 'accepted'], true);
 $action = url($isEdit ? '/presupuestos/' . (int) $quote['id'] : '/presupuestos');
 $q = $quote ?? [];
 $initialLines = [];
@@ -43,6 +45,12 @@ window.__quoteForm = {
 };
 </script>
 <div class="max-w-5xl" x-data="quoteForm()" x-init="init(window.__quoteForm)">
+    <?php if (!$quoteEditable): ?>
+        <div class="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+            Este presupuesto no se puede editar en estado <strong><?= e($quoteStatus) ?></strong>. Te redirigimos al detalle.
+        </div>
+        <script>window.location.href = <?= json_encode(url('/presupuestos/' . (int) ($quote['id'] ?? 0)), JSON_UNESCAPED_SLASHES) ?>;</script>
+    <?php endif; ?>
     <form method="post" action="<?= e($action) ?>" id="quote-form" class="space-y-6">
         <?= csrfField() ?>
         <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 grid sm:grid-cols-2 gap-4">
