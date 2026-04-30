@@ -325,6 +325,7 @@ final class ComboController extends Controller
                     COALESCE(pc.slug, c.slug) AS category_slug, c.default_discount,
                     c.default_markup AS category_default_markup, pc.default_discount AS parent_discount,
                     pc.default_markup AS parent_default_markup,
+                    p.stock_units, COALESCE(p.stock_committed_units, 0) AS stock_committed_units,
                     p.precio_lista_unitario, p.precio_lista_caja, p.precio_lista_bidon,
                     p.precio_lista_litro, p.precio_lista_bulto, p.precio_lista_sobre,
                     p.discount_override, p.markup_override
