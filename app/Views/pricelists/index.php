@@ -1,6 +1,17 @@
-<div class="flex justify-between items-center mb-6">
-    <p class="text-sm text-gray-600">Listas generadas con PDF descargable.</p>
-    <a href="<?= e(url('/listas/generar')) ?>" class="px-4 py-2 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium hover:bg-[#2db368]">Generar nueva</a>
+<?php
+$activeLists = count(array_filter($lists ?? [], fn($l) => (string) ($l['status'] ?? '') === 'active'));
+$expiredLists = count(array_filter($lists ?? [], fn($l) => (string) ($l['status'] ?? '') !== 'active'));
+?>
+<div class="space-y-5">
+<div class="flex justify-between items-center">
+    <div><h2 class="text-2xl font-semibold">Listas de precios</h2><p class="text-sm text-slate-500">Cargá nuevas listas, definí márgenes y aplicá precios masivamente.</p></div>
+    <a href="<?= e(url('/listas/generar')) ?>" class="lo-btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Nueva lista</a>
+</div>
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <div class="lo-card p-4"><p class="text-xs text-slate-500">Listas activas</p><p class="text-2xl font-semibold"><?= $activeLists ?></p></div>
+    <div class="lo-card p-4"><p class="text-xs text-slate-500">Última actualizada</p><p class="text-sm font-semibold"><?= e((string) (($lists[0]['name'] ?? '—'))) ?></p></div>
+    <div class="lo-card p-4"><p class="text-xs text-slate-500">Vencidas</p><p class="text-2xl font-semibold"><?= $expiredLists ?></p></div>
+    <div class="lo-card p-4"><p class="text-xs text-slate-500">Productos cubiertos</p><p class="text-2xl font-semibold"><?= (int) ($productsCovered ?? 0) ?></p></div>
 </div>
 <form method="get" class="mb-4 flex gap-2">
     <input type="hidden" name="per_page" value="<?= (int) ($per_page ?? 20) ?>">
@@ -9,8 +20,8 @@
         <i data-lucide="search" class="w-5 h-5 text-white"></i>
     </button>
 </form>
-<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto">
-    <table class="min-w-full text-sm">
+<div class="lo-table-wrap">
+    <table class="min-w-full text-sm lo-table">
         <thead class="bg-gray-50 border-b border-gray-200 text-gray-600">
             <tr>
                 <th class="text-left px-4 py-3">Nombre</th>
@@ -55,4 +66,5 @@
         </tbody>
     </table>
 </div>
+ </div>
 <?php require APP_PATH . '/Views/layout/pagination.php'; ?>

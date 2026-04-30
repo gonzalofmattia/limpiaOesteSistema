@@ -1,6 +1,20 @@
-<div class="flex justify-between mb-6">
-    <p class="text-sm text-gray-600">Presupuestos con numeración <?= e(setting('quote_prefix', 'LO')) ?>-AÑO-NNNN.</p>
-    <a href="<?= e(url('/presupuestos/crear')) ?>" class="px-4 py-2 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium">Nuevo presupuesto</a>
+<?php
+$totalQuotes = count($quotes ?? []);
+$acceptedQuotes = count(array_filter($quotes ?? [], fn($q) => (string) ($q['status'] ?? '') === 'accepted'));
+$pendingQuotes = count(array_filter($quotes ?? [], fn($q) => in_array((string) ($q['status'] ?? ''), ['draft', 'sent'], true)));
+$rejectedQuotes = count(array_filter($quotes ?? [], fn($q) => (string) ($q['status'] ?? '') === 'rejected'));
+$amountTotal = array_sum(array_map(fn($q) => (float) ($q['total'] ?? 0), $quotes ?? []));
+?>
+<div class="space-y-5">
+<div class="flex justify-between items-center">
+    <div><h2 class="text-2xl font-semibold">Presupuestos</h2><p class="text-sm text-slate-500">Creá presupuestos rápidos, mandalos por WhatsApp y convertilos en venta.</p></div>
+    <a href="<?= e(url('/presupuestos/crear')) ?>" class="lo-btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Nuevo presupuesto</a>
+</div>
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <div class="lo-card p-4"><p class="text-xs text-slate-500">Este mes</p><p class="text-2xl font-semibold"><?= $totalQuotes ?></p></div>
+    <div class="lo-card p-4"><p class="text-xs text-slate-500">Aceptados</p><p class="text-2xl font-semibold"><?= $acceptedQuotes ?></p></div>
+    <div class="lo-card p-4"><p class="text-xs text-slate-500">Pendientes</p><p class="text-2xl font-semibold"><?= $pendingQuotes ?></p></div>
+    <div class="lo-card p-4"><p class="text-xs text-slate-500">Monto total</p><p class="text-xl font-semibold"><?= formatPrice($amountTotal) ?></p></div>
 </div>
 <form method="get" class="mb-4 flex gap-2">
     <input type="hidden" name="per_page" value="<?= (int) ($per_page ?? 20) ?>">
@@ -9,8 +23,14 @@
         <i data-lucide="search" class="w-5 h-5 text-white"></i>
     </button>
 </form>
-<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto">
-    <table class="min-w-full text-sm">
+<div class="flex gap-2 overflow-x-auto pb-1">
+    <span class="px-3 h-8 rounded-full bg-slate-900 text-white inline-flex items-center text-xs font-semibold">Todos <span class="ml-1 text-[10px]"><?= $totalQuotes ?></span></span>
+    <span class="px-3 h-8 rounded-full border border-slate-200 inline-flex items-center text-xs text-slate-600">Aceptados <span class="ml-1 text-[10px]"><?= $acceptedQuotes ?></span></span>
+    <span class="px-3 h-8 rounded-full border border-slate-200 inline-flex items-center text-xs text-slate-600">Pendientes <span class="ml-1 text-[10px]"><?= $pendingQuotes ?></span></span>
+    <span class="px-3 h-8 rounded-full border border-slate-200 inline-flex items-center text-xs text-slate-600">Rechazados <span class="ml-1 text-[10px]"><?= $rejectedQuotes ?></span></span>
+</div>
+<div class="lo-table-wrap">
+    <table class="min-w-full text-sm lo-table">
         <thead class="bg-gray-50 border-b border-gray-200 text-gray-600">
             <tr>
                 <th class="text-left px-4 py-3">Número</th>
@@ -24,7 +44,10 @@
         <tbody class="divide-y divide-gray-100">
             <?php foreach ($quotes as $q): ?>
                 <tr class="hover:bg-gray-50">
-                    <td class="px-4 py-3 font-mono text-xs">
+                    <td class="px-4 py-3">
+                        <div class="flex items-center gap-3">
+                            <span class="h-9 w-9 rounded-lg bg-sky-50 grid place-items-center"><i data-lucide="file-text" class="h-4 w-4 text-lo-blue"></i></span>
+                            <div class="font-mono text-xs">
                         <?= e($q['quote_number']) ?>
                         <?php if ((int) ($q['is_mercadolibre'] ?? 0) === 1): ?>
                             <span class="ml-1.5 inline-flex px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-800 font-sans">ML</span>
@@ -32,6 +55,8 @@
                         <?php if ((int) ($q['attachments_count'] ?? 0) > 0): ?>
                             <span class="ml-1.5 text-gray-500 font-sans normal-case" title="Documentos adjuntos">📎 <?= (int) $q['attachments_count'] ?></span>
                         <?php endif; ?>
+                            </div>
+                        </div>
                     </td>
                     <td class="px-4 py-3"><?= e($q['client_name'] ?? '—') ?></td>
                     <td class="px-4 py-3 text-gray-600"><?= e($q['created_at']) ?></td>
@@ -72,4 +97,5 @@
         </tbody>
     </table>
 </div>
+ </div>
 <?php require APP_PATH . '/Views/layout/pagination.php'; ?>

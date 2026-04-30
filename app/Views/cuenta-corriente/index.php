@@ -1,5 +1,7 @@
-<div class="grid lg:grid-cols-2 gap-6 mb-6">
-    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+<div class="space-y-5">
+<div><h2 class="text-2xl font-semibold">Cuenta Corriente</h2><p class="text-sm text-slate-500">Seguimiento de cobros y pagos.</p></div>
+<div class="grid lg:grid-cols-2 gap-6">
+    <div class="lo-card p-5">
         <p class="text-sm text-gray-500">A COBRAR (clientes)</p>
         <p class="text-3xl font-bold text-[#1a6b3c] mt-2"><?= formatPrice((float) $totalReceivable) ?></p>
         <p class="text-sm text-gray-600 mt-1">Clientes con deuda: <?= (int) $clientsWithDebt ?></p>
@@ -7,7 +9,7 @@
             <a href="<?= e(url('/cuenta-corriente/clientes')) ?>" class="px-3 py-1.5 rounded-lg border border-gray-300 text-sm">Ver detalle clientes</a>
         </div>
     </div>
-    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+    <div class="lo-card p-5">
         <p class="text-sm text-gray-500">A PAGAR (proveedores)</p>
         <div class="space-y-1 mt-2">
             <?php foreach ($supplierDebts as $supplier): ?>
@@ -29,8 +31,8 @@
     </div>
 </div>
 
-<div class="grid lg:grid-cols-2 gap-6 mb-6">
-    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+<div class="grid lg:grid-cols-2 gap-6">
+    <div class="lo-card p-5">
         <h2 class="font-semibold mb-3">Registrar cobro</h2>
         <form method="post" action="<?= e(url('/cuenta-corriente/cobro')) ?>" class="space-y-3">
             <?= csrfField() ?>
@@ -56,7 +58,7 @@
             <button type="submit" class="px-4 py-2 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium">Registrar cobro</button>
         </form>
     </div>
-    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+    <div class="lo-card p-5">
         <h2 class="font-semibold mb-3">Registrar pago a proveedor</h2>
         <form method="post" action="<?= e(url('/cuenta-corriente/pago-proveedor')) ?>" class="space-y-3">
             <?= csrfField() ?>
@@ -84,7 +86,7 @@
     </div>
 </div>
 
-<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto">
+<div class="lo-table-wrap">
     <div class="px-4 py-3 border-b border-gray-200 bg-gray-50">
         <h2 class="font-semibold text-gray-800">Últimos movimientos</h2>
     </div>
@@ -95,7 +97,7 @@
             <i data-lucide="search" class="w-5 h-5 text-white"></i>
         </button>
     </form>
-    <table class="min-w-full text-sm">
+    <table class="min-w-full text-sm lo-table">
         <thead class="bg-gray-50 text-gray-600">
             <tr>
                 <th class="text-left px-4 py-2">Fecha</th>
@@ -123,5 +125,6 @@
             <?php endforeach; ?>
         </tbody>
     </table>
+</div>
 </div>
 <?php require APP_PATH . '/Views/layout/pagination.php'; ?>

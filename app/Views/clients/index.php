@@ -1,62 +1,88 @@
-<div class="flex justify-between mb-6">
-    <p class="text-sm text-gray-600">Clientes para presupuestos.</p>
-    <a href="<?= e(url('/clientes/crear')) ?>" class="px-4 py-2 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium">Nuevo cliente</a>
-</div>
-<form method="get" class="mb-4 flex gap-2">
-    <input type="hidden" name="per_page" value="<?= (int) ($per_page ?? 20) ?>">
-    <input type="text" name="search" value="<?= e((string) ($search ?? '')) ?>" placeholder="Buscar..." class="flex-1 rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
-    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700" title="Buscar">
-        <i data-lucide="search" class="w-5 h-5 text-white"></i>
-    </button>
-</form>
-<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto">
-    <table class="min-w-full text-sm">
+<?php
+$totalClients = count($clients ?? []);
+$withDebt = 0;
+$vip = 0;
+$totalBalance = 0.0;
+foreach (($clients ?? []) as $c) {
+    $bal = isset($c['effective_balance']) ? (float) $c['effective_balance'] : (float) ($c['balance'] ?? 0);
+    if ($bal > 0) { $withDebt++; }
+    $totalBalance += $bal;
+    if (strtoupper((string) ($c['category'] ?? '')) === 'VIP') { $vip++; }
+}
+?>
+<div class="space-y-5">
+    <div class="flex justify-between items-center">
+        <div><h2 class="text-2xl font-semibold">Clientes</h2><p class="text-sm text-slate-500">Gestioná tu cartera, listas asignadas y cuenta corriente.</p></div>
+        <a href="<?= e(url('/clientes/crear')) ?>" class="lo-btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Nuevo cliente</a>
+    </div>
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div class="lo-card p-4"><p class="text-xs text-slate-500">Total clientes</p><p class="text-2xl font-semibold"><?= $totalClients ?></p></div>
+        <div class="lo-card p-4"><p class="text-xs text-slate-500">Con saldo</p><p class="text-2xl font-semibold"><?= $withDebt ?></p></div>
+        <div class="lo-card p-4"><p class="text-xs text-slate-500">Saldo total</p><p class="text-xl font-semibold"><?= formatPrice($totalBalance) ?></p></div>
+        <div class="lo-card p-4"><p class="text-xs text-slate-500">VIP</p><p class="text-2xl font-semibold"><?= $vip ?></p></div>
+    </div>
+    <form method="get" class="flex items-center gap-2">
+        <input type="hidden" name="per_page" value="<?= (int) ($per_page ?? 20) ?>">
+        <div class="flex-1 h-11 rounded-xl border border-lo-border bg-white px-3 flex items-center gap-2"><i data-lucide="search" class="h-4 w-4 text-slate-400"></i><input type="text" name="search" value="<?= e((string) ($search ?? '')) ?>" placeholder="Buscar por nombre, email o teléfono..." class="w-full bg-transparent outline-none text-sm"></div>
+        <button class="h-11 w-11 rounded-xl border border-lo-border bg-white grid place-items-center"><i data-lucide="sliders-horizontal" class="h-4 w-4"></i></button>
+    </form>
+    <div class="flex gap-2 overflow-x-auto pb-1">
+        <span class="px-3 h-8 rounded-full bg-slate-900 text-white inline-flex items-center text-xs font-semibold">Todos <span class="ml-1 text-[10px] opacity-80"><?= $totalClients ?></span></span>
+        <span class="px-3 h-8 rounded-full border border-slate-200 inline-flex items-center text-xs text-slate-600">VIP <span class="ml-1 text-[10px]"><?= $vip ?></span></span>
+        <span class="px-3 h-8 rounded-full border border-slate-200 inline-flex items-center text-xs text-slate-600">Con deuda <span class="ml-1 text-[10px]"><?= $withDebt ?></span></span>
+    </div>
+    <div class="lo-table-wrap">
+    <table class="min-w-full text-sm lo-table">
         <thead class="bg-gray-50 border-b border-gray-200 text-gray-600">
             <tr>
                 <th class="text-left px-4 py-3">Nombre</th>
-                <th class="text-left px-4 py-3">Razón social</th>
-                <th class="text-left px-4 py-3">Teléfono</th>
-                <th class="text-left px-4 py-3">Ciudad</th>
-                <th class="text-left px-4 py-3">Estado cuenta</th>
+                <th class="text-left px-4 py-3">Categoría</th>
+                <th class="text-left px-4 py-3">Lista</th>
+                <th class="text-right px-4 py-3">Saldo</th>
+                <th class="text-right px-4 py-3">Total compras</th>
+                <th class="text-left px-4 py-3">Última</th>
                 <th class="text-right px-4 py-3">Acciones</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
             <?php foreach ($clients as $c): ?>
                 <tr class="hover:bg-gray-50">
-                    <td class="px-4 py-3 font-medium"><?= e($c['name']) ?></td>
-                    <td class="px-4 py-3 text-gray-600"><?= e($c['business_name'] ?? '—') ?></td>
-                    <td class="px-4 py-3"><?= e($c['phone'] ?? '—') ?></td>
-                    <td class="px-4 py-3"><?= e($c['city'] ?? '—') ?></td>
                     <td class="px-4 py-3">
-                        <?php $balance = isset($c['effective_balance']) ? (float) $c['effective_balance'] : (float) ($c['balance'] ?? 0); ?>
-                        <?php if ($balance > 0): ?>
-                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-800">Debe <?= formatPrice($balance) ?></span>
-                        <?php else: ?>
-                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-800">Al día</span>
-                        <?php endif; ?>
+                        <?php $initials = strtoupper(substr((string) ($c['name'] ?? ''), 0, 1) . substr((string) ($c['business_name'] ?? ''), 0, 1)); ?>
+                        <div class="flex items-center gap-3">
+                            <span class="h-9 w-9 rounded-full bg-emerald-500 text-white text-xs font-semibold grid place-items-center"><?= e($initials !== '' ? $initials : 'CL') ?></span>
+                            <div>
+                                <p class="font-medium"><?= e((string) ($c['name'] ?? '—')) ?></p>
+                                <p class="text-xs text-slate-500"><?= e((string) ($c['email'] ?? '—')) ?></p>
+                            </div>
+                        </div>
                     </td>
+                    <td class="px-4 py-3"><span class="lo-status-pill bg-violet-50 text-violet-700"><span class="lo-dot bg-violet-500"></span><?= e((string) ($c['category'] ?? '—')) ?></span></td>
+                    <td class="px-4 py-3"><?= e((string) ($c['assigned_pricelist'] ?? '—')) ?></td>
+                    <?php $balance = isset($c['effective_balance']) ? (float) $c['effective_balance'] : (float) ($c['balance'] ?? 0); ?>
+                    <td class="px-4 py-3 text-right font-medium <?= $balance > 0 ? 'text-red-600' : '' ?>"><?= formatPrice($balance) ?></td>
+                    <td class="px-4 py-3 text-right font-medium"><?= formatPrice((float) ($c['total_purchases'] ?? 0)) ?></td>
+                    <td class="px-4 py-3 text-slate-500"><?= e((string) ($c['last_purchase_at'] ?? '—')) ?></td>
                     <td class="px-4 py-3">
                         <div class="flex items-center justify-end gap-2">
-                        <a href="<?= e(url('/cuenta-corriente/cliente/' . (int) $c['id'])) ?>" class="text-blue-600 hover:text-blue-700 transition hover:scale-105" title="Ver cuenta corriente">
-                            <i data-lucide="wallet" class="w-5 h-5 text-blue-500 hover:text-blue-700"></i>
-                        </a>
-                        <a href="<?= e(url('/clientes/' . (int) $c['id'] . '/editar')) ?>" class="text-blue-600 hover:text-blue-700 transition hover:scale-105" title="Editar">
-                            <i data-lucide="pencil" class="w-5 h-5 text-blue-500 hover:text-blue-700"></i>
-                        </a>
-                        <?php $deleteFormId = 'delete-client-' . (int) $c['id']; ?>
-                        <span class="mx-1 h-4 w-px bg-gray-200 inline-block"></span>
-                        <form id="<?= e($deleteFormId) ?>" method="post" action="<?= e(url('/clientes/' . (int) $c['id'] . '/eliminar')) ?>" class="inline">
-                            <?= csrfField() ?>
-                            <button type="button" @click="openDeleteModal('<?= e($deleteFormId) ?>', 'el cliente <?= e((string) $c['name']) ?>')" class="text-red-600 hover:text-red-700 transition hover:scale-105" title="Eliminar">
-                                <i data-lucide="trash-2" class="w-5 h-5 text-red-400 hover:text-red-600"></i>
-                            </button>
-                        </form>
+                            <a href="<?= e(url('/cuenta-corriente/cliente/' . (int) $c['id'])) ?>" class="text-blue-600 hover:text-blue-700 transition hover:scale-105" title="Ver cuenta corriente">
+                                <i data-lucide="wallet" class="w-5 h-5 text-blue-500 hover:text-blue-700"></i>
+                            </a>
+                            <a href="<?= e(url('/clientes/' . (int) $c['id'] . '/editar')) ?>" class="text-blue-600 hover:text-blue-700 transition hover:scale-105" title="Editar">
+                                <i data-lucide="pencil" class="w-5 h-5 text-blue-500 hover:text-blue-700"></i>
+                            </a>
+                            <?php $deleteFormId = 'delete-client-' . (int) $c['id']; ?>
+                            <form id="<?= e($deleteFormId) ?>" method="post" action="<?= e(url('/clientes/' . (int) $c['id'] . '/eliminar')) ?>" class="inline">
+                                <?= csrfField() ?>
+                                <button type="button" @click="openDeleteModal('<?= e($deleteFormId) ?>', 'el cliente <?= e((string) $c['name']) ?>')" class="text-red-600 hover:text-red-700 transition hover:scale-105" title="Eliminar">
+                                    <i data-lucide="trash-2" class="w-5 h-5 text-red-400 hover:text-red-600"></i>
+                                </button>
+                            </form>
                         </div>
                     </td>
                 </tr>
             <?php endforeach; ?>
         </tbody>
     </table>
-</div>
+</div></div>
 <?php require APP_PATH . '/Views/layout/pagination.php'; ?>

@@ -1,4 +1,31 @@
-<div class="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4 mb-6">
+<?php
+$skuCount = (int) ($total ?? count($products));
+$stockValue = 0.0;
+$sinStock = 0;
+$reponer = 0;
+foreach (($products ?? []) as $p) {
+    $stock = (int) ($p['stock_units'] ?? 0);
+    $min = (int) ($p['units_per_box'] ?? 0);
+    $stockValue += max(0, $stock) * (float) ($p['cost'] ?? 0);
+    if ($stock <= 0) { $sinStock++; }
+    if ($stock > 0 && $min > 0 && $stock < $min) { $reponer++; }
+}
+?>
+<div class="space-y-5">
+<div class="flex items-center justify-between">
+    <div><h2 class="text-2xl font-semibold">Stock actual</h2><p class="text-sm text-slate-500">Movimientos de entrada y salida y alertas de reposición.</p></div>
+    <div class="flex gap-2">
+        <button class="h-10 px-4 rounded-xl border border-lo-border bg-white text-sm font-medium">Salida</button>
+        <button class="h-10 px-4 rounded-xl bg-lo-blue text-white text-sm font-medium">Ingreso</button>
+    </div>
+</div>
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <div class="lo-card p-4"><p class="text-xs text-slate-500">SKUs</p><p class="text-2xl font-semibold"><?= $skuCount ?></p></div>
+    <div class="lo-card p-4"><p class="text-xs text-slate-500">Valorizado al costo</p><p class="text-xl font-semibold"><?= formatPrice($stockValue) ?></p></div>
+    <div class="lo-card p-4"><p class="text-xs text-slate-500">Sin stock</p><p class="text-2xl font-semibold text-red-600"><?= $sinStock ?></p></div>
+    <div class="lo-card p-4"><p class="text-xs text-slate-500">Para reponer</p><p class="text-2xl font-semibold text-amber-600"><?= $reponer ?></p></div>
+</div>
+<div class="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4">
     <form method="get" class="flex gap-3 items-end">
         <input type="hidden" name="per_page" value="<?= (int) ($per_page ?? 20) ?>">
         <div>
@@ -42,8 +69,8 @@
 
 <p class="text-sm text-gray-500 mb-2"><?= (int) ($total ?? count($products)) ?> productos con stock mayor a 0</p>
 
-<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto">
-    <table class="min-w-full text-sm">
+<div class="lo-table-wrap">
+    <table class="min-w-full text-sm lo-table">
         <thead class="bg-gray-50 text-gray-600 border-b border-gray-200">
             <tr>
                 <th class="text-left px-3 py-2">Código</th>
@@ -124,3 +151,4 @@
         </table>
     </div>
 <?php endif; ?>
+</div>

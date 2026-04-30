@@ -1,10 +1,10 @@
-<div class="flex justify-between mb-6">
-    <p class="text-sm text-gray-600">Ventas manuales de MercadoLibre para consolidar en pedidos.</p>
-    <a href="<?= e(url('/ventas-ml/crear')) ?>" class="px-4 py-2 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium">Nueva venta ML</a>
+<div class="space-y-5">
+<div class="flex justify-between">
+    <div><h2 class="text-2xl font-semibold">Ventas ML</h2><p class="text-sm text-slate-500">Ventas manuales de MercadoLibre para consolidar en pedidos.</p></div>
+    <a href="<?= e(url('/ventas-ml/crear')) ?>" class="lo-btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Nueva venta ML</a>
 </div>
-
-<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto">
-    <table class="min-w-full text-sm">
+<div class="lo-table-wrap">
+    <table class="min-w-full text-sm lo-table">
         <thead class="bg-gray-50 border-b border-gray-200 text-gray-600">
             <tr>
                 <th class="text-left px-4 py-3">Fecha</th>
@@ -40,4 +40,5 @@
             <?php endif; ?>
         </tbody>
     </table>
+</div>
 </div>

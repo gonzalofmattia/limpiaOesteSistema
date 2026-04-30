@@ -1,19 +1,42 @@
+<?php /** @var list<array<string,mixed>> $categoryTree */ ?>
 <?php
-/** @var list<array<string,mixed>> $categoryTree */
+$totalCategories = 0;
+$totalProducts = 0;
+$emptyCategories = 0;
+foreach ($categoryTree as $root) {
+    $totalCategories++;
+    $rootProducts = (int) ($root['product_count'] ?? 0);
+    $totalProducts += $rootProducts;
+    if ($rootProducts <= 0) { $emptyCategories++; }
+    foreach (($root['children'] ?? []) as $c) {
+        $totalCategories++;
+        $childProducts = (int) ($c['product_count'] ?? 0);
+        $totalProducts += $childProducts;
+        if ($childProducts <= 0) { $emptyCategories++; }
+    }
+}
 ?>
-<div class="flex justify-between items-center mb-6">
-    <p class="text-sm text-gray-600">Administrá descuentos por defecto Seiq y presentación.</p>
-    <a href="<?= e(url('/categorias/crear')) ?>" class="inline-flex px-4 py-2 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium hover:bg-[#2db368]">Nueva categoría</a>
-</div>
-<form method="get" class="mb-4 flex gap-2">
-    <input type="hidden" name="per_page" value="<?= (int) ($per_page ?? 20) ?>">
-    <input type="text" name="search" value="<?= e((string) ($search ?? '')) ?>" placeholder="Buscar..." class="flex-1 rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
-    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700" title="Buscar">
-        <i data-lucide="search" class="w-5 h-5 text-white"></i>
-    </button>
-</form>
-<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-    <table class="min-w-full text-sm">
+<div class="space-y-5">
+    <div class="flex justify-between items-center">
+        <div>
+            <h2 class="text-2xl font-semibold">Categorías</h2>
+            <p class="text-sm text-slate-500">Agrupá productos para encontrarlos más rápido y armar listas.</p>
+        </div>
+        <a href="<?= e(url('/categorias/crear')) ?>" class="lo-btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Nueva categoría</a>
+    </div>
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div class="lo-card p-4"><p class="text-xs text-slate-500">Total categorías</p><p class="text-2xl font-semibold"><?= $totalCategories ?></p></div>
+        <div class="lo-card p-4"><p class="text-xs text-slate-500">Productos vinculados</p><p class="text-2xl font-semibold"><?= $totalProducts ?></p></div>
+        <div class="lo-card p-4"><p class="text-xs text-slate-500">Más popular</p><p class="text-xl font-semibold"><?= e((string) (($categoryTree[0]['name'] ?? '—'))) ?></p></div>
+        <div class="lo-card p-4"><p class="text-xs text-slate-500">Vacías</p><p class="text-2xl font-semibold"><?= $emptyCategories ?></p></div>
+    </div>
+    <form method="get" class="flex items-center gap-2">
+        <input type="hidden" name="per_page" value="<?= (int) ($per_page ?? 20) ?>">
+        <div class="flex-1 h-11 rounded-xl border border-lo-border bg-white px-3 flex items-center gap-2"><i data-lucide="search" class="h-4 w-4 text-slate-400"></i><input type="text" name="search" value="<?= e((string) ($search ?? '')) ?>" placeholder="Buscar categoría..." class="w-full bg-transparent outline-none text-sm"></div>
+        <button class="h-11 w-11 rounded-xl border border-lo-border bg-white grid place-items-center"><i data-lucide="sliders-horizontal" class="h-4 w-4"></i></button>
+    </form>
+    <div class="lo-table-wrap">
+    <table class="min-w-full text-sm lo-table">
         <thead class="bg-gray-50 text-gray-600 border-b border-gray-200">
             <tr>
                 <th class="text-left px-4 py-3">Nombre</th>

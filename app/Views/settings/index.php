@@ -23,11 +23,18 @@ foreach ($labels as $key => $meta) {
     $groups[$meta[0]][$key] = $meta[1];
 }
 ?>
-<div class="max-w-3xl space-y-8">
-    <form method="post" action="<?= e(url('/settings')) ?>" class="space-y-8">
+<div class="space-y-5">
+    <div><h2 class="text-2xl font-semibold">Configuración</h2><p class="text-sm text-slate-500">Personalizá Limpia Oeste según tu operación.</p></div>
+    <form method="post" action="<?= e(url('/settings')) ?>" class="grid lg:grid-cols-[280px_1fr] gap-6">
         <?= csrfField() ?>
+        <nav class="space-y-2">
+            <?php foreach (['Empresa','Usuarios y permisos','Notificaciones','Seguridad','Marca y apariencia','Facturación'] as $s): ?>
+                <div class="rounded-xl border border-lo-border bg-white px-3 py-2.5 text-sm <?= $s === 'Empresa' ? 'bg-sky-50 border-sky-200' : '' ?>"><?= e($s) ?></div>
+            <?php endforeach; ?>
+        </nav>
+        <div class="space-y-6">
         <?php foreach ($groups as $gname => $keys): ?>
-            <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+            <section class="lo-card p-6">
                 <h2 class="text-sm font-semibold text-gray-800 border-b border-gray-100 pb-2 mb-4"><?= e($gname) ?></h2>
                 <div class="space-y-4">
                     <?php foreach ($keys as $key => $label): ?>
@@ -44,7 +51,7 @@ foreach ($labels as $key => $meta) {
                 </div>
             </section>
         <?php endforeach; ?>
-        <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+        <section class="lo-card p-6">
             <h2 class="text-sm font-semibold text-gray-800 border-b border-gray-100 pb-2 mb-4">Proveedores</h2>
             <div class="space-y-6">
                 <?php foreach (($suppliers ?? []) as $supplier): ?>
@@ -72,6 +79,7 @@ foreach ($labels as $key => $meta) {
                 <?php endforeach; ?>
             </div>
         </section>
-        <button type="submit" class="px-5 py-2.5 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium">Guardar configuración</button>
+        <div class="flex justify-end"><button type="submit" class="lo-btn-primary">Guardar cambios</button></div>
+        </div>
     </form>
 </div>

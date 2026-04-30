@@ -1,4 +1,20 @@
-/* LIMPIA OESTE — estilos mínimos complementarios a Tailwind */
-[x-cloak] {
-    display: none !important;
+/* LIMPIA OESTE — Design system UI */
+[x-cloak] { display: none !important; }
+
+body { font-family: 'Poppins', sans-serif; }
+
+.lo-card { border-radius: 0.9rem; border: 1px solid #E2E8F0; background: #fff; }
+.lo-card-soft { border-radius: 0.9rem; border: 1px solid #E2E8F0; background: #F8FAFC; }
+.lo-table-wrap { border-radius: 0.9rem; border: 1px solid #E2E8F0; background: #fff; overflow-x: auto; }
+.lo-table th { font-size: 11px; line-height: 1rem; letter-spacing: .04em; text-transform: uppercase; color: #64748B; font-weight: 600; }
+.lo-table td { color: #1E293B; }
+.lo-table tr:hover td { background: #F8FAFC; }
+
+.lo-status-pill { display: inline-flex; align-items: center; gap: .35rem; padding: .2rem .55rem; border-radius: 9999px; font-size: 11px; font-weight: 600; }
+.lo-dot { width: .38rem; height: .38rem; border-radius: 9999px; display: inline-block; }
+
+.lo-btn-primary {
+    display: inline-flex; align-items: center; gap: .45rem; border-radius: .6rem;
+    padding: .62rem 1rem; background: #1565C0; color: #fff; font-size: .875rem; font-weight: 600;
 }
+.lo-btn-primary:hover { background: #0f4f9a; }

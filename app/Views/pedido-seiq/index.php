@@ -1,6 +1,7 @@
-<div class="flex flex-wrap justify-between gap-4 mb-6">
-    <p class="text-sm text-gray-600">Pedidos consolidados por proveedor desde presupuestos aceptados.</p>
-    <a href="<?= e(url('/pedidos-proveedor/generar')) ?>" class="px-4 py-2 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium">Generar pedidos</a>
+<div class="space-y-5">
+<div class="flex flex-wrap justify-between gap-4">
+    <div><h2 class="text-2xl font-semibold">Pedidos a proveedores</h2><p class="text-sm text-slate-500">Generá órdenes de compra y controlá lo que llega a depósito.</p></div>
+    <a href="<?= e(url('/pedidos-proveedor/generar')) ?>" class="lo-btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Nuevo pedido</a>
 </div>
 <form method="get" class="mb-4 flex gap-2">
     <input type="hidden" name="per_page" value="<?= (int) ($per_page ?? 20) ?>">
@@ -9,8 +10,8 @@
         <i data-lucide="search" class="w-5 h-5 text-white"></i>
     </button>
 </form>
-<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto">
-    <table class="min-w-full text-sm">
+<div class="lo-table-wrap">
+    <table class="min-w-full text-sm lo-table">
         <thead class="bg-gray-50 border-b border-gray-200 text-gray-600">
             <tr>
                 <th class="text-left px-4 py-3">Número</th>
@@ -55,4 +56,5 @@
         </tbody>
     </table>
 </div>
+ </div>
 <?php require APP_PATH . '/Views/layout/pagination.php'; ?>

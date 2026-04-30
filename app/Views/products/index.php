@@ -9,6 +9,7 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
 }
 ?>
 <div x-data="{ tab: '<?= e($activeTab) ?>' }" x-effect="$nextTick(() => window.lucide && window.lucide.createIcons())">
+    <div class="mb-5"><h2 class="text-2xl font-semibold">Productos</h2><p class="text-sm text-slate-500">Catálogo y combos con estado de stock.</p></div>
     <div class="flex items-center gap-2 mb-6">
         <button type="button" class="px-4 py-2 rounded-lg text-sm font-medium"
                 :class="tab === 'productos' ? 'bg-[#1a6b3c] text-white' : 'bg-white border border-gray-300 text-gray-700'"
@@ -67,8 +68,8 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
         </div>
 
         <p class="text-sm text-gray-500 mb-2"><?= (int) $total ?> productos · página <?= (int) $page ?> de <?= (int) $pages ?></p>
-        <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto">
-            <table class="min-w-full text-sm">
+        <div class="lo-table-wrap">
+            <table class="min-w-full text-sm lo-table">
                 <thead class="bg-gray-50 text-gray-600 border-b border-gray-200">
                     <tr>
                         <th class="text-left px-3 py-2">Código</th>
@@ -140,8 +141,8 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
         <div class="flex justify-end mb-4">
             <a href="<?= e(url('/combos/crear')) ?>" class="px-4 py-2 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium hover:bg-[#2db368]">Crear combo</a>
         </div>
-        <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto">
-            <table class="min-w-full text-sm">
+        <div class="lo-table-wrap">
+            <table class="min-w-full text-sm lo-table">
                 <thead class="bg-gray-50 text-gray-600 border-b border-gray-200">
                     <tr>
                         <th class="text-left px-3 py-2">Nombre</th>

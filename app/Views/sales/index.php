@@ -4,7 +4,10 @@ $summary = $summary ?? [];
 $sales = $sales ?? [];
 ?>
 <div class="space-y-5">
-    <form method="get" action="<?= e(url('/ventas')) ?>" class="bg-white rounded-xl border border-gray-200 p-4 grid md:grid-cols-6 gap-3">
+    <div class="flex items-center justify-between">
+        <div><h2 class="text-2xl font-semibold">Ventas</h2><p class="text-sm text-slate-500">Seguimiento comercial y estado de entrega/cobro.</p></div>
+    </div>
+    <form method="get" action="<?= e(url('/ventas')) ?>" class="lo-card p-4 grid md:grid-cols-6 gap-3">
         <input type="date" name="from" value="<?= e((string) ($filters['from'] ?? '')) ?>" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
         <input type="date" name="to" value="<?= e((string) ($filters['to'] ?? '')) ?>" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
         <input type="text" name="client" value="<?= e((string) ($filters['client'] ?? '')) ?>" placeholder="Cliente" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
@@ -29,15 +32,15 @@ $sales = $sales ?? [];
     </form>
 
     <div class="grid md:grid-cols-5 gap-3">
-        <div class="bg-white border border-gray-200 rounded-xl p-4"><p class="text-xs text-gray-500">Total ventas</p><p class="text-lg font-semibold"><?= formatPrice((float) ($summary['total_amount'] ?? 0)) ?></p></div>
-        <div class="bg-white border border-gray-200 rounded-xl p-4"><p class="text-xs text-gray-500">Cantidad</p><p class="text-lg font-semibold"><?= (int) ($summary['count'] ?? 0) ?></p></div>
-        <div class="bg-white border border-gray-200 rounded-xl p-4"><p class="text-xs text-gray-500">Ticket promedio</p><p class="text-lg font-semibold"><?= formatPrice((float) ($summary['avg_ticket'] ?? 0)) ?></p></div>
-        <div class="bg-white border border-gray-200 rounded-xl p-4"><p class="text-xs text-gray-500">Pend. entrega</p><p class="text-lg font-semibold"><?= (int) ($summary['pending_delivery_count'] ?? 0) ?></p></div>
-        <div class="bg-white border border-gray-200 rounded-xl p-4"><p class="text-xs text-gray-500">Pend. cobro</p><p class="text-sm font-semibold"><?= (int) ($summary['pending_collection_count'] ?? 0) ?> · <?= formatPrice((float) ($summary['pending_collection_amount'] ?? 0)) ?></p></div>
+        <div class="lo-card p-4"><p class="text-xs text-gray-500">Total ventas</p><p class="text-lg font-semibold"><?= formatPrice((float) ($summary['total_amount'] ?? 0)) ?></p></div>
+        <div class="lo-card p-4"><p class="text-xs text-gray-500">Cantidad</p><p class="text-lg font-semibold"><?= (int) ($summary['count'] ?? 0) ?></p></div>
+        <div class="lo-card p-4"><p class="text-xs text-gray-500">Ticket promedio</p><p class="text-lg font-semibold"><?= formatPrice((float) ($summary['avg_ticket'] ?? 0)) ?></p></div>
+        <div class="lo-card p-4"><p class="text-xs text-gray-500">Pend. entrega</p><p class="text-lg font-semibold"><?= (int) ($summary['pending_delivery_count'] ?? 0) ?></p></div>
+        <div class="lo-card p-4"><p class="text-xs text-gray-500">Pend. cobro</p><p class="text-sm font-semibold"><?= (int) ($summary['pending_collection_count'] ?? 0) ?> · <?= formatPrice((float) ($summary['pending_collection_amount'] ?? 0)) ?></p></div>
     </div>
 
-    <div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-        <table class="min-w-full text-sm">
+    <div class="lo-table-wrap">
+        <table class="min-w-full text-sm lo-table">
             <thead class="bg-gray-50 border-b border-gray-200 text-gray-600">
             <tr>
                 <th class="text-left px-4 py-2">Nro Venta</th>
