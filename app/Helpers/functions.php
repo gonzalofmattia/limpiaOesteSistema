@@ -89,6 +89,8 @@ function parseArgentineAmount(string $raw): float
 }
 
 /**
+ * Estados de cobro simplificados (sin “parcial”): al día vs pendiente.
+ *
  * @return array{status:string,label:string,badge:string,paid:float,pending:float}
  */
 function quotePaymentStatus(float $quoteTotal, float $paidAmount): array
@@ -100,27 +102,18 @@ function quotePaymentStatus(float $quoteTotal, float $paidAmount): array
     if ($total > 0 && $pending <= 0.009) {
         return [
             'status' => 'paid',
-            'label' => 'Cobrado',
+            'label' => 'Cobrado (cliente al día)',
             'badge' => 'bg-emerald-100 text-emerald-800',
             'paid' => $paid,
             'pending' => 0.0,
         ];
     }
-    if ($paid > 0.009) {
-        return [
-            'status' => 'partial',
-            'label' => 'Cobro parcial',
-            'badge' => 'bg-amber-100 text-amber-800',
-            'paid' => $paid,
-            'pending' => $pending,
-        ];
-    }
 
     return [
         'status' => 'pending',
-        'label' => 'Pendiente de cobro',
+        'label' => 'Pendiente (saldo cliente)',
         'badge' => 'bg-rose-100 text-rose-800',
-        'paid' => 0.0,
+        'paid' => $paid,
         'pending' => $pending,
     ];
 }

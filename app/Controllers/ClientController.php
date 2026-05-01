@@ -18,72 +18,144 @@ final class ClientController extends Controller
         $perPage = (int) $this->query('per_page', 20);
         $perPage = $perPage > 0 ? min($perPage, 100) : 20;
         $search = trim((string) $this->query('search', ''));
+        $withDebtOnly = (string) $this->query('with_debt', '') === '1';
         $where = [];
         $params = [];
         if ($search !== '') {
-            $where[] = '(c.name LIKE :search OR c.business_name LIKE :search OR c.phone LIKE :search OR c.city LIKE :search)';
+            $where[] = '(c.name LIKE :search OR c.business_name LIKE :search OR c.email LIKE :search OR c.phone LIKE :search OR c.city LIKE :search)';
             $params['search'] = '%' . $search . '%';
         }
         $whereSql = $where === [] ? '' : ('WHERE ' . implode(' AND ', $where));
+
+        $lastQuoteSub = "(SELECT MAX(q2.created_at) FROM quotes q2 WHERE q2.client_id = c.id AND q2.status IN ('accepted', 'delivered')) AS last_quote_at";
+        $listSelect = "c.id, c.name, c.email, c.business_name, c.balance, {$lastQuoteSub}";
+        $stats = ['total' => 0, 'with_debt' => 0, 'sum_balance' => 0.0];
+        $rows = [];
+        $total = 0;
+        $totalPages = 1;
+
         try {
             $hasAccountTable = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
             if ($hasAccountTable) {
                 $txAgg = ClientReceivableSummary::sqlTxAggByClientSubquery();
                 $qAgg = ClientReceivableSummary::sqlQuotesAcceptedByClientSubquery();
                 $hybrid = ClientReceivableSummary::sqlCaseHybridBalance();
-                $total = (int) $db->fetchColumn(
-                    "SELECT COUNT(*)
-                     FROM clients c
-                     {$whereSql}",
-                    $params
-                );
-                $totalPages = max(1, (int) ceil($total / $perPage));
-                if ($page > $totalPages) {
-                    $page = $totalPages;
-                }
-                $offset = ($page - 1) * $perPage;
-                $rows = $db->fetchAll(
-                    "SELECT c.*, ROUND({$hybrid}, 2) AS effective_balance
-                     FROM clients c
+                $fromJoins = "FROM clients c
                      LEFT JOIN ({$txAgg}) tx ON tx.account_id = c.id
                      LEFT JOIN ({$qAgg}) q ON q.client_id = c.id
-                     {$whereSql}
-                     ORDER BY c.name
-                     LIMIT {$perPage} OFFSET {$offset}",
+                     {$whereSql}";
+                $statsRow = $db->fetch(
+                    "SELECT COUNT(*) AS total,
+                            SUM(CASE WHEN t.eb > 0 THEN 1 ELSE 0 END) AS with_debt,
+                            COALESCE(SUM(t.eb), 0) AS sum_balance
+                     FROM (
+                         SELECT c.id, ROUND({$hybrid}, 2) AS eb
+                         {$fromJoins}
+                     ) t",
                     $params
                 );
+                if ($statsRow) {
+                    $stats['total'] = (int) ($statsRow['total'] ?? 0);
+                    $stats['with_debt'] = (int) ($statsRow['with_debt'] ?? 0);
+                    $stats['sum_balance'] = (float) ($statsRow['sum_balance'] ?? 0);
+                }
+
+                if ($withDebtOnly) {
+                    $total = (int) $db->fetchColumn(
+                        "SELECT COUNT(*) FROM (
+                            SELECT c.id, ROUND({$hybrid}, 2) AS effective_balance
+                            {$fromJoins}
+                            HAVING effective_balance > 0
+                        ) z",
+                        $params
+                    );
+                } else {
+                    $total = (int) $db->fetchColumn("SELECT COUNT(*) FROM clients c {$whereSql}", $params);
+                }
+                $totalPages = max(1, (int) ceil($total / $perPage));
+                if ($page > $totalPages) {
+                    $page = $totalPages;
+                }
+                $offset = ($page - 1) * $perPage;
+                if ($withDebtOnly) {
+                    $rows = $db->fetchAll(
+                        "SELECT {$listSelect}, ROUND({$hybrid}, 2) AS effective_balance
+                         {$fromJoins}
+                         HAVING effective_balance > 0
+                         ORDER BY c.name
+                         LIMIT {$perPage} OFFSET {$offset}",
+                        $params
+                    );
+                } else {
+                    $rows = $db->fetchAll(
+                        "SELECT {$listSelect}, ROUND({$hybrid}, 2) AS effective_balance
+                         {$fromJoins}
+                         ORDER BY c.name
+                         LIMIT {$perPage} OFFSET {$offset}",
+                        $params
+                    );
+                }
             } else {
-                $total = (int) $db->fetchColumn("SELECT COUNT(*) FROM clients c {$whereSql}", $params);
+                $statsRow = $db->fetch(
+                    "SELECT COUNT(*) AS total,
+                            SUM(CASE WHEN c.balance > 0 THEN 1 ELSE 0 END) AS with_debt,
+                            COALESCE(SUM(c.balance), 0) AS sum_balance
+                     FROM clients c {$whereSql}",
+                    $params
+                );
+                if ($statsRow) {
+                    $stats['total'] = (int) ($statsRow['total'] ?? 0);
+                    $stats['with_debt'] = (int) ($statsRow['with_debt'] ?? 0);
+                    $stats['sum_balance'] = (float) ($statsRow['sum_balance'] ?? 0);
+                }
+                $debtClause = $withDebtOnly ? (($whereSql === '') ? 'WHERE c.balance > 0' : $whereSql . ' AND c.balance > 0') : $whereSql;
+                $total = (int) $db->fetchColumn("SELECT COUNT(*) FROM clients c {$debtClause}", $params);
                 $totalPages = max(1, (int) ceil($total / $perPage));
                 if ($page > $totalPages) {
                     $page = $totalPages;
                 }
                 $offset = ($page - 1) * $perPage;
                 $rows = $db->fetchAll(
-                    "SELECT c.* FROM clients c {$whereSql} ORDER BY c.name LIMIT {$perPage} OFFSET {$offset}",
+                    "SELECT {$listSelect} FROM clients c {$debtClause} ORDER BY c.name LIMIT {$perPage} OFFSET {$offset}",
                     $params
                 );
             }
         } catch (\Throwable) {
-            $total = (int) $db->fetchColumn("SELECT COUNT(*) FROM clients c {$whereSql}", $params);
+            $debtClause = $withDebtOnly ? (($whereSql === '') ? 'WHERE c.balance > 0' : $whereSql . ' AND c.balance > 0') : $whereSql;
+            $total = (int) $db->fetchColumn("SELECT COUNT(*) FROM clients c {$debtClause}", $params);
             $totalPages = max(1, (int) ceil($total / $perPage));
             if ($page > $totalPages) {
                 $page = $totalPages;
             }
             $offset = ($page - 1) * $perPage;
             $rows = $db->fetchAll(
-                "SELECT c.* FROM clients c {$whereSql} ORDER BY c.name LIMIT {$perPage} OFFSET {$offset}",
+                "SELECT {$listSelect} FROM clients c {$debtClause} ORDER BY c.name LIMIT {$perPage} OFFSET {$offset}",
                 $params
             );
+            $statsRow = $db->fetch(
+                "SELECT COUNT(*) AS total,
+                        SUM(CASE WHEN c.balance > 0 THEN 1 ELSE 0 END) AS with_debt,
+                        COALESCE(SUM(c.balance), 0) AS sum_balance
+                 FROM clients c {$whereSql}",
+                $params
+            );
+            if ($statsRow) {
+                $stats['total'] = (int) ($statsRow['total'] ?? 0);
+                $stats['with_debt'] = (int) ($statsRow['with_debt'] ?? 0);
+                $stats['sum_balance'] = (float) ($statsRow['sum_balance'] ?? 0);
+            }
         }
+
         $this->view('clients/index', [
             'title' => 'Clientes',
             'clients' => $rows,
             'search' => $search,
+            'with_debt' => $withDebtOnly,
+            'stats' => $stats,
             'page' => $page,
             'per_page' => $perPage,
-            'total' => $total ?? count($rows),
-            'total_pages' => $totalPages ?? 1,
+            'total' => $total,
+            'total_pages' => $totalPages,
         ]);
     }
 

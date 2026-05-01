@@ -482,6 +482,7 @@ final class QuoteController extends Controller
         $db->getPdo()->beginTransaction();
         try {
             $existingQuote = null;
+            $prevClientId = null;
             if ($id === null) {
                 $number = $this->nextQuoteNumber();
                 $id = $db->insert('quotes', [
@@ -501,11 +502,12 @@ final class QuoteController extends Controller
                     'status' => 'draft',
                 ]);
             } else {
-                $existingQuote = $db->fetch('SELECT id, status FROM quotes WHERE id = ?', [$id]);
+                $existingQuote = $db->fetch('SELECT id, status, client_id FROM quotes WHERE id = ?', [$id]);
                 if (!$existingQuote) {
                     $db->getPdo()->rollBack();
                     return ['error' => 'No encontrado.'];
                 }
+                $prevClientId = (int) ($existingQuote['client_id'] ?? 0);
                 if (!$this->quoteIsEditable($existingQuote)) {
                     $db->getPdo()->rollBack();
                     return ['error' => 'No se puede editar un presupuesto en este estado.'];
@@ -685,6 +687,20 @@ final class QuoteController extends Controller
             ], 'id = :id', ['id' => $id]);
             if ($existingQuote !== null && (string) ($existingQuote['status'] ?? '') === 'accepted') {
                 QuoteDeliveryStock::commitStock($db, $id);
+            }
+
+            if ($existingQuote !== null && $prevClientId !== null && $prevClientId > 0 && $prevClientId !== $clientId) {
+                $hasAcc = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
+                if ($hasAcc) {
+                    $db->query(
+                        "UPDATE account_transactions SET account_id = ?
+                         WHERE account_type = 'client' AND transaction_type = 'invoice'
+                           AND reference_type = 'quote' AND reference_id = ?",
+                        [$clientId, $id]
+                    );
+                    $this->recalculateClientBalance($prevClientId);
+                    $this->recalculateClientBalance($clientId);
+                }
             }
 
             $db->getPdo()->commit();

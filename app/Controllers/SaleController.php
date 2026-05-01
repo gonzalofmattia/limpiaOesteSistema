@@ -216,7 +216,7 @@ final class SaleController extends Controller
         $sales = $this->fetchSales($db, $this->filtersFromQuery());
         $spreadsheet = new Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
-        $sheet->fromArray(['Nro Venta', 'Nro Presupuesto', 'Fecha', 'Cliente', 'Items', 'Total', 'Entrega', 'Cobro'], null, 'A1');
+        $sheet->fromArray(['Nro Venta', 'Nro Presupuesto', 'Fecha', 'Cliente', 'Items', 'Total', 'Entrega'], null, 'A1');
         $row = 2;
         foreach ($sales as $sale) {
             $sheet->fromArray([
@@ -227,7 +227,6 @@ final class SaleController extends Controller
                 (int) ($sale['items_count'] ?? 0),
                 (float) ($sale['total'] ?? 0),
                 (string) ($sale['delivery_label'] ?? ''),
-                (string) ($sale['payment_label'] ?? ''),
             ], null, 'A' . $row++);
         }
         header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -367,7 +366,7 @@ final class SaleController extends Controller
         exit;
     }
 
-    /** @return array{from:string,to:string,client:string,delivery:string,payment:string,q:string} */
+    /** @return array{from:string,to:string,client:string,delivery:string,q:string} */
     private function filtersFromQuery(): array
     {
         $q = trim((string) $this->query('search', ''));
@@ -379,19 +378,15 @@ final class SaleController extends Controller
             'to' => trim((string) $this->query('to', '')),
             'client' => trim((string) $this->query('client', '')),
             'delivery' => trim((string) $this->query('delivery', '')),
-            'payment' => trim((string) $this->query('payment', '')),
             'q' => $q,
         ];
     }
 
-    /** @param array{from:string,to:string,client:string,delivery:string,payment:string,q:string} $filters */
+    /** @param array{from:string,to:string,client:string,delivery:string,q:string} $filters */
     private function fetchSales(Database $db, array $filters): array
     {
         $where = ["qt.status IN ('accepted', 'delivered')"];
         $params = [];
-        $txAgg = ClientReceivableSummary::sqlTxAggByClientSubquery();
-        $qAgg = ClientReceivableSummary::sqlQuotesAcceptedByClientSubquery();
-        $hybrid = ClientReceivableSummary::sqlCaseHybridBalance();
         if ($filters['from'] !== '') {
             $where[] = 'DATE(qt.created_at) >= ?';
             $params[] = $filters['from'];
@@ -417,13 +412,9 @@ final class SaleController extends Controller
         $rows = $db->fetchAll(
             "SELECT qt.id, qt.sale_number, qt.quote_number, DATE(qt.created_at) AS created_date, qt.total, qt.status,
                     c.name AS client_name,
-                    COALESCE(items.items_count, 0) AS items_count,
-                    ROUND({$hybrid}, 2) AS client_balance,
-                    COALESCE(tx.pay, 0) AS client_paid_total
+                    COALESCE(items.items_count, 0) AS items_count
              FROM quotes qt
              LEFT JOIN clients c ON c.id = qt.client_id
-             LEFT JOIN ({$txAgg}) tx ON tx.account_id = c.id
-             LEFT JOIN ({$qAgg}) q ON q.client_id = c.id
              LEFT JOIN (
                 SELECT quote_id, SUM(quantity) AS items_count
                 FROM quote_items
@@ -440,20 +431,8 @@ final class SaleController extends Controller
             $deliveryBadge = ((string) ($row['status'] ?? '') === 'delivered')
                 ? 'bg-emerald-100 text-emerald-800'
                 : 'bg-amber-100 text-amber-800';
-            $payment = $this->paymentStatusFromClientBalance(
-                (float) ($row['client_balance'] ?? 0),
-                (float) ($row['client_paid_total'] ?? 0)
-            );
-            if ($filters['payment'] !== '' && $payment['status'] !== $filters['payment']) {
-                continue;
-            }
             $row['delivery_label'] = $deliveryLabel;
             $row['delivery_badge'] = $deliveryBadge;
-            $row['payment_label'] = $payment['label'];
-            $row['payment_badge'] = $payment['badge'];
-            $row['payment_status'] = $payment['status'];
-            $row['payment_pending'] = $payment['pending'];
-            $row['client_balance'] = round((float) ($row['client_balance'] ?? 0), 2);
             $out[] = $row;
         }
         return $out;
@@ -465,16 +444,10 @@ final class SaleController extends Controller
         $total = 0.0;
         $count = count($sales);
         $pendingDeliveryCount = 0;
-        $pendingCollectionCount = 0;
-        $pendingCollectionAmount = 0.0;
         foreach ($sales as $sale) {
             $total += (float) ($sale['total'] ?? 0);
             if (($sale['status'] ?? '') === 'accepted') {
                 $pendingDeliveryCount++;
-            }
-            if (($sale['payment_status'] ?? 'pending') !== 'paid') {
-                $pendingCollectionCount++;
-                $pendingCollectionAmount += (float) ($sale['payment_pending'] ?? 0);
             }
         }
         return [
@@ -482,15 +455,15 @@ final class SaleController extends Controller
             'count' => $count,
             'avg_ticket' => $count > 0 ? round($total / $count, 2) : 0.0,
             'pending_delivery_count' => $pendingDeliveryCount,
-            'pending_collection_count' => $pendingCollectionCount,
-            'pending_collection_amount' => round($pendingCollectionAmount, 2),
         ];
     }
 
     /**
+     * Solo dos estados según saldo híbrido del cliente: al día (≤0) o pendiente (>0).
+     *
      * @return array{status:string,label:string,badge:string,pending:float}
      */
-    private function paymentStatusFromClientBalance(float $clientBalance, float $clientPaidTotal = 0.0): array
+    private function paymentStatusFromClientBalance(float $clientBalance): array
     {
         $balance = round($clientBalance, 2);
         if ($balance <= 0.0) {
@@ -501,14 +474,7 @@ final class SaleController extends Controller
                 'pending' => 0.0,
             ];
         }
-        if ($clientPaidTotal > 0.0) {
-            return [
-                'status' => 'partial',
-                'label' => 'Cobro parcial (saldo cliente)',
-                'badge' => 'bg-amber-100 text-amber-800',
-                'pending' => $balance,
-            ];
-        }
+
         return [
             'status' => 'pending',
             'label' => 'Pendiente (saldo cliente)',

@@ -253,9 +253,9 @@ final class DashboardController extends Controller
                 [$ivaDivisor]
             );
         } elseif ($metric === 'pendiente') {
-            $title = 'Detalle - Pendiente de cobro';
+            $title = 'Detalle - Pendiente (saldo clientes)';
             $value = ClientReceivableSummary::totalReceivable($db);
-            $explain = 'Suma de saldos positivos de clientes (híbrido facturas/aceptados menos cobros y ajustes).';
+            $explain = 'Suma de saldos a cobrar (clientes con saldo híbrido > 0: facturas/presupuestos menos cobros y ajustes). Sin estado “parcial”.';
             $txAgg = ClientReceivableSummary::sqlTxAggByClientSubquery();
             $qAgg = ClientReceivableSummary::sqlQuotesAcceptedByClientSubquery();
             $hybrid = ClientReceivableSummary::sqlCaseHybridBalance();

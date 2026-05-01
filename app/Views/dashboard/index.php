@@ -31,9 +31,9 @@ $currentMonthIndex = count($labels) > 0 ? count($labels) - 1 : 0;
             <p class="mt-1 text-xs text-slate-500">Entregado neto - costo</p>
         </article>
         <article class="lo-card p-5 shadow-sm">
-            <p class="text-xs uppercase tracking-wide text-slate-500">Pendiente de cobro</p>
+            <p class="text-xs uppercase tracking-wide text-slate-500">Pendiente (saldo clientes)</p>
             <p class="mt-2 text-3xl font-semibold text-red-600"><?= formatPrice((float) ($receivable ?? 0)) ?></p>
-            <p class="mt-1 text-xs text-slate-500"><?= (int) ($clientsWithDebt ?? 0) ?> clientes con deuda</p>
+            <p class="mt-1 text-xs text-slate-500"><?= (int) ($clientsWithDebt ?? 0) ?> con saldo mayor a 0 (a cobrar)</p>
         </article>
     </section>
 
@@ -59,7 +59,7 @@ $currentMonthIndex = count($labels) > 0 ? count($labels) - 1 : 0;
             </div>
             <div class="mt-3 flex flex-wrap items-center gap-3 text-xs text-gray-600">
                 <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded bg-[#3B82F6]"></span>Aceptados</span>
-                <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded bg-[#10B981]"></span>Cobrado</span>
+                <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded bg-[#10B981]"></span>Cobros clientes</span>
                 <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded bg-[#F97316]"></span>Pago proveedor</span>
             </div>
         </article>

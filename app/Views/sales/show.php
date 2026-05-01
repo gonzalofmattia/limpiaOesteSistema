@@ -2,7 +2,7 @@
 $quote = $quote ?? [];
 $items = $items ?? [];
 $accountTx = $accountTx ?? [];
-$payment = $payment ?? ['label' => 'Pendiente de cobro', 'badge' => 'bg-rose-100 text-rose-800'];
+$payment = $payment ?? ['label' => 'Pendiente (saldo cliente)', 'badge' => 'bg-rose-100 text-rose-800'];
 $deliveryDelivered = ((string) ($quote['status'] ?? '') === 'delivered');
 ?>
 <div class="max-w-4xl space-y-5">

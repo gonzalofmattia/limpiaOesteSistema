@@ -1,6 +1,9 @@
 -- Presupuestos accepted/delivered sin movimiento invoice en cuenta corriente
 -- (antes solo se generaba el cargo al pasar a accepted, no al entregar directamente).
 -- Idempotente: solo inserta si no existe la fila quote+invoice.
+-- account_id sale siempre de q.client_id del presupuesto; si luego se corrige el
+-- cliente en el formulario de edición, migración 2026_05_01_fix_quote_invoice_account_mismatch.sql
+-- o la app (QuoteController::persistQuote) deben alinear el invoice.
 
 INSERT INTO account_transactions (
     account_type,

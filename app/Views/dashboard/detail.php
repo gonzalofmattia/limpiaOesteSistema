@@ -73,7 +73,7 @@ $rows = is_array($rows ?? null) ? $rows : [];
                         <a href="<?= e(url('/cuenta-corriente/cliente/' . (int) $row['id'])) ?>" class="block rounded-xl border border-gray-100 p-3 hover:border-gray-300">
                             <div class="flex items-center justify-between gap-3">
                                 <p class="text-sm font-medium text-gray-900 truncate"><?= e((string) ($row['name'] ?? 'Cliente')) ?></p>
-                                <p class="text-sm font-semibold text-amber-600"><?= formatPrice((float) ($row['balance'] ?? 0)) ?></p>
+                                <p class="text-sm font-semibold text-red-600"><?= formatPrice((float) ($row['balance'] ?? 0)) ?></p>
                             </div>
                         </a>
                     <?php endif; ?>
