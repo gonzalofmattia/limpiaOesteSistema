@@ -14,26 +14,47 @@ $currentMonthIndex = count($labels) > 0 ? count($labels) - 1 : 0;
         </div>
     </section>
 
+    <section class="space-y-3">
+        <div class="flex items-center justify-between gap-3">
+            <h3 class="text-sm font-semibold text-slate-700">Resumen comercial</h3>
+            <form method="get" action="<?= e(url('/')) ?>" class="flex items-center gap-2">
+                <label for="periodo" class="text-xs text-slate-500">Período</label>
+                <select id="periodo" name="periodo" onchange="this.form.submit()" class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
+                    <option value="7" <?= (($periodKey ?? '30') === '7') ? 'selected' : '' ?>>Últimos 7 días</option>
+                    <option value="30" <?= (($periodKey ?? '30') === '30') ? 'selected' : '' ?>>Últimos 30 días</option>
+                    <option value="90" <?= (($periodKey ?? '30') === '90') ? 'selected' : '' ?>>Últimos 90 días</option>
+                    <option value="month" <?= (($periodKey ?? '30') === 'month') ? 'selected' : '' ?>>Este mes</option>
+                    <option value="lastmonth" <?= (($periodKey ?? '30') === 'lastmonth') ? 'selected' : '' ?>>Mes anterior</option>
+                    <option value="all" <?= (($periodKey ?? '30') === 'all') ? 'selected' : '' ?>>Todo (histórico)</option>
+                </select>
+            </form>
+        </div>
+    </section>
+
     <section class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <article class="lo-card p-5 shadow-sm">
-            <p class="text-xs uppercase tracking-wide text-slate-500">Presupuestos aceptados</p>
-            <p class="mt-2 text-3xl font-semibold"><?= formatPrice((float) ($salesMonthAmount ?? 0)) ?></p>
-            <p class="mt-1 text-xs text-slate-500"><?= (int) ($salesMonthCount ?? 0) ?> presupuestos este mes</p>
-        </article>
-        <article class="lo-card p-5 shadow-sm">
-            <p class="text-xs uppercase tracking-wide text-slate-500">Cobrado</p>
-            <p class="mt-2 text-3xl font-semibold"><?= formatPrice((float) ($salesWeekAmount ?? 0)) ?></p>
-            <p class="mt-1 text-xs text-slate-500">Cobros registrados</p>
+            <p class="text-xs uppercase tracking-wide text-slate-500">Ventas</p>
+            <p class="mt-2 text-3xl font-semibold text-slate-900"><?= formatPrice((float) ($mainSalesAmount ?? 0)) ?></p>
+            <p class="mt-1 text-xs text-slate-500"><?= (int) ($mainSalesCount ?? 0) ?> ventas · <?= e((string) ($periodLabel ?? 'últ. 30 días')) ?></p>
+            <p class="mt-1 text-[11px] text-slate-500">Presupuestos aceptados y entregados</p>
         </article>
         <article class="lo-card p-5 shadow-sm">
             <p class="text-xs uppercase tracking-wide text-slate-500">Ganancia estimada</p>
-            <p class="mt-2 text-3xl font-semibold"><?= formatPrice((float) ($profitEstimated ?? 0)) ?></p>
-            <p class="mt-1 text-xs text-slate-500">Entregado neto - costo</p>
+            <p class="mt-2 text-3xl font-semibold <?= e((string) ($profitToneClass ?? 'text-slate-900')) ?>"><?= formatPrice((float) ($profitEstimated ?? 0)) ?></p>
+            <p class="mt-1 text-xs text-slate-500">Margen: <?= number_format((float) ($profitMarginPercent ?? 0), 1, ',', '.') ?>%</p>
+            <p class="mt-1 text-[11px] text-slate-500">Ventas − costo estimado (Margen: <?= number_format((float) ($profitMarginPercent ?? 0), 1, ',', '.') ?>%)</p>
         </article>
         <article class="lo-card p-5 shadow-sm">
-            <p class="text-xs uppercase tracking-wide text-slate-500">Pendiente (saldo clientes)</p>
+            <p class="text-xs uppercase tracking-wide text-slate-500">Por entregar</p>
+            <p class="mt-2 text-3xl font-semibold text-amber-600"><?= formatPrice((float) ($pendingDeliveryAmount ?? 0)) ?></p>
+            <p class="mt-1 text-xs text-slate-500"><?= (int) ($pendingDeliveryCount ?? 0) ?> presupuestos pendientes</p>
+            <p class="mt-1 text-[11px] text-slate-500">Aceptados sin entregar</p>
+        </article>
+        <article class="lo-card p-5 shadow-sm">
+            <p class="text-xs uppercase tracking-wide text-slate-500">Por cobrar</p>
             <p class="mt-2 text-3xl font-semibold text-red-600"><?= formatPrice((float) ($receivable ?? 0)) ?></p>
-            <p class="mt-1 text-xs text-slate-500"><?= (int) ($clientsWithDebt ?? 0) ?> con saldo mayor a 0 (a cobrar)</p>
+            <p class="mt-1 text-xs text-slate-500"><?= (int) ($clientsWithDebt ?? 0) ?> clientes con saldo</p>
+            <p class="mt-1 text-[11px] text-slate-500">Saldo pendiente de clientes</p>
         </article>
     </section>
 
@@ -92,32 +113,32 @@ $currentMonthIndex = count($labels) > 0 ? count($labels) - 1 : 0;
 
     <section class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <article class="lo-card p-4 shadow-sm">
-            <h3 class="text-sm font-semibold text-gray-800 mb-3">Top productos del mes</h3>
+            <h3 class="text-sm font-semibold text-gray-800 mb-3">Top 5 productos</h3>
             <div class="space-y-2">
-                <?php foreach (($topProductsMonth ?? []) as $index => $p): ?>
+                <?php foreach (($topProductsAll ?? []) as $index => $p): ?>
                     <div class="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-slate-50">
                         <span class="h-7 w-7 rounded-lg bg-sky-50 text-sky-700 text-xs font-semibold grid place-items-center"><?= (int) $index + 1 ?></span>
                         <span class="flex-1 truncate text-sm"><?= e((string) ($p['name'] ?? '')) ?></span>
                         <span class="text-sm font-semibold text-slate-600"><?= (int) ($p['units'] ?? 0) ?></span>
                     </div>
                 <?php endforeach; ?>
-                <?php if (($topProductsMonth ?? []) === []): ?><p class="text-sm text-gray-500 py-2">Sin ventas este mes</p><?php endif; ?>
+                <?php if (($topProductsAll ?? []) === []): ?><p class="text-sm text-gray-500 py-2">Sin ventas registradas</p><?php endif; ?>
             </div>
         </article>
         <article class="lo-card p-4 shadow-sm">
-            <h3 class="text-sm font-semibold text-gray-800 mb-3">Top clientes del mes</h3>
+            <h3 class="text-sm font-semibold text-gray-800 mb-3">Top 5 clientes</h3>
             <div class="space-y-2">
-                <?php foreach (($topClientsMonth ?? []) as $index => $c): ?>
+                <?php foreach (($topClientsAll ?? []) as $index => $c): ?>
                     <div class="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-slate-50">
                         <span class="h-8 w-8 rounded-lg bg-emerald-500 text-white text-[11px] font-semibold grid place-items-center"><?= e(strtoupper(substr((string) ($c['name'] ?? ''), 0, 2))) ?></span>
                         <div class="flex-1 min-w-0">
                             <p class="truncate text-sm"><?= e((string) ($c['name'] ?? '')) ?></p>
-                            <p class="text-[11px] text-slate-500">#<?= (int) $index + 1 ?> del mes</p>
+                            <p class="text-[11px] text-slate-500">#<?= (int) $index + 1 ?> histórico</p>
                         </div>
                         <span class="text-sm font-semibold"><?= formatPrice((float) ($c['total_amount'] ?? 0)) ?></span>
                     </div>
                 <?php endforeach; ?>
-                <?php if (($topClientsMonth ?? []) === []): ?><p class="text-sm text-gray-500 py-2">Sin ventas este mes</p><?php endif; ?>
+                <?php if (($topClientsAll ?? []) === []): ?><p class="text-sm text-gray-500 py-2">Sin ventas registradas</p><?php endif; ?>
             </div>
         </article>
     </section>

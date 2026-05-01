@@ -25,6 +25,21 @@ final class DashboardController extends Controller
         $salesMonthCount = (int) $db->fetchColumn("SELECT COUNT(*) FROM quotes WHERE {$salesBaseWhere} AND YEAR(created_at)=YEAR(CURDATE()) AND MONTH(created_at)=MONTH(CURDATE())");
         $salesMonthAmount = (float) $db->fetchColumn("SELECT COALESCE(SUM(total),0) FROM quotes WHERE {$salesBaseWhere} AND YEAR(created_at)=YEAR(CURDATE()) AND MONTH(created_at)=MONTH(CURDATE())");
         $salesMonthAvgTicket = $salesMonthCount > 0 ? round($salesMonthAmount / $salesMonthCount, 2) : 0.0;
+        $periodKey = strtolower(trim((string) $this->query('periodo', '30')));
+        $period = $this->resolveMainPeriod($periodKey, $today);
+        $periodLabel = (string) $period['label'];
+        $periodWhere = (string) $period['where'];
+        /** @var list<mixed> $periodParams */
+        $periodParams = $period['params'];
+
+        $mainSalesCount = (int) $db->fetchColumn(
+            "SELECT COUNT(*) FROM quotes WHERE {$salesBaseWhere} {$periodWhere}",
+            $periodParams
+        );
+        $mainSalesAmount = (float) $db->fetchColumn(
+            "SELECT COALESCE(SUM(total),0) FROM quotes WHERE {$salesBaseWhere} {$periodWhere}",
+            $periodParams
+        );
 
         $receivable = 0.0;
         $clientsWithDebt = 0;
@@ -35,29 +50,36 @@ final class DashboardController extends Controller
 
         $supplierDebts = $accountsTable ? $this->fetchSupplierDebtsSameAsAccount($db) : [];
 
-        $deliveredMonthNet = (float) $db->fetchColumn(
-            "SELECT COALESCE(SUM(total),0)
-             FROM quotes
-             WHERE status='delivered' AND COALESCE(sale_number,'') <> ''
-               AND YEAR(created_at)=YEAR(CURDATE()) AND MONTH(created_at)=MONTH(CURDATE())"
-        );
-        $deliveredMonthCost = (float) $db->fetchColumn(
+        $mainCostEstimated = (float) $db->fetchColumn(
             "SELECT COALESCE(SUM(qi.cost_subtotal_snapshot),0)
              FROM quote_items qi
              INNER JOIN quotes q ON q.id = qi.quote_id
-             WHERE q.status='delivered' AND COALESCE(q.sale_number,'') <> ''
-               AND YEAR(q.created_at)=YEAR(CURDATE()) AND MONTH(q.created_at)=MONTH(CURDATE())"
+             WHERE q.status IN ('accepted','delivered') AND COALESCE(q.sale_number,'') <> ''" . str_replace('DATE(created_at)', 'DATE(q.created_at)', $periodWhere),
+            $periodParams
         );
-        $deliveredMonthCostNullCount = (int) $db->fetchColumn(
+        $mainCostNullCount = (int) $db->fetchColumn(
             "SELECT COUNT(*)
              FROM quote_items qi
              INNER JOIN quotes q ON q.id = qi.quote_id
-             WHERE q.status='delivered' AND COALESCE(q.sale_number,'') <> ''
-               AND YEAR(q.created_at)=YEAR(CURDATE()) AND MONTH(q.created_at)=MONTH(CURDATE())
-               AND qi.cost_subtotal_snapshot IS NULL"
+             WHERE q.status IN ('accepted','delivered') AND COALESCE(q.sale_number,'') <> ''" . str_replace('DATE(created_at)', 'DATE(q.created_at)', $periodWhere) . "
+               AND qi.cost_subtotal_snapshot IS NULL",
+            $periodParams
         );
-        $profitEstimated = round($deliveredMonthNet - $deliveredMonthCost, 2);
-        $profitMarginPercent = $deliveredMonthNet > 0 ? round(($profitEstimated / $deliveredMonthNet) * 100, 1) : 0.0;
+        $profitEstimated = round($mainSalesAmount - $mainCostEstimated, 2);
+        $profitMarginPercent = $mainSalesAmount > 0 ? round(($profitEstimated / $mainSalesAmount) * 100, 1) : 0.0;
+        $profitToneClass = 'text-red-600';
+        if ($profitMarginPercent > 30.0) {
+            $profitToneClass = 'text-emerald-600';
+        } elseif ($profitMarginPercent >= 20.0) {
+            $profitToneClass = 'text-amber-600';
+        }
+
+        $pendingDeliveryCount = (int) $db->fetchColumn(
+            "SELECT COUNT(*) FROM quotes WHERE status = 'accepted'"
+        );
+        $pendingDeliveryAmount = (float) $db->fetchColumn(
+            "SELECT COALESCE(SUM(total),0) FROM quotes WHERE status = 'accepted'"
+        );
 
         $months = [];
         for ($i = 5; $i >= 0; $i--) {
@@ -85,14 +107,13 @@ final class DashboardController extends Controller
             $monthlySales[] = (float) $m['total'];
         }
 
-        $monthQuoteIds = $db->fetchAll(
+        $allSalesQuoteIds = $db->fetchAll(
             "SELECT id
              FROM quotes
-             WHERE {$salesBaseWhere}
-               AND YEAR(created_at)=YEAR(CURDATE()) AND MONTH(created_at)=MONTH(CURDATE())"
+             WHERE {$salesBaseWhere}"
         );
-        $quoteIds = array_map(static fn (array $r): int => (int) $r['id'], $monthQuoteIds);
-        $topProductsMonth = [];
+        $quoteIds = array_map(static fn (array $r): int => (int) $r['id'], $allSalesQuoteIds);
+        $topProductsAll = [];
         if ($quoteIds !== []) {
             $unitsByQuote = QuoteDeliveryStock::unitsByProductForQuotes($db, $quoteIds);
             $unitsByProduct = [];
@@ -107,22 +128,21 @@ final class DashboardController extends Controller
                 $products = $db->fetchAll("SELECT id, name FROM products WHERE id IN ({$in})", $pids);
                 foreach ($products as $p) {
                     $pid = (int) $p['id'];
-                    $topProductsMonth[] = [
+                    $topProductsAll[] = [
                         'name' => (string) ($p['name'] ?? ''),
                         'units' => (int) ($unitsByProduct[$pid] ?? 0),
                     ];
                 }
-                usort($topProductsMonth, static fn (array $a, array $b): int => $b['units'] <=> $a['units']);
-                $topProductsMonth = array_slice($topProductsMonth, 0, 5);
+                usort($topProductsAll, static fn (array $a, array $b): int => $b['units'] <=> $a['units']);
+                $topProductsAll = array_slice($topProductsAll, 0, 5);
             }
         }
 
-        $topClientsMonth = $db->fetchAll(
+        $topClientsAll = $db->fetchAll(
             "SELECT c.name, ROUND(SUM(q.total),2) AS total_amount
              FROM quotes q
              INNER JOIN clients c ON c.id = q.client_id
              WHERE {$salesBaseWhere}
-               AND YEAR(q.created_at)=YEAR(CURDATE()) AND MONTH(q.created_at)=MONTH(CURDATE())
              GROUP BY c.id, c.name
              ORDER BY total_amount DESC
              LIMIT 5"
@@ -145,18 +165,27 @@ final class DashboardController extends Controller
             'salesMonthCount' => $salesMonthCount,
             'salesMonthAmount' => $salesMonthAmount,
             'salesMonthAvgTicket' => $salesMonthAvgTicket,
+            'periodKey' => $periodKey,
+            'periodLabel' => $periodLabel,
+            'mainSalesCount' => $mainSalesCount,
+            'mainSalesAmount' => $mainSalesAmount,
+            'mainCostEstimated' => $mainCostEstimated,
+            'mainCostNullCount' => $mainCostNullCount,
             'receivable' => $receivable,
             'clientsWithDebt' => $clientsWithDebt,
+            'pendingDeliveryCount' => $pendingDeliveryCount,
+            'pendingDeliveryAmount' => $pendingDeliveryAmount,
             'supplierDebts' => $supplierDebts,
-            'deliveredMonthNet' => $deliveredMonthNet,
-            'deliveredMonthCost' => $deliveredMonthCost,
-            'deliveredMonthCostNullCount' => $deliveredMonthCostNullCount,
+            'deliveredMonthNet' => $mainSalesAmount,
+            'deliveredMonthCost' => $mainCostEstimated,
+            'deliveredMonthCostNullCount' => $mainCostNullCount,
             'profitEstimated' => $profitEstimated,
             'profitMarginPercent' => $profitMarginPercent,
+            'profitToneClass' => $profitToneClass,
             'monthlyLabels' => $monthlyLabels,
             'monthlySales' => $monthlySales,
-            'topProductsMonth' => $topProductsMonth,
-            'topClientsMonth' => $topClientsMonth,
+            'topProductsAll' => $topProductsAll,
+            'topClientsAll' => $topClientsAll,
             'recentQuotes' => $recentQuotes,
         ]);
     }
@@ -282,6 +311,56 @@ final class DashboardController extends Controller
             'explain' => $explain,
             'rows' => $rows,
         ]);
+    }
+
+    /**
+     * @return array{label:string,where:string,params:list<mixed>}
+     */
+    private function resolveMainPeriod(string $key, string $today): array
+    {
+        if ($key === '7') {
+            return [
+                'label' => 'últ. 7 días',
+                'where' => 'AND DATE(created_at) BETWEEN ? AND ?',
+                'params' => [date('Y-m-d', strtotime('-6 days')), $today],
+            ];
+        }
+        if ($key === '90') {
+            return [
+                'label' => 'últ. 90 días',
+                'where' => 'AND DATE(created_at) BETWEEN ? AND ?',
+                'params' => [date('Y-m-d', strtotime('-89 days')), $today],
+            ];
+        }
+        if ($key === 'month') {
+            return [
+                'label' => 'este mes',
+                'where' => 'AND YEAR(created_at)=YEAR(CURDATE()) AND MONTH(created_at)=MONTH(CURDATE())',
+                'params' => [],
+            ];
+        }
+        if ($key === 'lastmonth') {
+            $start = date('Y-m-01', strtotime('first day of last month'));
+            $end = date('Y-m-t', strtotime('last day of last month'));
+            return [
+                'label' => 'mes anterior',
+                'where' => 'AND DATE(created_at) BETWEEN ? AND ?',
+                'params' => [$start, $end],
+            ];
+        }
+        if ($key === 'all') {
+            return [
+                'label' => 'histórico',
+                'where' => '',
+                'params' => [],
+            ];
+        }
+
+        return [
+            'label' => 'últ. 30 días',
+            'where' => 'AND DATE(created_at) BETWEEN ? AND ?',
+            'params' => [date('Y-m-d', strtotime('-29 days')), $today],
+        ];
     }
 
     /**
