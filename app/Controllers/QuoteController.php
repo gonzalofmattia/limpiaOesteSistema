@@ -311,7 +311,11 @@ final class QuoteController extends Controller
             $db->update('quotes', array_merge(['status' => $status], $extra), 'id = :id', ['id' => (int) $id]);
 
             $hasAccountTable = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
-            if ($hasAccountTable && $oldStatus !== 'accepted' && $status === 'accepted') {
+            // Deuda en CC: al aceptar O al entregar (delivered). Si solo se entrega sin pasar por accepted, igual debe existir el cargo tipo invoice.
+            $enteredReceivable =
+                ($status === 'accepted' && $oldStatus !== 'accepted')
+                || ($status === 'delivered' && $oldStatus !== 'delivered');
+            if ($hasAccountTable && $enteredReceivable) {
                 $existing = $db->fetch(
                     "SELECT id FROM account_transactions
                      WHERE reference_type = 'quote' AND reference_id = ? AND transaction_type = 'invoice'
@@ -337,7 +341,9 @@ final class QuoteController extends Controller
                 $this->recalculateClientBalance((int) ($quote['client_id'] ?? 0));
             }
 
-            if ($hasAccountTable && $oldStatus === 'accepted' && in_array($status, ['draft', 'rejected'], true)) {
+            if ($hasAccountTable
+                && in_array($oldStatus, ['accepted', 'delivered'], true)
+                && in_array($status, ['draft', 'rejected'], true)) {
                 $db->query(
                     "DELETE FROM account_transactions
                      WHERE reference_type = 'quote' AND reference_id = ? AND transaction_type = 'invoice'",

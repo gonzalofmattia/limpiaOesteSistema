@@ -97,7 +97,7 @@
     <form method="get" class="p-4 border-b border-gray-100 flex gap-2">
         <input type="hidden" name="per_page" value="<?= (int) ($per_page ?? 20) ?>">
         <div class="flex-1 h-10 rounded-xl border border-lo-border bg-white px-3 flex items-center gap-2"><i data-lucide="search" class="h-4 w-4 text-slate-400"></i><input type="text" name="search" value="<?= e((string) ($search ?? '')) ?>" placeholder="Buscar..." class="w-full bg-transparent outline-none text-sm"></div>
-        <button class="h-10 w-10 rounded-xl border border-lo-border bg-white grid place-items-center"><i data-lucide="sliders-horizontal" class="h-4 w-4"></i></button>
+        <?php require APP_PATH . '/Views/layout/partials/ui-btn-filter.php'; ?>
     </form>
     <table class="min-w-full text-sm lo-table">
         <thead class="bg-gray-50 text-gray-600">

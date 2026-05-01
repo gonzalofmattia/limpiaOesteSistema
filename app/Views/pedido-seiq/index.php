@@ -1,6 +1,6 @@
 <div class="space-y-5">
 <div class="flex flex-wrap justify-end gap-4">
-    <a href="<?= e(url('/pedidos-proveedor/generar')) ?>" class="lo-btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Nuevo pedido</a>
+    <?php $uiBtnHref = url('/pedidos-proveedor/generar'); $uiBtnLabel = 'Nuevo pedido'; require APP_PATH . '/Views/layout/partials/ui-btn-primary.php'; ?>
 </div>
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
     <div class="lo-card p-4"><p class="text-xs text-slate-500">Proveedores</p><p class="text-2xl font-semibold"><?= count(array_unique(array_map(fn($o) => (string) ($o['supplier_name'] ?? ''), $orders ?? []))) ?></p></div>

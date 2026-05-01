@@ -93,7 +93,7 @@ foreach ($labels as $key => $meta) {
                 <?php endforeach; ?>
             </div>
         </section>
-        <div class="flex justify-end"><button type="submit" class="lo-btn-primary">Guardar cambios</button></div>
+        <div class="flex justify-end"><button type="submit" class="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"><i data-lucide="save" class="w-4 h-4 shrink-0"></i><span>Guardar cambios</span></button></div>
         </div>
     </form>
 </div>

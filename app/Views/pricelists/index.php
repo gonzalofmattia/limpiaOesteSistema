@@ -4,7 +4,7 @@ $expiredLists = count(array_filter($lists ?? [], fn($l) => (string) ($l['status'
 ?>
 <div class="space-y-5">
 <div class="flex justify-end items-center">
-    <a href="<?= e(url('/listas/generar')) ?>" class="lo-btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Nueva lista</a>
+    <?php $uiBtnHref = url('/listas/generar'); $uiBtnLabel = 'Nueva lista'; require APP_PATH . '/Views/layout/partials/ui-btn-primary.php'; ?>
 </div>
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
     <div class="lo-card p-4"><p class="text-xs text-slate-500">Listas activas</p><p class="text-2xl font-semibold"><?= $activeLists ?></p></div>

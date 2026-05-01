@@ -8,16 +8,16 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
     $activeTab = 'productos';
 }
 ?>
-<div x-data="{ tab: '<?= e($activeTab) ?>' }" x-effect="$nextTick(() => window.lucide && window.lucide.createIcons())">
+<div x-data="{ tab: '<?= e($activeTab) ?>' }" x-effect="$nextTick(() => window.rebuildLucideIcons && window.rebuildLucideIcons())">
     <div class="flex items-center gap-2 mb-4">
         <button type="button" class="px-4 py-2 rounded-lg text-sm font-medium"
                 :class="tab === 'productos' ? 'bg-slate-900 text-white' : 'bg-white border border-gray-300 text-gray-700'"
-                @click="tab='productos'; history.replaceState(null, '', window.appUrl('/productos?tab=productos'))">
+                @click="tab='productos'; history.replaceState(null, '', window.appUrl('/productos?tab=productos')); $nextTick(() => window.rebuildLucideIcons && window.rebuildLucideIcons())">
             Productos
         </button>
         <button type="button" class="px-4 py-2 rounded-lg text-sm font-medium"
                 :class="tab === 'combos' ? 'bg-slate-900 text-white' : 'bg-white border border-gray-300 text-gray-700'"
-                @click="tab='combos'; history.replaceState(null, '', window.appUrl('/productos?tab=combos'))">
+                @click="tab='combos'; history.replaceState(null, '', window.appUrl('/productos?tab=combos')); $nextTick(() => window.rebuildLucideIcons && window.rebuildLucideIcons())">
             Combos
         </button>
     </div>
@@ -66,9 +66,9 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
                 </div>
                 <button type="submit" class="h-10 px-4 rounded-lg bg-gray-900 text-white text-sm">Filtrar</button>
             </form>
-            <div class="flex gap-2">
-                <a href="<?= e(url('/productos/importar')) ?>" class="px-4 py-2 rounded-lg border border-gray-300 text-sm hover:bg-gray-50">Importar CSV</a>
-                <a href="<?= e(url('/productos/crear')) ?>" class="lo-btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Nuevo producto</a>
+            <div class="flex flex-col sm:flex-row flex-wrap gap-2 sm:justify-end">
+                <?php $uiBtnHref = url('/productos/importar'); $uiBtnLabel = 'Importar CSV'; require APP_PATH . '/Views/layout/partials/ui-btn-outline.php'; ?>
+                <?php $uiBtnHref = url('/productos/crear'); $uiBtnLabel = 'Nuevo producto'; require APP_PATH . '/Views/layout/partials/ui-btn-primary.php'; ?>
             </div>
         </div>
         <div class="flex gap-2 overflow-x-auto pb-1 mb-2">
@@ -152,7 +152,7 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
             <div class="flex gap-2 overflow-x-auto pb-1">
                 <span class="px-3 h-8 rounded-full bg-slate-900 text-white inline-flex items-center text-xs font-semibold">Combos <span class="ml-1 text-[10px]"><?= count($combos ?? []) ?></span></span>
             </div>
-            <a href="<?= e(url('/combos/crear')) ?>" class="lo-btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Crear combo</a>
+            <?php $uiBtnHref = url('/combos/crear'); $uiBtnLabel = 'Nuevo combo'; require APP_PATH . '/Views/layout/partials/ui-btn-primary.php'; ?>
         </div>
         <div class="lo-table-wrap">
             <table class="min-w-full text-sm lo-table">

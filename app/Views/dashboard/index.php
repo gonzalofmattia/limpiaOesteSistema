@@ -2,10 +2,6 @@
 $labels = $monthlyLabels ?? [];
 $values = $monthlySales ?? [];
 $currentMonthIndex = count($labels) > 0 ? count($labels) - 1 : 0;
-$pendingMore = max(0, (int) ($pendingDeliveryTotalRows ?? 0) - count($pendingDeliveryQuotes ?? []));
-$miniProducts = count($topProductsMonth ?? []);
-$miniClients = count($topClientsMonth ?? []);
-$miniQuotes = count($recentQuotes ?? []);
 ?>
 <div class="space-y-6">
     <section class="rounded-2xl bg-gradient-to-r from-[#1a6b3c] to-[#1565C0] text-white p-6 lg:p-8">
@@ -54,74 +50,46 @@ $miniQuotes = count($recentQuotes ?? []);
         </div>
     </section>
 
-    <section class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <article class="lg:col-span-2 lo-card p-4 shadow-sm">
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <article class="lo-card p-4 shadow-sm">
             <h3 class="text-sm font-semibold text-gray-800 mb-1">Evolución mensual</h3>
             <p class="text-xs text-slate-500 mb-3">Últimos 6 meses</p>
             <div class="h-[240px]">
                 <canvas id="sales6mChart"></canvas>
             </div>
-            <div class="mt-3 flex items-center gap-3 text-xs text-gray-600">
+            <div class="mt-3 flex flex-wrap items-center gap-3 text-xs text-gray-600">
                 <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded bg-[#3B82F6]"></span>Aceptados</span>
                 <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded bg-[#10B981]"></span>Cobrado</span>
                 <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded bg-[#F97316]"></span>Pago proveedor</span>
             </div>
         </article>
-        <article class="lo-card p-4 shadow-sm">
-            <h3 class="text-sm font-semibold mb-3">Saldo proveedores</h3>
-            <div class="space-y-2 text-sm">
+        <article class="lo-card p-4 shadow-sm flex flex-col min-h-[280px]">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-semibold text-gray-800">Saldo proveedores</h3>
+                <a href="<?= e(url('/cuenta-corriente')) ?>" class="text-xs text-[#1565C0] hover:underline">Cuenta corriente</a>
+            </div>
+            <div class="space-y-2 text-sm flex-1 overflow-y-auto max-h-[260px] pr-1">
                 <?php foreach (($supplierDebts ?? []) as $s): ?>
-                    <p class="flex justify-between rounded-xl bg-slate-50 p-2.5"><span class="truncate pr-2"><?= e((string) ($s['name'] ?? '')) ?></span><span class="font-medium"><?= formatPrice((float) ($s['debt'] ?? 0)) ?></span></p>
-                <?php endforeach; ?>
-                <?php if (($supplierDebts ?? []) === []): ?><p class="text-slate-500">Sin saldos pendientes</p><?php endif; ?>
-            </div>
-        </article>
-    </section>
-
-    <section class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div class="lo-card p-4"><p class="text-xs text-slate-500">Productos</p><p class="text-2xl font-semibold"><?= $miniProducts ?></p></div>
-        <div class="lo-card p-4"><p class="text-xs text-slate-500">Categorías</p><p class="text-2xl font-semibold"><?= max(1, (int) ceil($miniProducts / 2)) ?></p></div>
-        <div class="lo-card p-4"><p class="text-xs text-slate-500">Clientes activos</p><p class="text-2xl font-semibold"><?= $miniClients ?></p></div>
-        <div class="lo-card p-4"><p class="text-xs text-slate-500">Presupuestos</p><p class="text-2xl font-semibold"><?= $miniQuotes ?></p></div>
-    </section>
-
-    <section class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <article class="lo-card p-4 shadow-sm">
-            <div class="flex items-center justify-between mb-3">
-                <h3 class="text-sm font-semibold text-gray-800">Stock bajo / comprometido</h3>
-                <a href="<?= e(url('/stock-actual')) ?>" class="text-xs text-[#1565C0] hover:underline">Ver todo</a>
-            </div>
-            <div class="space-y-2">
-                <?php foreach (($pendingDeliveryQuotes ?? []) as $q): ?>
-                    <div class="flex items-center justify-between rounded-xl border border-red-100 bg-red-50/60 px-3 py-2.5">
-                        <span class="truncate pr-2 text-sm"><?= e((string) ($q['client_name'] ?? '—')) ?></span>
-                        <span class="text-[10px] font-semibold uppercase tracking-wide text-red-600">Sin stock</span>
-                    </div>
-                <?php endforeach; ?>
-                <?php if (($pendingDeliveryQuotes ?? []) === []): ?><p class="text-sm text-gray-500 py-2">Sin alertas de stock.</p><?php endif; ?>
-                <?php if ($pendingMore > 0): ?><p class="text-xs text-slate-500">y <?= $pendingMore ?> más...</p><?php endif; ?>
-            </div>
-        </article>
-
-        <article class="lo-card p-4 shadow-sm">
-            <div class="flex items-center justify-between mb-3">
-                <h3 class="text-sm font-semibold text-gray-800">Últimos presupuestos</h3>
-                <a href="<?= e(url('/presupuestos')) ?>" class="text-xs text-[#1565C0] hover:underline">Ver todos</a>
-            </div>
-            <div class="divide-y divide-gray-100">
-                <?php foreach (($recentQuotes ?? []) as $q): ?>
-                    <a href="<?= e(url('/presupuestos/' . (int) ($q['id'] ?? 0))) ?>" class="flex items-start justify-between py-2">
-                        <span class="min-w-0 pr-3">
-                            <span class="block text-sm font-medium text-gray-900"><?= e((string) ($q['quote_number'] ?? '')) ?></span>
-                            <span class="block text-xs text-gray-500 truncate"><?= e((string) ($q['client_name'] ?? '—')) ?></span>
-                        </span>
-                        <span class="text-sm font-medium text-gray-900 whitespace-nowrap"><?= formatPrice((float) ($q['total'] ?? 0)) ?></span>
+                    <?php
+                    $name = (string) ($s['name'] ?? '');
+                    $compact = preg_replace('/\s+/', '', $name) ?: 'PR';
+                    $initials = function_exists('mb_substr')
+                        ? strtoupper(mb_substr($compact, 0, 2))
+                        : strtoupper(substr($compact, 0, 2));
+                    ?>
+                    <a href="<?= e(url('/cuenta-corriente/proveedor/' . (int) ($s['id'] ?? 0))) ?>" class="flex items-center gap-3 rounded-xl bg-slate-50 p-2.5 hover:bg-slate-100 transition">
+                        <span class="h-9 w-9 shrink-0 rounded-full bg-slate-200 text-slate-700 text-xs font-semibold grid place-items-center"><?= e($initials) ?></span>
+                        <span class="min-w-0 flex-1 truncate font-medium text-slate-800"><?= e($name) ?></span>
+                        <span class="shrink-0 font-semibold text-slate-900 whitespace-nowrap"><?= formatPrice((float) ($s['debt'] ?? 0)) ?></span>
                     </a>
                 <?php endforeach; ?>
-                <?php if (($recentQuotes ?? []) === []): ?><p class="text-sm text-gray-500 py-2">Sin presupuestos aún</p><?php endif; ?>
+                <?php if (($supplierDebts ?? []) === []): ?>
+                    <p class="text-sm text-slate-500 py-2"><?= !empty($accountsEnabled) ? 'Sin saldos pendientes' : 'Sin datos de cuenta corriente (tabla no disponible).' ?></p>
+                <?php endif; ?>
             </div>
         </article>
     </section>
+
     <section class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <article class="lo-card p-4 shadow-sm">
             <h3 class="text-sm font-semibold text-gray-800 mb-3">Top productos del mes</h3>
@@ -153,10 +121,31 @@ $miniQuotes = count($recentQuotes ?? []);
             </div>
         </article>
     </section>
-    <section class="lo-card p-4">
-        <h3 class="text-sm font-semibold mb-2">Actividad de cobros</h3>
-        <p class="text-xs text-slate-500 mb-4">Tendencia de los últimos 6 meses</p>
-        <div class="h-28"><canvas id="cashFlowChart"></canvas></div>
+
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <article class="lo-card p-4 shadow-sm">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-semibold text-gray-800">Últimos presupuestos</h3>
+                <a href="<?= e(url('/presupuestos')) ?>" class="text-xs text-[#1565C0] hover:underline">Ver todos</a>
+            </div>
+            <div class="divide-y divide-gray-100">
+                <?php foreach (($recentQuotes ?? []) as $q): ?>
+                    <a href="<?= e(url('/presupuestos/' . (int) ($q['id'] ?? 0))) ?>" class="flex items-start justify-between py-2">
+                        <span class="min-w-0 pr-3">
+                            <span class="block text-sm font-medium text-gray-900"><?= e((string) ($q['quote_number'] ?? '')) ?></span>
+                            <span class="block text-xs text-gray-500 truncate"><?= e((string) ($q['client_name'] ?? '—')) ?></span>
+                        </span>
+                        <span class="text-sm font-medium text-gray-900 whitespace-nowrap"><?= formatPrice((float) ($q['total'] ?? 0)) ?></span>
+                    </a>
+                <?php endforeach; ?>
+                <?php if (($recentQuotes ?? []) === []): ?><p class="text-sm text-gray-500 py-2">Sin presupuestos aún</p><?php endif; ?>
+            </div>
+        </article>
+        <article class="lo-card p-4 shadow-sm">
+            <h3 class="text-sm font-semibold mb-2">Actividad de cobros</h3>
+            <p class="text-xs text-slate-500 mb-4">Tendencia de los últimos 6 meses</p>
+            <div class="h-28"><canvas id="cashFlowChart"></canvas></div>
+        </article>
     </section>
 </div>
 

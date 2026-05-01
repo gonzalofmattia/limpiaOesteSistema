@@ -1,6 +1,6 @@
 <div class="space-y-5">
 <div class="flex justify-end">
-    <a href="<?= e(url('/ventas-ml/crear')) ?>" class="lo-btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Nueva venta ML</a>
+    <?php $uiBtnHref = url('/ventas-ml/crear'); $uiBtnLabel = 'Nueva venta ML'; require APP_PATH . '/Views/layout/partials/ui-btn-primary.php'; ?>
 </div>
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
     <div class="lo-card p-4"><p class="text-xs text-slate-500">Operaciones</p><p class="text-2xl font-semibold"><?= count($sales ?? []) ?></p></div>

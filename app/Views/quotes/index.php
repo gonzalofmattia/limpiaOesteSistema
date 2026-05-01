@@ -7,7 +7,7 @@ $amountTotal = array_sum(array_map(fn($q) => (float) ($q['total'] ?? 0), $quotes
 ?>
 <div class="space-y-5">
 <div class="flex justify-end items-center">
-    <a href="<?= e(url('/presupuestos/crear')) ?>" class="lo-btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Nuevo presupuesto</a>
+    <?php $uiBtnHref = url('/presupuestos/crear'); $uiBtnLabel = 'Nuevo presupuesto'; require APP_PATH . '/Views/layout/partials/ui-btn-primary.php'; ?>
 </div>
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
     <div class="lo-card p-4"><p class="text-xs text-slate-500">Este mes</p><p class="text-2xl font-semibold"><?= $totalQuotes ?></p></div>
@@ -18,7 +18,7 @@ $amountTotal = array_sum(array_map(fn($q) => (float) ($q['total'] ?? 0), $quotes
 <form method="get" class="flex items-center gap-2">
     <input type="hidden" name="per_page" value="<?= (int) ($per_page ?? 20) ?>">
     <div class="flex-1 h-11 rounded-xl border border-lo-border bg-white px-3 flex items-center gap-2"><i data-lucide="search" class="h-4 w-4 text-slate-400"></i><input type="text" name="search" value="<?= e((string) ($search ?? '')) ?>" placeholder="Buscar por nº o cliente..." class="w-full bg-transparent outline-none text-sm"></div>
-    <button class="h-11 w-11 rounded-xl border border-lo-border bg-white grid place-items-center"><i data-lucide="sliders-horizontal" class="h-4 w-4"></i></button>
+    <?php require APP_PATH . '/Views/layout/partials/ui-btn-filter.php'; ?>
 </form>
 <div class="flex gap-2 overflow-x-auto pb-1">
     <span class="px-3 h-8 rounded-full bg-slate-900 text-white inline-flex items-center text-xs font-semibold">Todos <span class="ml-1 text-[10px]"><?= $totalQuotes ?></span></span>

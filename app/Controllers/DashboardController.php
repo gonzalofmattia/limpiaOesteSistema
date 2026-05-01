@@ -26,37 +26,14 @@ final class DashboardController extends Controller
         $salesMonthAmount = (float) $db->fetchColumn("SELECT COALESCE(SUM(total),0) FROM quotes WHERE {$salesBaseWhere} AND YEAR(created_at)=YEAR(CURDATE()) AND MONTH(created_at)=MONTH(CURDATE())");
         $salesMonthAvgTicket = $salesMonthCount > 0 ? round($salesMonthAmount / $salesMonthCount, 2) : 0.0;
 
-        $pendingDeliveryCount = (int) $db->fetchColumn("SELECT COUNT(*) FROM quotes WHERE status='accepted' AND COALESCE(sale_number,'') <> ''");
-        $pendingDeliveryAmount = (float) $db->fetchColumn("SELECT COALESCE(SUM(total),0) FROM quotes WHERE status='accepted' AND COALESCE(sale_number,'') <> ''");
-        $pendingDeliveryQuotes = $db->fetchAll(
-            "SELECT q.id, q.quote_number, q.total, c.name AS client_name
-             FROM quotes q
-             LEFT JOIN clients c ON c.id = q.client_id
-             WHERE q.status='accepted' AND COALESCE(q.sale_number,'') <> ''
-             ORDER BY q.created_at DESC
-             LIMIT 3"
-        );
-        $pendingDeliveryTotalRows = (int) $db->fetchColumn("SELECT COUNT(*) FROM quotes WHERE status='accepted' AND COALESCE(sale_number,'') <> ''");
-
         $receivable = 0.0;
         $clientsWithDebt = 0;
-        $topDebtors = [];
         if ($accountsTable) {
             $receivable = ClientReceivableSummary::totalReceivable($db);
             $clientsWithDebt = ClientReceivableSummary::countClientsWithDebt($db);
-            $txAgg = ClientReceivableSummary::sqlTxAggByClientSubquery();
-            $qAgg = ClientReceivableSummary::sqlQuotesAcceptedByClientSubquery();
-            $hybrid = ClientReceivableSummary::sqlCaseHybridBalance();
-            $topDebtors = $db->fetchAll(
-                "SELECT c.name, ROUND({$hybrid}, 2) AS balance
-                 FROM clients c
-                 LEFT JOIN ({$txAgg}) tx ON tx.account_id = c.id
-                 LEFT JOIN ({$qAgg}) q ON q.client_id = c.id
-                 HAVING balance > 0
-                 ORDER BY balance DESC
-                 LIMIT 3"
-            );
         }
+
+        $supplierDebts = $accountsTable ? $this->fetchSupplierDebtsSameAsAccount($db) : [];
 
         $deliveredMonthNet = (float) $db->fetchColumn(
             "SELECT COALESCE(SUM(total),0)
@@ -170,11 +147,7 @@ final class DashboardController extends Controller
             'salesMonthAvgTicket' => $salesMonthAvgTicket,
             'receivable' => $receivable,
             'clientsWithDebt' => $clientsWithDebt,
-            'topDebtors' => $topDebtors,
-            'pendingDeliveryCount' => $pendingDeliveryCount,
-            'pendingDeliveryAmount' => $pendingDeliveryAmount,
-            'pendingDeliveryQuotes' => $pendingDeliveryQuotes,
-            'pendingDeliveryTotalRows' => $pendingDeliveryTotalRows,
+            'supplierDebts' => $supplierDebts,
             'deliveredMonthNet' => $deliveredMonthNet,
             'deliveredMonthCost' => $deliveredMonthCost,
             'deliveredMonthCostNullCount' => $deliveredMonthCostNullCount,
@@ -309,5 +282,26 @@ final class DashboardController extends Controller
             'explain' => $explain,
             'rows' => $rows,
         ]);
+    }
+
+    /**
+     * Misma lógica que AccountController::getSupplierDebts(): facturas − pagos + ajustes por proveedor.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function fetchSupplierDebtsSameAsAccount(Database $db): array
+    {
+        return $db->fetchAll(
+            "SELECT s.id, s.name,
+                    COALESCE(SUM(CASE WHEN at.transaction_type = 'invoice' THEN at.amount ELSE 0 END), 0) -
+                    COALESCE(SUM(CASE WHEN at.transaction_type = 'payment' THEN at.amount ELSE 0 END), 0) +
+                    COALESCE(SUM(CASE WHEN at.transaction_type = 'adjustment' THEN at.amount ELSE 0 END), 0) AS debt
+             FROM suppliers s
+             LEFT JOIN account_transactions at
+                ON at.account_type = 'supplier' AND at.account_id = s.id
+             WHERE s.is_active = 1
+             GROUP BY s.id, s.name
+             ORDER BY s.name"
+        );
     }
 }
