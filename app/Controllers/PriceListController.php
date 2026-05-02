@@ -14,6 +14,14 @@ use Dompdf\Options;
 
 final class PriceListController extends Controller
 {
+    /** Códigos de producto para el preset "Lista Minorista Hogar" (orden = última lista guardada con "Minorista" en el nombre). */
+    private const MINORISTA_HOGAR_PRODUCT_CODES = [
+        'ECOAAI01', 'ECOALM07', 'ECOA09', 'ECOAAFR10', 'ECOAALA13', 'ECODAS08', 'ECOELM03', 'ECOLH05', 'ECOLTA06',
+        'ECOLM04', 'ECOSP02', '861006', '329201', '861010', '260000', '291920', '398120', '861018', '250060',
+        '861008 B', '250020', '250010', '1001', '28186A', '464656', '861016', '861019', 'ECHL1', 'CMQS11', 'CMSH13',
+        'HB100', 'H3080P',
+    ];
+
     public function index(): void
     {
         $db = Database::getInstance();
@@ -61,11 +69,17 @@ final class PriceListController extends Controller
         );
         $categoryTree = CategoryHierarchy::buildTree($categories);
         $suppliers = $db->fetchAll('SELECT id, name, slug FROM suppliers WHERE is_active = 1 ORDER BY name');
+        $minoristaHogarProducts = $this->fetchProductsByCodesOrdered($db, self::MINORISTA_HOGAR_PRODUCT_CODES);
+        $minoristaDefaultMarkup = $this->resolveMinoristaDefaultMarkupPercent();
+        $minoristaDefaultName = $this->buildMinoristaHogarDefaultListName();
         $this->view('pricelists/generate', [
             'title' => 'Generar lista',
             'categories' => $categories,
             'categoryTree' => $categoryTree,
             'suppliers' => $suppliers,
+            'minorista_hogar_products' => $minoristaHogarProducts,
+            'minorista_default_markup' => $minoristaDefaultMarkup,
+            'minorista_default_name' => $minoristaDefaultName,
         ]);
     }
 
@@ -83,6 +97,7 @@ final class PriceListController extends Controller
         $this->view('pricelists/preview', [
             'title' => 'Vista previa — ' . $bundle['name'],
             'bundle' => $bundle,
+            'is_minorista_layout' => $this->isMinoristaPdfBundle($bundle),
         ]);
     }
 
@@ -129,7 +144,7 @@ final class PriceListController extends Controller
             ]);
         }
 
-        $pdfPath = $this->renderPdf($listId, $bundle);
+        $pdfPath = $this->renderPdf($listId, $bundle, $this->isMinoristaPdfBundle($bundle));
         $db->query('UPDATE price_lists SET pdf_path = ? WHERE id = ?', [$pdfPath, $listId]);
 
         flash('success', 'Lista generada y PDF guardado.');
@@ -226,15 +241,20 @@ final class PriceListController extends Controller
      *   include_iva:int,
      *   price_field:string,
      *   supplier:string,
+     *   list_type:string,
      *   lines:list<array<string,mixed>>,
+     *   pdf_sections?:list<array<string,mixed>>,
      *   error:?string
      * }
      */
     private function collectGenerateInput(): array
     {
+        $listTypeNorm = strtolower(trim((string) $this->input('list_type', '')));
+        $listType = $listTypeNorm === 'minorista' ? 'minorista' : '';
+
         $name = trim((string) $this->input('name', ''));
         if ($name === '') {
-            return ['error' => 'El nombre es obligatorio.', 'name' => '', 'description' => '', 'category_ids' => [], 'product_ids' => [], 'markup' => null, 'include_iva' => 0, 'price_field' => '', 'supplier' => '', 'lines' => []];
+            return ['error' => 'El nombre es obligatorio.', 'name' => '', 'description' => '', 'category_ids' => [], 'product_ids' => [], 'markup' => null, 'include_iva' => 0, 'price_field' => '', 'supplier' => '', 'list_type' => $listType, 'lines' => []];
         }
         $desc = trim((string) $this->input('description', ''));
         $cats = $_POST['category_ids'] ?? [];
@@ -254,7 +274,7 @@ final class PriceListController extends Controller
         $includeIva = (string) $ivaPost === '1';
         $priceField = trim((string) $this->input('price_field', ''));
         if ($priceField === '') {
-            return ['error' => 'Elegí el campo de precio.', 'name' => $name, 'description' => $desc, 'category_ids' => $categoryIdsRaw, 'product_ids' => $productIdsRaw, 'markup' => $markup, 'include_iva' => $includeIva ? 1 : 0, 'price_field' => '', 'supplier' => $supplierSlug, 'lines' => []];
+            return ['error' => 'Elegí el campo de precio.', 'name' => $name, 'description' => $desc, 'category_ids' => $categoryIdsRaw, 'product_ids' => $productIdsRaw, 'markup' => $markup, 'include_iva' => $includeIva ? 1 : 0, 'price_field' => '', 'supplier' => $supplierSlug, 'list_type' => $listType, 'lines' => []];
         }
 
         $db = Database::getInstance();
@@ -270,7 +290,7 @@ final class PriceListController extends Controller
             $categoryIdsRaw = array_map(static fn (array $r): int => (int) $r['id'], $autoCats);
         }
         if ($categoryIdsRaw === [] && $productIdsRaw === []) {
-            return ['error' => 'Seleccioná categorías o agregá al menos un producto a la lista.', 'name' => $name, 'description' => $desc, 'category_ids' => [], 'product_ids' => $productIdsRaw, 'markup' => null, 'include_iva' => 0, 'price_field' => $priceField, 'supplier' => $supplierSlug, 'lines' => []];
+            return ['error' => 'Seleccioná categorías o agregá al menos un producto a la lista.', 'name' => $name, 'description' => $desc, 'category_ids' => [], 'product_ids' => $productIdsRaw, 'markup' => null, 'include_iva' => 0, 'price_field' => $priceField, 'supplier' => $supplierSlug, 'list_type' => $listType, 'lines' => []];
         }
         $expanded = [];
         foreach ($categoryIdsRaw as $cid) {
@@ -293,8 +313,10 @@ final class PriceListController extends Controller
                     c.sort_order AS category_sort,
                     c.default_discount,
                     c.default_markup AS category_default_markup,
+                    c.markup_override AS category_markup_override,
                     pc.default_discount AS parent_discount,
                     pc.default_markup AS parent_default_markup,
+                    pc.markup_override AS parent_markup_override,
                     COALESCE(c.supplier_id, pc.supplier_id) AS supplier_id,
                     s.name AS supplier_name,
                     s.slug AS supplier_slug
@@ -360,10 +382,69 @@ final class PriceListController extends Controller
             'include_iva' => $includeIva ? 1 : 0,
             'price_field' => $priceField,
             'supplier' => $supplierSlug,
+            'list_type' => $listType,
             'lines' => $lines,
             'pdf_sections' => $this->buildPricelistPdfSections($lines),
             'error' => null,
         ];
+    }
+
+    /**
+     * @param list<string> $codes
+     * @return list<array{id:int,code:string,name:string}>
+     */
+    private function fetchProductsByCodesOrdered(Database $db, array $codes): array
+    {
+        $codes = array_values(array_filter($codes, static fn (string $c): bool => $c !== ''));
+        if ($codes === []) {
+            return [];
+        }
+        $in = implode(',', array_fill(0, count($codes), '?'));
+        $fieldArgs = implode(',', array_fill(0, count($codes), '?'));
+        $sql = "SELECT id, code, name FROM products WHERE code IN ({$in}) ORDER BY FIELD(code,{$fieldArgs})";
+        $rows = $db->fetchAll($sql, array_merge($codes, $codes));
+
+        return array_map(
+            static fn (array $r): array => [
+                'id' => (int) $r['id'],
+                'code' => (string) $r['code'],
+                'name' => (string) $r['name'],
+            ],
+            $rows
+        );
+    }
+
+    private function resolveMinoristaDefaultMarkupPercent(): string
+    {
+        $raw = trim((string) setting('catalog_markup_minorista', ''));
+        if ($raw !== '' && is_numeric(str_replace(',', '.', $raw))) {
+            return (string) (float) str_replace(',', '.', $raw);
+        }
+
+        return '90';
+    }
+
+    private function buildMinoristaHogarDefaultListName(): string
+    {
+        $meses = [
+            1 => 'Enero', 2 => 'Febrero', 3 => 'Marzo', 4 => 'Abril', 5 => 'Mayo', 6 => 'Junio',
+            7 => 'Julio', 8 => 'Agosto', 9 => 'Septiembre', 10 => 'Octubre', 11 => 'Noviembre', 12 => 'Diciembre',
+        ];
+        $m = (int) date('n');
+        $y = (int) date('Y');
+        $mesNombre = $meses[$m] ?? date('F');
+
+        return 'Lista Minorista Hogar — ' . $mesNombre . ' ' . $y;
+    }
+
+    /** @param array<string, mixed> $bundle */
+    private function isMinoristaPdfBundle(array $bundle): bool
+    {
+        if (stripos((string) ($bundle['name'] ?? ''), 'Minorista') !== false) {
+            return true;
+        }
+
+        return (($bundle['list_type'] ?? '') === 'minorista');
     }
 
     /** @param list<int> $productIds @return list<array<string,mixed>> */
@@ -385,8 +466,10 @@ final class PriceListController extends Controller
                     c.sort_order AS category_sort,
                     c.default_discount,
                     c.default_markup AS category_default_markup,
+                    c.markup_override AS category_markup_override,
                     pc.default_discount AS parent_discount,
                     pc.default_markup AS parent_default_markup,
+                    pc.markup_override AS parent_markup_override,
                     COALESCE(c.supplier_id, pc.supplier_id) AS supplier_id,
                     s.name AS supplier_name,
                     s.slug AS supplier_slug
@@ -475,7 +558,7 @@ final class PriceListController extends Controller
     }
 
     /** @param array<string,mixed> $bundle */
-    private function renderPdf(int $listId, array $bundle): string
+    private function renderPdf(int $listId, array $bundle, bool $useMinoristaTemplate): string
     {
         $pdfSections = $bundle['pdf_sections'] ?? $this->buildPricelistPdfSections($bundle['lines']);
         ob_start();
@@ -485,7 +568,8 @@ final class PriceListController extends Controller
             'includeIva' => ((int) ($bundle['include_iva'] ?? 0) === 1),
             'pdfSections' => $pdfSections,
         ]);
-        require APP_PATH . '/Views/pdf/pricelist.php';
+        $tpl = $useMinoristaTemplate ? 'pricelist_minorista.php' : 'pricelist.php';
+        require APP_PATH . '/Views/pdf/' . $tpl;
         $html = ob_get_clean();
 
         $options = new Options();

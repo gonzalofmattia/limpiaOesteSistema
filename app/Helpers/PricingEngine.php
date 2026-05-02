@@ -35,6 +35,16 @@ final class PricingEngine
             && $product['markup_override'] !== '') {
             return (float) $product['markup_override'];
         }
+        if (array_key_exists('category_markup_override', $product)
+            && $product['category_markup_override'] !== null
+            && $product['category_markup_override'] !== '') {
+            return (float) $product['category_markup_override'];
+        }
+        if (array_key_exists('parent_markup_override', $product)
+            && $product['parent_markup_override'] !== null
+            && $product['parent_markup_override'] !== '') {
+            return (float) $product['parent_markup_override'];
+        }
         if (array_key_exists('category_default_markup', $product)
             && $product['category_default_markup'] !== null
             && $product['category_default_markup'] !== '') {
@@ -85,7 +95,8 @@ final class PricingEngine
 
     /**
      * $product debe incluir: campos de precio, discount_override, default_discount,
-     * markup_override, category_default_markup, y category_slug para defaults de campo.
+     * markup_override (producto), category_markup_override / parent_markup_override (categoría),
+     * category_default_markup, parent_default_markup, y category_slug para defaults de campo.
      *
      * @return array{
      *   precio_lista_seiq: float,

@@ -78,8 +78,10 @@ final class ProductController extends Controller
                        c.name AS category_name,
                        c.default_discount,
                        c.default_markup AS category_default_markup,
+                       c.markup_override AS category_markup_override,
                        pc.default_discount AS parent_discount,
                        pc.default_markup AS parent_default_markup,
+                       pc.markup_override AS parent_markup_override,
                        COALESCE(c.supplier_id, pc.supplier_id) AS supplier_id,
                        s.name AS supplier_name,
                        s.slug AS supplier_slug
@@ -119,7 +121,9 @@ final class ProductController extends Controller
                 'SELECT cp.quantity, p.*,
                         COALESCE(pc.slug, c.slug) AS category_slug, c.default_discount,
                         c.default_markup AS category_default_markup,
-                        pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup
+                        c.markup_override AS category_markup_override,
+                        pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup,
+                        pc.markup_override AS parent_markup_override
                  FROM combo_products cp
                  JOIN products p ON p.id = cp.product_id
                  JOIN categories c ON c.id = p.category_id
@@ -169,7 +173,8 @@ final class ProductController extends Controller
     {
         $db = Database::getInstance();
         $categories = $db->fetchAll(
-            'SELECT c.*, pc.slug AS parent_slug, pc.default_discount AS parent_default_discount, pc.default_markup AS parent_default_markup
+            'SELECT c.*, pc.slug AS parent_slug, pc.default_discount AS parent_default_discount, pc.default_markup AS parent_default_markup,
+                    pc.markup_override AS parent_markup_override
              FROM categories c
              LEFT JOIN categories pc ON c.parent_id = pc.id
              WHERE c.is_active = 1
@@ -210,8 +215,11 @@ final class ProductController extends Controller
         $db = Database::getInstance();
         $product = $db->fetch(
             'SELECT p.*, COALESCE(pc.slug, c.slug) AS category_slug, c.slug AS category_leaf_slug,
-                    c.default_markup AS category_default_markup, c.default_discount,
+                    c.default_markup AS category_default_markup,
+                    c.markup_override AS category_markup_override,
+                    c.default_discount,
                     pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup,
+                    pc.markup_override AS parent_markup_override,
                     pc.slug AS parent_slug
              FROM products p
              JOIN categories c ON c.id = p.category_id
@@ -224,7 +232,8 @@ final class ProductController extends Controller
             redirect('/productos');
         }
         $categories = $db->fetchAll(
-            'SELECT c.*, pc.slug AS parent_slug, pc.default_discount AS parent_default_discount, pc.default_markup AS parent_default_markup
+            'SELECT c.*, pc.slug AS parent_slug, pc.default_discount AS parent_default_discount, pc.default_markup AS parent_default_markup,
+                    pc.markup_override AS parent_markup_override
              FROM categories c
              LEFT JOIN categories pc ON c.parent_id = pc.id
              WHERE c.is_active = 1
@@ -1355,6 +1364,7 @@ final class ProductController extends Controller
             'description' => ['description', 'detalle'],
             'content' => ['content', 'contenido'],
             'presentation' => ['presentation', 'presentacion', 'presentación'],
+            'presentacion_minorista' => ['presentacion_minorista', 'presentación_minorista', 'presentacion minorista'],
             'units_per_box' => ['units_per_box', 'unidades_caja', 'unidades_por_caja'],
             'stock_units' => ['stock_units', 'stock', 'existencia', 'stock_actual'],
             'unit_volume' => ['unit_volume', 'volumen'],
@@ -1407,6 +1417,7 @@ final class ProductController extends Controller
             'description' => $row['description'] ?? null,
             'content' => $row['content'] ?? null,
             'presentation' => $row['presentation'] ?? null,
+            'presentacion_minorista' => $this->truncateNullable($row['presentacion_minorista'] ?? '', 50),
             'units_per_box' => isset($row['units_per_box']) && $row['units_per_box'] !== '' && $row['units_per_box'] !== null
                 ? (int) $row['units_per_box'] : 1,
             'stock_units' => isset($row['stock_units']) && $row['stock_units'] !== '' && $row['stock_units'] !== null
@@ -1481,6 +1492,7 @@ final class ProductController extends Controller
             'full_description' => $this->emptyToNull($this->input('full_description', '')),
             'content' => $this->emptyToNull($this->input('content', '')),
             'presentation' => $this->emptyToNull($this->input('presentation', '')),
+            'presentacion_minorista' => $this->truncateNullable($this->input('presentacion_minorista', ''), 50),
             'content_volume' => $this->truncateNullable($this->input('content_volume', ''), 50),
             'units_per_box' => max(1, (int) $this->input('units_per_box', 1)),
             'stock_units' => max(0, (int) $this->input('stock_units', 0)),

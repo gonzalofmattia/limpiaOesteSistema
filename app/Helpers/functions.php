@@ -180,6 +180,25 @@ function productListPresentation(array $product): string
 }
 
 /**
+ * Texto de presentación para PDF lista minorista: columna dedicada, luego estándar.
+ *
+ * @param array<string, mixed> $product Fila producto (p. ej. join a categories).
+ */
+function productMinoristaPresentation(array $product): string
+{
+    $m = trim((string) ($product['presentacion_minorista'] ?? ''));
+    if ($m !== '') {
+        return $m;
+    }
+    $std = trim((string) ($product['presentation'] ?? ''));
+    if ($std !== '') {
+        return $std;
+    }
+
+    return productListPresentation($product);
+}
+
+/**
  * Cobros/pagos/ajustes cargados a mano (o registros viejos sin reference_type).
  * No permite tocar facturas del sistema (presupuesto / pedido proveedor).
  *

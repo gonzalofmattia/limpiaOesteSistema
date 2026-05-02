@@ -75,8 +75,10 @@ final class ApiController extends Controller
                     COALESCE(pc.slug, c.slug) AS category_slug,
                     c.default_discount,
                     c.default_markup AS category_default_markup,
+                    c.markup_override AS category_markup_override,
                     pc.default_discount AS parent_discount,
-                    pc.default_markup AS parent_default_markup
+                    pc.default_markup AS parent_default_markup,
+                    pc.markup_override AS parent_markup_override
              FROM products p
              JOIN categories c ON c.id = p.category_id
              LEFT JOIN categories pc ON c.parent_id = pc.id
@@ -159,7 +161,9 @@ final class ApiController extends Controller
                 $db = Database::getInstance();
                 $c = $db->fetch(
                     'SELECT COALESCE(pc.slug, c.slug) AS slug, c.default_discount, c.default_markup,
-                            pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup
+                            c.markup_override AS category_markup_override,
+                            pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup,
+                            pc.markup_override AS parent_markup_override
                      FROM categories c
                      LEFT JOIN categories pc ON c.parent_id = pc.id
                      WHERE c.id = ?',
@@ -169,15 +173,19 @@ final class ApiController extends Controller
                     $slug = (string) $c['slug'];
                     $data['default_discount'] = $c['default_discount'];
                     $data['category_default_markup'] = $c['default_markup'];
+                    $data['category_markup_override'] = $c['category_markup_override'];
                     $data['parent_discount'] = $c['parent_discount'];
                     $data['parent_default_markup'] = $c['parent_default_markup'];
+                    $data['parent_markup_override'] = $c['parent_markup_override'];
                 }
             }
         } else {
             $db = Database::getInstance();
             $c = $db->fetch(
                 'SELECT c.default_discount, c.default_markup,
-                        pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup
+                        c.markup_override AS category_markup_override,
+                        pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup,
+                        pc.markup_override AS parent_markup_override
                  FROM categories c
                  LEFT JOIN categories pc ON c.parent_id = pc.id
                  WHERE c.slug = ?',
@@ -186,8 +194,10 @@ final class ApiController extends Controller
             if ($c) {
                 $data['default_discount'] = $data['default_discount'] ?? $c['default_discount'];
                 $data['category_default_markup'] = $data['category_default_markup'] ?? $c['default_markup'];
+                $data['category_markup_override'] = $data['category_markup_override'] ?? $c['category_markup_override'];
                 $data['parent_discount'] = $data['parent_discount'] ?? $c['parent_discount'];
                 $data['parent_default_markup'] = $data['parent_default_markup'] ?? $c['parent_default_markup'];
+                $data['parent_markup_override'] = $data['parent_markup_override'] ?? $c['parent_markup_override'];
             }
         }
         $field = (string) ($data['price_field'] ?? '');
@@ -209,6 +219,8 @@ final class ApiController extends Controller
                 ? (float) str_replace(',', '.', (string) $data['parent_discount']) : null,
             'category_default_markup' => $data['category_default_markup'] ?? null,
             'parent_default_markup' => $data['parent_default_markup'] ?? null,
+            'category_markup_override' => self::toFloat($data['category_markup_override'] ?? null),
+            'parent_markup_override' => self::toFloat($data['parent_markup_override'] ?? null),
             'precio_lista_unitario' => self::toFloat($data['precio_lista_unitario'] ?? null),
             'precio_lista_caja' => self::toFloat($data['precio_lista_caja'] ?? null),
             'precio_lista_bidon' => self::toFloat($data['precio_lista_bidon'] ?? null),
@@ -330,8 +342,10 @@ final class ApiController extends Controller
                     pc.name AS category_parent_name,
                     c.default_discount,
                     c.default_markup AS category_default_markup,
+                    c.markup_override AS category_markup_override,
                     pc.default_discount AS parent_discount,
                     pc.default_markup AS parent_default_markup,
+                    pc.markup_override AS parent_markup_override,
                     cov.id AS cover_image_id,
                     cov.filename AS cover_filename,
                     cov.alt_text AS cover_alt_text
@@ -373,8 +387,10 @@ final class ApiController extends Controller
                     pc.name AS category_parent_name,
                     c.default_discount,
                     c.default_markup AS category_default_markup,
+                    c.markup_override AS category_markup_override,
                     pc.default_discount AS parent_discount,
                     pc.default_markup AS parent_default_markup,
+                    pc.markup_override AS parent_markup_override,
                     cov.id AS cover_image_id,
                     cov.filename AS cover_filename,
                     cov.alt_text AS cover_alt_text

@@ -667,7 +667,11 @@ final class SeiqOrderController extends Controller
         $db = Database::getInstance();
         $items = $db->fetchAll(
             "SELECT soi.boxes_to_order, soi.units_per_box, p.precio_lista_caja, p.precio_lista_unitario,
-                    p.discount_override, c.default_discount, pc.default_discount AS parent_discount,
+                    p.discount_override, p.markup_override,
+                    c.default_discount, c.default_markup AS category_default_markup,
+                    c.markup_override AS category_markup_override,
+                    pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup,
+                    pc.markup_override AS parent_markup_override,
                     c.slug AS category_slug, pc.slug AS parent_category_slug
              FROM seiq_order_items soi
              JOIN products p ON soi.product_id = p.id

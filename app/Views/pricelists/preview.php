@@ -1,6 +1,7 @@
 <?php
 $b = $bundle;
 $pdfSections = $b['pdf_sections'] ?? [];
+$isMinoristaLayout = !empty($is_minorista_layout ?? false);
 ?>
 <div class="mb-6 flex flex-wrap gap-3 justify-between items-center">
     <div>
@@ -15,6 +16,7 @@ $pdfSections = $b['pdf_sections'] ?? [];
         <input type="hidden" name="include_iva" value="<?= ((int) ($b['include_iva'] ?? 0) === 1) ? '1' : '0' ?>">
         <input type="hidden" name="price_field" value="<?= e($b['price_field']) ?>">
         <input type="hidden" name="supplier" value="<?= e((string) ($b['supplier'] ?? '')) ?>">
+        <input type="hidden" name="list_type" value="<?= e((string) ($b['list_type'] ?? '')) ?>">
         <?php foreach ($b['category_ids'] as $cid): ?>
             <input type="hidden" name="category_ids[]" value="<?= (int) $cid ?>">
         <?php endforeach; ?>
@@ -36,23 +38,35 @@ $pdfSections = $b['pdf_sections'] ?? [];
             <table class="min-w-full text-sm">
                 <thead class="bg-gray-50 text-gray-600">
                     <tr>
-                        <th class="text-left px-4 py-2">Código</th>
-                        <th class="text-left px-4 py-2">Producto</th>
-                        <th class="text-left px-4 py-2">Presentación</th>
-                        <th class="text-right px-4 py-2">P. unitario</th>
-                        <th class="text-right px-4 py-2">Precio caja/bulto</th>
+                        <?php if ($isMinoristaLayout): ?>
+                            <th class="text-left px-4 py-2">Producto</th>
+                            <th class="text-left px-4 py-2">Presentación</th>
+                            <th class="text-right px-4 py-2">Precio</th>
+                        <?php else: ?>
+                            <th class="text-left px-4 py-2">Código</th>
+                            <th class="text-left px-4 py-2">Producto</th>
+                            <th class="text-left px-4 py-2">Presentación</th>
+                            <th class="text-right px-4 py-2">P. unitario</th>
+                            <th class="text-right px-4 py-2">Precio caja/bulto</th>
+                        <?php endif; ?>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
                     <?php foreach ($block['lines'] as $line): ?>
                         <tr class="hover:bg-gray-50">
-                            <td class="px-4 py-2 font-mono text-xs"><?= e($line['product']['code']) ?></td>
-                            <td class="px-4 py-2"><?= e($line['product']['name']) ?></td>
-                            <td class="px-4 py-2 text-gray-600"><?= e(productListPresentation($line['product'])) ?></td>
-                            <td class="px-4 py-2 text-right text-gray-600"><?= formatPrice((float) ($line['individual_venta'] ?? 0)) ?></td>
-                            <td class="px-4 py-2 text-right font-medium">
-                                <?= formatPrice((float) ($line['pack_venta'] ?? 0)) ?>
-                            </td>
+                            <?php if ($isMinoristaLayout): ?>
+                                <td class="px-4 py-2"><?= e($line['product']['name']) ?></td>
+                                <td class="px-4 py-2 text-gray-600"><?= e(productMinoristaPresentation($line['product'])) ?></td>
+                                <td class="px-4 py-2 text-right font-medium"><?= formatPrice((float) ($line['individual_venta'] ?? 0)) ?></td>
+                            <?php else: ?>
+                                <td class="px-4 py-2 font-mono text-xs"><?= e($line['product']['code']) ?></td>
+                                <td class="px-4 py-2"><?= e($line['product']['name']) ?></td>
+                                <td class="px-4 py-2 text-gray-600"><?= e(productListPresentation($line['product'])) ?></td>
+                                <td class="px-4 py-2 text-right text-gray-600"><?= formatPrice((float) ($line['individual_venta'] ?? 0)) ?></td>
+                                <td class="px-4 py-2 text-right font-medium">
+                                    <?= formatPrice((float) ($line['pack_venta'] ?? 0)) ?>
+                                </td>
+                            <?php endif; ?>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>

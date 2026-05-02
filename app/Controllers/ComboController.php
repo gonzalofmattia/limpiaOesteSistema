@@ -76,7 +76,9 @@ final class ComboController extends Controller
                     p.code, p.name, p.presentation, p.content, p.sale_unit_description,
                     COALESCE(pc.slug, c.slug) AS category_slug, c.default_discount,
                     c.default_markup AS category_default_markup,
+                    c.markup_override AS category_markup_override,
                     pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup,
+                    pc.markup_override AS parent_markup_override,
                     p.precio_lista_unitario, p.precio_lista_caja, p.precio_lista_bidon,
                     p.precio_lista_litro, p.precio_lista_bulto, p.precio_lista_sobre,
                     p.discount_override, p.markup_override, p.stock_units, p.stock_committed_units
@@ -323,8 +325,11 @@ final class ComboController extends Controller
         $rows = $db->fetchAll(
             'SELECT cp.product_id, cp.quantity, p.code, p.name, p.presentation, p.content,
                     COALESCE(pc.slug, c.slug) AS category_slug, c.default_discount,
-                    c.default_markup AS category_default_markup, pc.default_discount AS parent_discount,
+                    c.default_markup AS category_default_markup,
+                    c.markup_override AS category_markup_override,
+                    pc.default_discount AS parent_discount,
                     pc.default_markup AS parent_default_markup,
+                    pc.markup_override AS parent_markup_override,
                     p.stock_units, COALESCE(p.stock_committed_units, 0) AS stock_committed_units,
                     p.precio_lista_unitario, p.precio_lista_caja, p.precio_lista_bidon,
                     p.precio_lista_litro, p.precio_lista_bulto, p.precio_lista_sobre,

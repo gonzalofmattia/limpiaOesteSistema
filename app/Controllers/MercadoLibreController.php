@@ -280,8 +280,10 @@ final class MercadoLibreController extends Controller
                     p.*, COALESCE(pc.slug, c.slug) AS category_slug,
                     c.default_discount,
                     c.default_markup AS category_default_markup,
+                    c.markup_override AS category_markup_override,
                     pc.default_discount AS parent_discount,
-                    pc.default_markup AS parent_default_markup
+                    pc.default_markup AS parent_default_markup,
+                    pc.markup_override AS parent_markup_override
              FROM quote_items qi
              JOIN products p ON p.id = qi.product_id
              JOIN categories c ON c.id = p.category_id

@@ -4,10 +4,26 @@ $allFields = [
     'precio_lista_unitario', 'precio_lista_caja', 'precio_lista_bidon',
     'precio_lista_litro', 'precio_lista_bulto', 'precio_lista_sobre',
 ];
+$minorista_hogar_products = $minorista_hogar_products ?? [];
+$minorista_default_name = (string) ($minorista_default_name ?? 'Lista Minorista Hogar');
+$minorista_default_markup = (string) ($minorista_default_markup ?? '90');
+$presetJsonFlags = JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_THROW_ON_ERROR;
+$minoristaPresetProductsJson = json_encode($minorista_hogar_products, $presetJsonFlags);
+$minoristaDefaultNameJson = json_encode($minorista_default_name, $presetJsonFlags);
+$minoristaDefaultMarkupJson = json_encode($minorista_default_markup, $presetJsonFlags);
 ?>
+<script>
+window.__priceListMinoristaPreset = <?= $minoristaPresetProductsJson ?>;
+window.__priceListMinoristaDefaultName = <?= $minoristaDefaultNameJson ?>;
+window.__priceListMinoristaDefaultMarkup = <?= $minoristaDefaultMarkupJson ?>;
+</script>
 <div class="max-w-4xl bg-white rounded-xl border border-gray-200 shadow-sm p-6" x-data="{
     supplier: '',
     picked: [],
+    listType: '',
+    minoristaPresetProducts: (typeof window.__priceListMinoristaPreset !== 'undefined' && window.__priceListMinoristaPreset ? window.__priceListMinoristaPreset : []),
+    minoristaDefaultName: (typeof window.__priceListMinoristaDefaultName !== 'undefined' ? window.__priceListMinoristaDefaultName : ''),
+    minoristaDefaultMarkup: (typeof window.__priceListMinoristaDefaultMarkup !== 'undefined' ? window.__priceListMinoristaDefaultMarkup : '90'),
     searchQ: '',
     searchHits: [],
     searchOpen: false,
@@ -53,10 +69,34 @@ $allFields = [
     },
     removePick(id) {
         this.picked = this.picked.filter(function (p) { return p.id !== id; });
+    },
+    applyMinoristaPreset() {
+        this.clearAllCategories();
+        this.supplier = '';
+        var rows = this.minoristaPresetProducts || [];
+        this.picked = rows.map(function (r) {
+            return { id: parseInt(r.id, 10), code: r.code || '', name: r.name || '' };
+        }).filter(function (p) { return p.id > 0; });
+        var root = this.$root;
+        var nameInput = root.querySelector('input[name=\'name\']');
+        if (nameInput) { nameInput.value = this.minoristaDefaultName; }
+        var mkInput = root.querySelector('input[name=\'custom_markup\']');
+        if (mkInput) { mkInput.value = this.minoristaDefaultMarkup; }
+        var pf = root.querySelector('select[name=\'price_field\']');
+        if (pf) { pf.value = 'precio_lista_unitario'; }
+        this.listType = 'minorista';
     }
 }">
     <form method="post" action="<?= e(url('/listas/preview')) ?>" class="space-y-6">
         <?= csrfField() ?>
+        <input type="hidden" name="list_type" :value="listType">
+        <div class="flex flex-wrap items-center gap-3 pb-2 border-b border-gray-100">
+            <button type="button" @click="applyMinoristaPreset()"
+                    class="px-4 py-2 rounded-lg bg-[#2E7D32] text-white text-sm font-medium hover:bg-[#1B5E20]">
+                Generar Lista Minorista Hogar
+            </button>
+            <p class="text-xs text-gray-500 max-w-xl">Precarga productos, markup minorista (configuración o 90%), precio unitario y nombre con mes actual. Podés editar todo antes de la vista previa.</p>
+        </div>
         <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Nombre de la lista</label>
             <input type="text" name="name" required placeholder="Lista Mayorista Abril 2026"

@@ -127,7 +127,9 @@ final class QuoteController extends Controller
                     p.discount_override, p.markup_override,
                     COALESCE(pc.slug, c.slug) AS category_slug, c.default_discount,
                     c.default_markup AS category_default_markup,
-                    pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup
+                    c.markup_override AS category_markup_override,
+                    pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup,
+                    pc.markup_override AS parent_markup_override
              FROM quote_items qi
              LEFT JOIN products p ON p.id = qi.product_id
              LEFT JOIN categories c ON c.id = p.category_id
@@ -243,7 +245,9 @@ final class QuoteController extends Controller
                     p.discount_override, p.markup_override,
                     COALESCE(pc.slug, c.slug) AS category_slug, c.default_discount,
                     c.default_markup AS category_default_markup,
-                    pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup
+                    c.markup_override AS category_markup_override,
+                    pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup,
+                    pc.markup_override AS parent_markup_override
              FROM quote_items qi
              LEFT JOIN products p ON p.id = qi.product_id
              LEFT JOIN categories c ON c.id = p.category_id
@@ -546,7 +550,9 @@ final class QuoteController extends Controller
                         'SELECT cp.quantity, p.*,
                                 COALESCE(pc.slug, c.slug) AS category_slug,
                                 c.default_discount, c.default_markup AS category_default_markup,
-                                pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup
+                                c.markup_override AS category_markup_override,
+                                pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup,
+                                pc.markup_override AS parent_markup_override
                          FROM combo_products cp
                          JOIN products p ON p.id = cp.product_id
                          JOIN categories c ON c.id = p.category_id
@@ -613,7 +619,9 @@ final class QuoteController extends Controller
                 $p = $db->fetch(
                     'SELECT p.*, COALESCE(pc.slug, c.slug) AS category_slug, c.default_discount,
                             c.default_markup AS category_default_markup,
-                            pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup
+                            c.markup_override AS category_markup_override,
+                            pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup,
+                            pc.markup_override AS parent_markup_override
                      FROM products p
                      JOIN categories c ON c.id = p.category_id
                      LEFT JOIN categories pc ON c.parent_id = pc.id

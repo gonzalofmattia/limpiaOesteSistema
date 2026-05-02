@@ -23,8 +23,12 @@ $catsJson = json_encode(array_map(function ($c) {
         'effective_slug' => $eff,
         'default_discount' => (float) $c['default_discount'],
         'default_markup' => $c['default_markup'],
+        'markup_override' => isset($c['markup_override']) && $c['markup_override'] !== null && $c['markup_override'] !== ''
+            ? (float) $c['markup_override'] : null,
         'parent_discount' => !empty($c['parent_slug']) && isset($c['parent_default_discount']) ? (float) $c['parent_default_discount'] : null,
         'parent_default_markup' => !empty($c['parent_slug']) ? $c['parent_default_markup'] : null,
+        'parent_markup_override' => !empty($c['parent_slug']) && isset($c['parent_markup_override']) && $c['parent_markup_override'] !== null && $c['parent_markup_override'] !== ''
+            ? (float) $c['parent_markup_override'] : null,
     ];
 }, $categories), JSON_UNESCAPED_UNICODE);
 
@@ -114,6 +118,14 @@ window.__productFormCfg = {
                     <label class="block text-sm font-medium text-gray-700 mb-1">Presentación</label>
                     <input type="text" name="presentation" value="<?= e($p['presentation'] ?? '') ?>"
                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                </div>
+                <div class="sm:col-span-2">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Presentación minorista</label>
+                    <input type="text" name="presentacion_minorista" maxlength="50"
+                           value="<?= e($p['presentacion_minorista'] ?? '') ?>"
+                           placeholder="ej: Bidón 5L, Aerosol 360ml, Crema 500ml"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                    <p class="text-xs text-gray-500 mt-1">Cómo se muestra en la lista de precios minorista. Si está vacío se usa la presentación estándar.</p>
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Unidades por caja</label>
@@ -570,8 +582,10 @@ function productForm() {
             if (cat) {
                 body.default_discount = cat.default_discount;
                 body.category_default_markup = cat.default_markup;
+                if (cat.markup_override != null && cat.markup_override !== '') body.category_markup_override = cat.markup_override;
                 if (cat.parent_discount != null) body.parent_discount = cat.parent_discount;
                 if (cat.parent_default_markup != null && cat.parent_default_markup !== '') body.parent_default_markup = cat.parent_default_markup;
+                if (cat.parent_markup_override != null && cat.parent_markup_override !== '') body.parent_markup_override = cat.parent_markup_override;
             }
             try {
                 const res = await fetch(window.appUrl('/api/pricing/preview'), {
