@@ -18,7 +18,7 @@ final class SeiqOrderBuilder
             'SELECT q.*, c.name AS client_name
              FROM quotes q
              LEFT JOIN clients c ON q.client_id = c.id
-             WHERE q.status = \'accepted\'
+             WHERE q.status IN (\'accepted\', \'partially_delivered\')
              ORDER BY q.created_at'
         );
         if ($accepted === []) {
@@ -78,7 +78,7 @@ final class SeiqOrderBuilder
         if ($quoteIds === []) {
             return [];
         }
-        $unitsByQuote = QuoteDeliveryStock::unitsByProductForQuotes($db, $quoteIds);
+        $unitsByQuote = QuoteDeliveryStock::pendingUnitsByProductForQuotes($db, $quoteIds);
         if ($unitsByQuote === []) {
             return [];
         }
@@ -140,7 +140,7 @@ final class SeiqOrderBuilder
      */
     private static function buildDemandDetailsByProduct(Database $db, array $quoteIds, array $acceptedById): array
     {
-        $rows = QuoteDeliveryStock::demandBreakdownForQuotes($db, $quoteIds);
+        $rows = QuoteDeliveryStock::pendingDemandBreakdownForQuotes($db, $quoteIds);
         if ($rows === []) {
             return [];
         }
@@ -189,7 +189,46 @@ final class SeiqOrderBuilder
      *   total_boxes: int
      * }
      */
-    public static function consolidate(array $items): array
+    /**
+     * Compromisos reales por producto (unidades) desde quote_items y estados accepted / partially_delivered.
+     *
+     * @return array<int, int> product_id => unidades comprometidas pendientes
+     */
+    private static function calculateRealCommitments(Database $db): array
+    {
+        $rows = $db->fetchAll(
+            "SELECT id FROM quotes WHERE status IN ('accepted', 'partially_delivered')"
+        );
+        $quoteIds = [];
+        foreach ($rows as $r) {
+            $id = (int) ($r['id'] ?? 0);
+            if ($id > 0) {
+                $quoteIds[] = $id;
+            }
+        }
+        if ($quoteIds === []) {
+            return [];
+        }
+        $byQuote = QuoteDeliveryStock::pendingUnitsByProductForQuotes($db, $quoteIds);
+        $merged = [];
+        foreach ($byQuote as $qItems) {
+            foreach ($qItems as $pid => $u) {
+                $pid = (int) $pid;
+                $u = (int) $u;
+                if ($pid <= 0 || $u <= 0) {
+                    continue;
+                }
+                $merged[$pid] = ($merged[$pid] ?? 0) + $u;
+            }
+        }
+
+        return $merged;
+    }
+
+    /**
+     * @param array<int, int> $realCommitments product_id => unidades comprometidas reales (pendientes)
+     */
+    public static function consolidate(array $items, array $realCommitments): array
     {
         $consolidated = [];
 
@@ -242,7 +281,9 @@ final class SeiqOrderBuilder
             $row['units_per_box'] = $unitsPerBox;
             $totalUnits = (int) $row['qty_units_sold'] + ((int) $row['qty_boxes_sold'] * $unitsPerBox);
             $stockUnits = max(0, (int) ($row['stock_units'] ?? 0));
-            $committedUnits = max(0, (int) ($row['stock_committed_units'] ?? 0));
+            // Usar compromisos calculados en tiempo real desde quote_items
+            // en lugar de stock_committed_units que puede estar desincronizado
+            $committedUnits = max(0, (int) ($realCommitments[$row['product_id']] ?? 0));
             $stockAvailable = $stockUnits - $committedUnits;
             // El faltante real para compra debe salir del compromiso total vs stock fisico.
             // Si usamos "vendido de este lote - disponible", duplicamos el comprometido
@@ -347,7 +388,8 @@ final class SeiqOrderBuilder
             $acceptedById[(int) ($q['id'] ?? 0)] = $q;
         }
         $demandDetailsByProduct = self::buildDemandDetailsByProduct($db, $quoteIds, $acceptedById);
-        $bundle = self::consolidate($items);
+        $realCommitments = self::calculateRealCommitments($db);
+        $bundle = self::consolidate($items, $realCommitments);
         foreach ($bundle['consolidated'] as &$row) {
             $pid = (int) ($row['product_id'] ?? 0);
             $row['demand_details'] = $demandDetailsByProduct[$pid] ?? [];

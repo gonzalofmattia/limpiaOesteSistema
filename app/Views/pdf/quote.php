@@ -1,6 +1,8 @@
 <?php
 /** @var array<string,mixed> $quote */
 /** @var list<array<string,mixed>> $items */
+/** @var array<int, list<array<string,mixed>>> $comboComponents */
+$comboComponents = $comboComponents ?? [];
 $wa = setting('empresa_whatsapp', '');
 $ig = setting('empresa_instagram', '');
 $logoPath = defined('PUBLIC_PATH') ? realpath(PUBLIC_PATH . '/assets/img/logoLimpiaOeste.png') : false;
@@ -54,6 +56,7 @@ $leyendaIvaPdf = priceIvaLegendLine(!empty($quote['include_iva']));
         <tbody>
             <?php foreach ($items as $it): ?>
                 <?php $isCombo = (int) ($it['combo_id'] ?? 0) > 0; ?>
+                <?php $lineId = (int) ($it['id'] ?? 0); ?>
                 <tr>
                     <td><?= $isCombo ? htmlspecialchars((string) ($it['combo_name'] ?? 'Combo')) : htmlspecialchars((string) ($it['code'] ?? '')) . ' — ' . htmlspecialchars((string) ($it['name'] ?? '')) ?></td>
                     <td><?= $isCombo ? 'Combo' : htmlspecialchars(quoteItemDetalleDisplay($it)) ?></td>
@@ -62,6 +65,16 @@ $leyendaIvaPdf = priceIvaLegendLine(!empty($quote['include_iva']));
                     <td class="right">$ <?= number_format((float) $it['unit_price'], 2, ',', '.') ?></td>
                     <td class="right">$ <?= number_format((float) $it['subtotal'], 2, ',', '.') ?></td>
                 </tr>
+                <?php if ($isCombo && $lineId > 0 && !empty($comboComponents[$lineId])): ?>
+                    <?php foreach ($comboComponents[$lineId] as $sub): ?>
+                        <tr>
+                            <td colspan="6" style="font-size:9px;color:#6B7280;padding-left:18px;padding-top:2px;padding-bottom:2px;border-bottom:1px solid #e5e7eb;">
+                                · <?= htmlspecialchars((string) ($sub['name'] ?? '')) ?>
+                                <span style="color:#9CA3AF;">×<?= (int) ($sub['quantity'] ?? 1) ?></span>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php endif; ?>
             <?php endforeach; ?>
         </tbody>
     </table>

@@ -156,14 +156,142 @@ final class QuoteController extends Controller
             $quoteAttachments = [];
             $invoiceAttachmentCount = 0;
         }
+        $comboComponents = $this->comboComponentsMapForQuoteItems($db, $items);
+        $pendingItems = [];
+        if ((string) ($quote['status'] ?? '') === 'partially_delivered') {
+            $qid = (int) $id;
+            $pendingItems = $db->fetchAll(
+                'SELECT u.name, u.presentation, u.pendiente, u.tipo, u.combo_nombre FROM (
+                    SELECT p.name,
+                           TRIM(CONCAT(TRIM(IFNULL(p.presentation, \'\')), \' \', TRIM(IFNULL(p.content, \'\')))) AS presentation,
+                           GREATEST(0, FLOOR(CAST(qi.quantity AS DECIMAL(12,4)) - CAST(COALESCE(qi.qty_delivered, 0) AS DECIMAL(12,4)) + 0.0001)) AS pendiente,
+                           \'producto\' AS tipo,
+                           NULL AS combo_nombre
+                    FROM quote_items qi
+                    JOIN products p ON p.id = qi.product_id
+                    WHERE qi.quote_id = ?
+                      AND COALESCE(qi.combo_id, 0) = 0
+                      AND CAST(qi.quantity AS DECIMAL(12,4)) > CAST(COALESCE(qi.qty_delivered, 0) AS DECIMAL(12,4)) + 0.0001
+                    UNION ALL
+                    SELECT p.name,
+                           TRIM(CONCAT(TRIM(IFNULL(p.presentation, \'\')), \' \', TRIM(IFNULL(p.content, \'\')))) AS presentation,
+                           GREATEST(
+                             0,
+                             FLOOR(CAST(qi.quantity AS DECIMAL(12,4)) * cp.quantity + 0.0001)
+                             - FLOOR(CAST(COALESCE(qi.qty_delivered, 0) AS DECIMAL(12,4)) * cp.quantity + 0.0001)
+                           ) AS pendiente,
+                           \'combo_componente\' AS tipo,
+                           c.name AS combo_nombre
+                    FROM quote_items qi
+                    JOIN combos c ON c.id = qi.combo_id
+                    JOIN combo_products cp ON cp.combo_id = qi.combo_id
+                    JOIN products p ON p.id = cp.product_id
+                    WHERE qi.quote_id = ?
+                      AND qi.combo_id IS NOT NULL AND qi.combo_id > 0
+                      AND GREATEST(
+                            0,
+                            FLOOR(CAST(qi.quantity AS DECIMAL(12,4)) * cp.quantity + 0.0001)
+                            - FLOOR(CAST(COALESCE(qi.qty_delivered, 0) AS DECIMAL(12,4)) * cp.quantity + 0.0001)
+                          ) > 0
+                ) u
+                ORDER BY CASE u.tipo WHEN \'combo_componente\' THEN 0 ELSE 1 END, u.combo_nombre, u.name',
+                [$qid, $qid]
+            );
+        }
         $this->view('quotes/preview', [
             'title' => 'Presupuesto ' . $quote['quote_number'],
             'quote' => $quote,
             'items' => $items,
+            'comboComponents' => $comboComponents,
+            'pendingItems' => $pendingItems,
             'readonly' => false,
             'quoteAttachments' => $quoteAttachments,
             'invoiceAttachmentCount' => $invoiceAttachmentCount,
         ]);
+    }
+
+    public function apiItemsExplotados(string $id): void
+    {
+        $db = Database::getInstance();
+        $quoteId = (int) $id;
+        $exists = $db->fetch('SELECT id FROM quotes WHERE id = ?', [$quoteId]);
+        if ($exists === null) {
+            $this->json(['error' => 'No encontrado'], 404);
+            return;
+        }
+        $lines = $db->fetchAll(
+            'SELECT qi.*, p.code, p.name AS product_name, p.presentation, p.content, cmb.name AS combo_name
+             FROM quote_items qi
+             LEFT JOIN products p ON p.id = qi.product_id
+             LEFT JOIN combos cmb ON cmb.id = qi.combo_id
+             WHERE qi.quote_id = ?
+             ORDER BY qi.sort_order, qi.id',
+            [$quoteId]
+        );
+        $items = [];
+        foreach ($lines as $qi) {
+            $comboId = (int) ($qi['combo_id'] ?? 0);
+            if ($comboId > 0) {
+                $rows = $db->fetchAll(
+                    'SELECT cp.id, cp.quantity AS qty_por_combo, p.id AS product_id, p.name AS producto_nombre,
+                            p.presentation, p.content
+                     FROM combo_products cp
+                     JOIN products p ON p.id = cp.product_id
+                     WHERE cp.combo_id = ?
+                     ORDER BY cp.id ASC',
+                    [$comboId]
+                );
+                $qtyCombo = (float) ($qi['quantity'] ?? 0);
+                $qdelCombo = (float) ($qi['qty_delivered'] ?? 0);
+                foreach ($rows as $cp) {
+                    $qpc = max(1, (int) ($cp['qty_por_combo'] ?? 1));
+                    $cantTotal = round($qtyCombo * $qpc, 2);
+                    $qtyDel = $qtyCombo > 1e-9
+                        ? round(($qdelCombo / $qtyCombo) * $qpc, 2)
+                        : 0.0;
+                    $pend = max(0.0, round($cantTotal - $qtyDel, 2));
+                    $pendEntero = max(0, (int) floor($pend + 1e-9));
+                    $pres = trim(trim((string) ($cp['presentation'] ?? '')) . ' ' . trim((string) ($cp['content'] ?? '')));
+                    $items[] = [
+                        'quote_item_id' => (int) ($qi['id'] ?? 0),
+                        'tipo' => 'combo_componente',
+                        'combo_nombre' => (string) ($qi['combo_name'] ?? ''),
+                        'nombre' => (string) ($cp['producto_nombre'] ?? ''),
+                        'presentacion' => trim($pres),
+                        'cantidad_total' => $cantTotal,
+                        'qty_delivered' => $qtyDel,
+                        'pendiente' => $pend,
+                        'pendiente_entero' => $pendEntero,
+                        'combo_id' => $comboId,
+                        'product_id' => (int) ($cp['product_id'] ?? 0),
+                    ];
+                }
+                continue;
+            }
+            $pid = (int) ($qi['product_id'] ?? 0);
+            if ($pid <= 0) {
+                continue;
+            }
+            $qtyTotal = (float) ($qi['quantity'] ?? 0);
+            $qtyDel = (float) ($qi['qty_delivered'] ?? 0);
+            $pend = max(0.0, round($qtyTotal - $qtyDel, 2));
+            $pendEntero = max(0, (int) floor($pend + 1e-9));
+            $pres = trim(trim((string) ($qi['presentation'] ?? '')) . ' ' . trim((string) ($qi['content'] ?? '')));
+            $nombre = trim((string) ($qi['code'] ?? '') . ' — ' . (string) ($qi['product_name'] ?? ''));
+            $items[] = [
+                'quote_item_id' => (int) ($qi['id'] ?? 0),
+                'tipo' => 'producto',
+                'nombre' => $nombre,
+                'presentacion' => trim($pres),
+                'cantidad_total' => round($qtyTotal, 2),
+                'qty_delivered' => round($qtyDel, 2),
+                'pendiente' => $pend,
+                'pendiente_entero' => $pendEntero,
+                'combo_id' => null,
+                'product_id' => $pid,
+            ];
+        }
+        $this->json(['items' => $items]);
     }
 
     public function edit(string $id): void
@@ -272,7 +400,7 @@ final class QuoteController extends Controller
             redirect('/presupuestos/' . $id);
         }
         $status = (string) $this->input('status', '');
-        $allowed = ['draft', 'sent', 'accepted', 'rejected', 'expired', 'delivered'];
+        $allowed = ['draft', 'sent', 'accepted', 'rejected', 'expired', 'delivered', 'partially_delivered'];
         if (!in_array($status, $allowed, true)) {
             flash('error', 'Estado inválido.');
             redirect('/presupuestos/' . $id);
@@ -297,8 +425,11 @@ final class QuoteController extends Controller
         $pdo = $db->getPdo();
         $pdo->beginTransaction();
         try {
-            if ($oldStatus === 'accepted' && $status !== 'accepted' && $status !== 'delivered') {
+            if ($oldStatus === 'accepted' && $status !== 'accepted' && $status !== 'delivered' && $status !== 'partially_delivered') {
                 QuoteDeliveryStock::releaseCommittedStock($db, (int) $id);
+            }
+            if ($oldStatus === 'partially_delivered' && $status !== 'partially_delivered' && $status !== 'delivered') {
+                QuoteDeliveryStock::releaseRemainingCommittedStock($db, (int) $id);
             }
             if ($oldStatus === 'delivered' && $status !== 'delivered' && $deliveryApplied) {
                 QuoteDeliveryStock::reverseDelivery($db, (int) $id);
@@ -308,7 +439,11 @@ final class QuoteController extends Controller
                 QuoteDeliveryStock::commitStock($db, (int) $id);
             }
             if ($status === 'delivered' && $oldStatus !== 'delivered' && !$deliveryApplied) {
-                QuoteDeliveryStock::markDelivered($db, (int) $id);
+                if ($oldStatus === 'partially_delivered') {
+                    QuoteDeliveryStock::markRemainingDeliveredFromPartial($db, (int) $id);
+                } else {
+                    QuoteDeliveryStock::markDelivered($db, (int) $id);
+                }
                 $extra['delivery_stock_applied'] = 1;
             }
 
@@ -346,7 +481,7 @@ final class QuoteController extends Controller
             }
 
             if ($hasAccountTable
-                && in_array($oldStatus, ['accepted', 'delivered'], true)
+                && in_array($oldStatus, ['accepted', 'delivered', 'partially_delivered'], true)
                 && in_array($status, ['draft', 'rejected'], true)) {
                 $db->query(
                     "DELETE FROM account_transactions
@@ -368,6 +503,64 @@ final class QuoteController extends Controller
         redirect('/presupuestos/' . $id);
     }
 
+    public function partialDelivery(string $id): void
+    {
+        if (!verifyCsrf()) {
+            flash('error', 'Token inválido.');
+            redirect('/presupuestos/' . $id);
+        }
+        $quoteId = (int) $id;
+        $db = Database::getInstance();
+        $quote = $db->fetch('SELECT id, status FROM quotes WHERE id = ?', [$quoteId]);
+        if (!$quote) {
+            flash('error', 'Presupuesto no encontrado.');
+            redirect('/presupuestos');
+            return;
+        }
+        $st = (string) ($quote['status'] ?? '');
+        if (!in_array($st, ['accepted', 'partially_delivered'], true)) {
+            flash('error', 'Solo se puede registrar entrega parcial con el presupuesto aceptado o en entrega parcial.');
+            redirect('/presupuestos/' . $id);
+            return;
+        }
+        $rawItems = $_POST['items'] ?? [];
+        if (!is_array($rawItems)) {
+            flash('error', 'Datos inválidos.');
+            redirect('/presupuestos/' . $id);
+            return;
+        }
+        if ($rawItems === []) {
+            flash('info', 'No se registró entrega.');
+            redirect('/presupuestos/' . $id);
+            return;
+        }
+        try {
+            $deliveredQtys = $this->convertExplodedPartialPostToDeliveredQtys($db, $quoteId, $rawItems);
+        } catch (\InvalidArgumentException $e) {
+            flash('error', $e->getMessage());
+            redirect('/presupuestos/' . $id);
+            return;
+        }
+        if ($deliveredQtys === []) {
+            flash('info', 'No se indicaron cantidades a entregar; no se registró entrega.');
+            redirect('/presupuestos/' . $id);
+            return;
+        }
+        $pdo = $db->getPdo();
+        $pdo->beginTransaction();
+        try {
+            QuoteDeliveryStock::markPartialDelivery($db, $quoteId, $deliveredQtys);
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            flash('error', 'No se pudo registrar la entrega parcial: ' . $e->getMessage());
+            redirect('/presupuestos/' . $id);
+            return;
+        }
+        flash('success', 'Entrega parcial registrada.');
+        redirect('/presupuestos/' . $id);
+    }
+
     public function delete(string $id): void
     {
         if (!verifyCsrf()) {
@@ -386,8 +579,12 @@ final class QuoteController extends Controller
 
         $db->getPdo()->beginTransaction();
         try {
-            if ((string) ($quote['status'] ?? '') === 'accepted') {
+            $qst = (string) ($quote['status'] ?? '');
+            if ($qst === 'accepted') {
                 QuoteDeliveryStock::releaseCommittedStock($db, $quoteId);
+            } elseif ($qst === 'partially_delivered') {
+                QuoteDeliveryStock::releaseRemainingCommittedStock($db, $quoteId);
+                QuoteDeliveryStock::reversePartialDeliveriesPhysical($db, $quoteId);
             }
             try {
                 $hasAttach = (bool) $db->fetchColumn("SHOW TABLES LIKE 'quote_attachments'");
@@ -776,9 +973,154 @@ final class QuoteController extends Controller
         return sprintf('%s%04d', $prefix, $n + 1);
     }
 
+    /**
+     * Componentes de combo por id de línea de presupuesto (solo líneas con combo_id).
+     *
+     * @param list<array<string,mixed>> $items
+     * @return array<int, list<array<string,mixed>>>
+     */
+    private function comboComponentsMapForQuoteItems(Database $db, array $items): array
+    {
+        $map = [];
+        foreach ($items as $item) {
+            $cid = (int) ($item['combo_id'] ?? 0);
+            if ($cid <= 0) {
+                continue;
+            }
+            $iid = (int) ($item['id'] ?? 0);
+            if ($iid <= 0) {
+                continue;
+            }
+            $map[$iid] = $db->fetchAll(
+                'SELECT cp.quantity, p.name, p.presentation, p.content
+                 FROM combo_products cp
+                 JOIN products p ON p.id = cp.product_id
+                 WHERE cp.combo_id = ?
+                 ORDER BY cp.id ASC',
+                [$cid]
+            );
+        }
+
+        return $map;
+    }
+
+    /**
+     * Convierte POST items[quote_item_id][product_id] (explosión) a cantidades por línea para markPartialDelivery.
+     *
+     * @param array<int|string, mixed> $rawItems
+     * @return array<int, float> quote_item_id => cantidad a sumar en unidades de línea (combo o producto)
+     */
+    private function convertExplodedPartialPostToDeliveredQtys(Database $db, int $quoteId, array $rawItems): array
+    {
+        $nested = false;
+        foreach ($rawItems as $v) {
+            if (is_array($v)) {
+                $nested = true;
+                break;
+            }
+        }
+        $lines = $db->fetchAll(
+            'SELECT id, combo_id, product_id, quantity, qty_delivered FROM quote_items WHERE quote_id = ?',
+            [$quoteId]
+        );
+        $lineById = [];
+        foreach ($lines as $ln) {
+            $lineById[(int) $ln['id']] = $ln;
+        }
+        if (!$nested) {
+            $out = [];
+            foreach ($rawItems as $key => $val) {
+                $itemId = (int) $key;
+                if ($itemId <= 0 || !isset($lineById[$itemId])) {
+                    continue;
+                }
+                $addQty = (int) max(0, (int) floor((float) str_replace(',', '.', trim((string) $val)) + 1e-9));
+                if ($addQty <= 0) {
+                    continue;
+                }
+                $ln = $lineById[$itemId];
+                $maxAdd = max(0, (int) floor((float) $ln['quantity'] - (float) ($ln['qty_delivered'] ?? 0) + 1e-9));
+                if ($addQty > $maxAdd) {
+                    throw new \InvalidArgumentException('Alguna cantidad supera lo pendiente de entregar en una línea.');
+                }
+                $out[$itemId] = (float) $addQty;
+            }
+
+            return $out;
+        }
+        $out = [];
+        foreach ($rawItems as $itemKey => $inner) {
+            if (!is_array($inner)) {
+                continue;
+            }
+            $itemId = (int) $itemKey;
+            if ($itemId <= 0 || !isset($lineById[$itemId])) {
+                continue;
+            }
+            $line = $lineById[$itemId];
+            $comboId = (int) ($line['combo_id'] ?? 0);
+            if ($comboId <= 0) {
+                $pidLine = (int) ($line['product_id'] ?? 0);
+                $raw = null;
+                if ($pidLine > 0) {
+                    $raw = $inner[(string) $pidLine] ?? $inner[$pidLine] ?? null;
+                }
+                if ($raw === null) {
+                    $raw = $inner['0'] ?? $inner[0] ?? null;
+                }
+                if ($raw === null) {
+                    foreach ($inner as $v) {
+                        if (!is_array($v)) {
+                            $raw = $v;
+                            break;
+                        }
+                    }
+                }
+                $addQty = (int) max(0, (int) floor((float) str_replace(',', '.', trim((string) ($raw ?? '0'))) + 1e-9));
+                if ($addQty <= 0) {
+                    continue;
+                }
+                $maxAdd = max(0, (int) floor((float) $line['quantity'] - (float) ($line['qty_delivered'] ?? 0) + 1e-9));
+                if ($addQty > $maxAdd) {
+                    throw new \InvalidArgumentException('Alguna cantidad supera lo pendiente de entregar en una línea.');
+                }
+                $out[$itemId] = (float) $addQty;
+                continue;
+            }
+            $cps = $db->fetchAll(
+                'SELECT product_id, quantity FROM combo_products WHERE combo_id = ? ORDER BY id ASC',
+                [$comboId]
+            );
+            if ($cps === []) {
+                continue;
+            }
+            $qtyLine = (float) ($line['quantity'] ?? 0);
+            $qtyDelLine = (float) ($line['qty_delivered'] ?? 0);
+            $maxComboAdd = max(0.0, round($qtyLine - $qtyDelLine, 2));
+            $ratios = [];
+            foreach ($cps as $cp) {
+                $pid = (int) $cp['product_id'];
+                $perCombo = max(1, (int) ($cp['quantity'] ?? 1));
+                $rawSent = str_replace(',', '.', trim((string) ($inner[(string) $pid] ?? $inner[$pid] ?? '0')));
+                $sent = (int) max(0, (int) floor((float) $rawSent + 1e-9));
+                $ratios[] = $sent / $perCombo;
+            }
+            $qtyCombo = min($ratios);
+            $qtyCombo = round($qtyCombo, 2);
+            $qtyCombo = min($qtyCombo, $maxComboAdd);
+            if ($qtyCombo <= 0) {
+                continue;
+            }
+            $out[$itemId] = $qtyCombo;
+        }
+
+        return $out;
+    }
+
     /** @param array<string,mixed> $quote @param list<array<string,mixed>> $items */
     private function renderQuotePdf(array $quote, array $items): string
     {
+        $comboComponents = $this->comboComponentsMapForQuoteItems(Database::getInstance(), $items);
         ob_start();
         require APP_PATH . '/Views/pdf/quote.php';
         $html = ob_get_clean();

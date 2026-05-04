@@ -5,13 +5,17 @@
 ?>
 <div class="max-w-6xl space-y-6">
     <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-        <p class="text-sm font-medium text-gray-800">Presupuestos aceptados incluidos: <?= count($acceptedQuotes) ?></p>
+        <p class="text-sm font-medium text-gray-800">Presupuestos incluidos (aceptados o con entrega parcial pendiente): <?= count($acceptedQuotes) ?></p>
         <ul class="mt-2 space-y-1 text-sm text-gray-700 list-disc list-inside">
             <?php foreach ($acceptedQuotes as $q): ?>
+                <?php $qst = (string) ($q['status'] ?? ''); ?>
                 <li>
                     <span class="font-mono"><?= e($q['quote_number']) ?></span>
                     — <?= e($q['client_name'] ?? '—') ?>
                     (<span class="whitespace-nowrap"><?= formatPrice((float) $q['total']) ?></span>)
+                    <?php if ($qst === 'partially_delivered'): ?>
+                        <span class="ml-1 inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium bg-sky-100 text-sky-900">Entrega parcial</span>
+                    <?php endif; ?>
                 </li>
             <?php endforeach; ?>
         </ul>

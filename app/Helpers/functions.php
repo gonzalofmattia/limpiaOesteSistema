@@ -310,6 +310,7 @@ function statusLabel(string $status): string
         'rejected' => 'Rechazado',
         'expired' => 'Vencido',
         'delivered' => 'Entregado',
+        'partially_delivered' => 'Entrega parcial',
         'active' => 'Activo',
         'inactive' => 'Inactivo',
         'pending' => 'Pendiente',
@@ -328,6 +329,7 @@ function statusBadgeClass(string $status): string
         'rejected', 'cancelled' => 'bg-red-100 text-red-800',
         'expired', 'pending' => 'bg-amber-100 text-amber-800',
         'delivered' => 'bg-emerald-100 text-emerald-800',
+        'partially_delivered' => 'bg-sky-100 text-sky-900',
         default => 'bg-gray-100 text-gray-700',
     };
 }

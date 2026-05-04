@@ -71,12 +71,12 @@ final class SeiqOrderController extends Controller
         }
         $built = SeiqOrderBuilder::buildFromDatabase($db);
         if ($built['error'] === 'empty') {
-            flash('info', 'No hay presupuestos aceptados para generar pedido.');
+            flash('info', 'No hay presupuestos aceptados ni con entrega parcial pendiente para generar pedido.');
             redirect('/pedidos-proveedor');
             return;
         }
         if ($built['error'] === 'no_items') {
-            flash('info', 'Los presupuestos aceptados no tienen ítems.');
+            flash('info', 'Los presupuestos incluidos no tienen unidades pendientes para pedir.');
             redirect('/pedidos-proveedor');
             return;
         }

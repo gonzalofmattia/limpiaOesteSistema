@@ -80,6 +80,51 @@ final class DashboardController extends Controller
         $pendingDeliveryAmount = (float) $db->fetchColumn(
             "SELECT COALESCE(SUM(total),0) FROM quotes WHERE status = 'accepted'"
         );
+        $pendingDeliveryCountAll = (int) $db->fetchColumn(
+            "SELECT COUNT(*) FROM quotes WHERE status IN ('accepted', 'partially_delivered')"
+        );
+        $pendingDeliveryAmountAll = (float) $db->fetchColumn(
+            "SELECT COALESCE(SUM(total),0) FROM quotes WHERE status IN ('accepted', 'partially_delivered')"
+        );
+        $pendingDeliveryPartialCount = (int) $db->fetchColumn(
+            "SELECT COUNT(*) FROM quotes WHERE status = 'partially_delivered'"
+        );
+        $pendingDeliveryAcceptedCount = (int) $db->fetchColumn(
+            "SELECT COUNT(*) FROM quotes WHERE status = 'accepted'"
+        );
+
+        $partialDeliveries = $db->fetchAll(
+            "SELECT 
+                q.id,
+                q.quote_number,
+                c.name AS client_name,
+                GROUP_CONCAT(
+                    CASE 
+                        WHEN qi.product_id IS NOT NULL 
+                        AND (qi.quantity - qi.qty_delivered) > 0
+                        THEN p.name
+                    END
+                    ORDER BY p.name SEPARATOR ', '
+                ) AS productos_pendientes_directos,
+                GROUP_CONCAT(
+                    CASE
+                        WHEN qi.combo_id IS NOT NULL
+                        AND (qi.quantity - qi.qty_delivered) > 0
+                        THEN CONCAT(cb.name, ': ', p2.name)
+                    END
+                    ORDER BY cb.name, p2.name SEPARATOR ', '
+                ) AS productos_pendientes_combos
+            FROM quotes q
+            JOIN clients c ON c.id = q.client_id
+            LEFT JOIN quote_items qi ON qi.quote_id = q.id
+            LEFT JOIN products p ON p.id = qi.product_id AND qi.product_id IS NOT NULL
+            LEFT JOIN combos cb ON cb.id = qi.combo_id
+            LEFT JOIN combo_products cp ON cp.combo_id = qi.combo_id
+            LEFT JOIN products p2 ON p2.id = cp.product_id
+            WHERE q.status = 'partially_delivered'
+            GROUP BY q.id, q.quote_number, c.name
+            ORDER BY q.updated_at ASC"
+        );
 
         $months = [];
         for ($i = 5; $i >= 0; $i--) {
@@ -175,6 +220,11 @@ final class DashboardController extends Controller
             'clientsWithDebt' => $clientsWithDebt,
             'pendingDeliveryCount' => $pendingDeliveryCount,
             'pendingDeliveryAmount' => $pendingDeliveryAmount,
+            'pendingDeliveryCountAll' => $pendingDeliveryCountAll,
+            'pendingDeliveryAmountAll' => $pendingDeliveryAmountAll,
+            'pendingDeliveryPartialCount' => $pendingDeliveryPartialCount,
+            'pendingDeliveryAcceptedCount' => $pendingDeliveryAcceptedCount,
+            'partialDeliveries' => $partialDeliveries,
             'supplierDebts' => $supplierDebts,
             'deliveredMonthNet' => $mainSalesAmount,
             'deliveredMonthCost' => $mainCostEstimated,

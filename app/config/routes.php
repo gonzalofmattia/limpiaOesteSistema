@@ -67,6 +67,7 @@ return [
     ['GET', 'presupuestos/{id}/pdf', 'QuoteController@downloadPdf', []],
     ['POST', 'presupuestos/{id}/eliminar', 'QuoteController@delete', []],
     ['POST', 'presupuestos/{id}/status', 'QuoteController@changeStatus', []],
+    ['POST', 'presupuestos/{id}/partial-delivery', 'QuoteController@partialDelivery', []],
     ['GET', 'presupuestos/{id}/enviar-mail', 'MailController@sendForm', []],
     ['POST', 'presupuestos/{id}/enviar-mail', 'MailController@send', []],
     ['GET', 'ventas', 'SaleController@index', []],
@@ -125,6 +126,7 @@ return [
     ['GET', 'cuenta-corriente/cliente/{id}/pdf', 'AccountController@clientStatementPdf', []],
     ['GET', 'cuenta-corriente/proveedor/{id}/pdf', 'AccountController@supplierStatementPdf', []],
 
+    ['GET', 'api/presupuestos/{id}/items-explotados', 'QuoteController@apiItemsExplotados', ['public' => true]],
     ['GET', 'api/catalogo/productos/{slug}', 'ApiController@catalogProductDetail', ['public' => true]],
     ['GET', 'api/catalogo/productos', 'ApiController@catalogProducts', ['public' => true]],
     ['GET', 'api/catalogo/categorias', 'ApiController@catalogCategories', ['public' => true]],

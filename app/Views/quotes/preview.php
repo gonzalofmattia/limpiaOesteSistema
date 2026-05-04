@@ -1,4 +1,6 @@
 <?php
+$comboComponents = $comboComponents ?? [];
+$pendingItems = $pendingItems ?? [];
 $quoteAttachments = $quoteAttachments ?? [];
 $invoiceAttachmentCount = (int) ($invoiceAttachmentCount ?? 0);
 $remitos = array_values(array_filter($quoteAttachments, static fn ($a) => ($a['type'] ?? '') === 'remito'));
@@ -56,14 +58,174 @@ $quoteEditable = in_array((string) $st, ['draft', 'sent', 'accepted'], true);
     </div>
 
     <?php if (empty($readonly)): ?>
-    <form method="post" action="<?= e(url('/presupuestos/' . (int) $quote['id'] . '/status')) ?>" class="flex flex-wrap gap-2 items-center bg-white p-4 rounded-xl border border-gray-200">
-        <?= csrfField() ?>
-        <span class="text-sm text-gray-600">Cambiar estado:</span>
-        <?php foreach (['draft', 'sent', 'accepted', 'rejected', 'expired', 'delivered'] as $s): ?>
-            <button type="submit" name="status" value="<?= e($s) ?>" class="px-3 py-1 rounded-lg text-xs border border-gray-200 hover:bg-gray-50"><?= e(statusLabel($s)) ?></button>
-        <?php endforeach; ?>
-    </form>
-    <p class="text-xs text-gray-600 mt-2 mb-0">El estado <strong>delivered</strong> descuenta del <strong>stock</strong> de cada producto las unidades del presupuesto (según caja vs unidad). Si volvés a otro estado, se revierte el descuento.</p>
+    <?php
+    $canPartialDelivery = in_array((string) $st, ['accepted', 'partially_delivered'], true);
+    ?>
+    <script>
+    function partialDeliveryModal(quoteId) {
+        return {
+            open: false,
+            loading: false,
+            items: [],
+            entregados: {},
+            quoteId,
+            rowKey(it) {
+                return String(it.quote_item_id) + '_' + String(it.product_id);
+            },
+            /** Encabezado visual de grupo combo (sin fila extra: va dentro de la primera celda). */
+            showComboGroupHeader(it, idx) {
+                if (it.tipo !== 'combo_componente') {
+                    return false;
+                }
+                if (idx === 0) {
+                    return true;
+                }
+                const prev = this.items[idx - 1];
+                return prev.quote_item_id !== it.quote_item_id || prev.tipo !== 'combo_componente';
+            },
+            fmt(n) {
+                const x = Number(n);
+                if (!Number.isFinite(x)) {
+                    return '0,00';
+                }
+                return x.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            },
+            pendMax(it) {
+                const v = it.pendiente_entero;
+                if (v !== undefined && v !== null) {
+                    return Math.max(0, parseInt(String(v), 10) || 0);
+                }
+                return Math.max(0, Math.floor(Number(it.pendiente)));
+            },
+            lineComplete(it) {
+                return this.pendMax(it) <= 0;
+            },
+            async abrirModal() {
+                this.open = true;
+                this.loading = true;
+                this.items = [];
+                this.entregados = {};
+                try {
+                    const res = await fetch(window.appUrl('/api/presupuestos/' + this.quoteId + '/items-explotados'));
+                    const data = await res.json();
+                    this.items = data.items || [];
+                    this.entregados = {};
+                    this.items.forEach((it) => {
+                        const k = this.rowKey(it);
+                        this.entregados[k] = 0;
+                    });
+                } catch (e) {
+                    this.items = [];
+                } finally {
+                    this.loading = false;
+                }
+            },
+        };
+    }
+    </script>
+    <div class="space-y-3 bg-white p-4 rounded-xl border border-gray-200" x-data="partialDeliveryModal(<?= (int) $quote['id'] ?>)">
+        <div class="flex flex-wrap gap-2 items-center">
+            <form method="post" action="<?= e(url('/presupuestos/' . (int) $quote['id'] . '/status')) ?>" class="flex flex-wrap gap-2 items-center">
+                <?= csrfField() ?>
+                <span class="text-sm text-gray-600">Cambiar estado:</span>
+                <?php foreach (['draft', 'sent', 'accepted', 'rejected', 'expired', 'delivered'] as $s): ?>
+                    <button type="submit" name="status" value="<?= e($s) ?>" class="px-3 py-1 rounded-lg text-xs border border-gray-200 hover:bg-gray-50"><?= e(statusLabel($s)) ?></button>
+                <?php endforeach; ?>
+            </form>
+            <?php if ($canPartialDelivery): ?>
+                <button type="button" @click="abrirModal()" class="px-3 py-1 rounded-lg text-xs border border-sky-300 bg-sky-50 text-sky-900 hover:bg-sky-100">Entrega parcial</button>
+            <?php endif; ?>
+        </div>
+        <p class="text-xs text-gray-600 mb-0">El estado <strong>Entregado</strong> descuenta del <strong>stock</strong> de cada producto las unidades del presupuesto (según caja vs unidad). Si volvés a otro estado, se revierte el descuento. <strong>Entrega parcial</strong> permite descontar por etapas sin cerrar el presupuesto.</p>
+
+        <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" @keydown.escape.window="open = false" @click="open = false">
+            <div class="bg-white rounded-xl border border-gray-200 shadow-lg max-w-3xl w-full max-h-[90vh] overflow-y-auto p-4" @click.stop>
+                <div class="flex justify-between items-start gap-2 mb-3">
+                    <h3 class="text-sm font-semibold text-gray-900">Registrar entrega parcial</h3>
+                    <button type="button" class="text-gray-500 hover:text-gray-800 p-1" @click="open = false" aria-label="Cerrar">✕</button>
+                </div>
+                <div x-show="loading" class="text-sm text-gray-600 py-6 text-center">Cargando…</div>
+                <form x-show="!loading" method="post" action="<?= e(url('/presupuestos/' . (int) $quote['id'] . '/partial-delivery')) ?>" class="space-y-4">
+                    <?= csrfField() ?>
+                    <div class="overflow-x-auto rounded-lg border border-gray-200">
+                        <table class="min-w-full text-sm">
+                            <thead class="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs">
+                                <tr>
+                                    <th class="text-left px-3 py-2">Producto</th>
+                                    <th class="text-left px-3 py-2">Presentación</th>
+                                    <th class="text-right px-3 py-2">Cant. total</th>
+                                    <th class="text-right px-3 py-2">Ya entregado</th>
+                                    <th class="text-right px-3 py-2">A entregar ahora</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+                                <template x-for="(it, idx) in items" :key="String(it.quote_item_id) + '-' + String(it.product_id) + '-' + idx">
+                                    <tr :class="lineComplete(it) ? 'bg-gray-50 text-gray-400' : ''">
+                                        <td class="px-3 py-2 align-top" :class="lineComplete(it) ? 'line-through' : ''">
+                                            <div x-show="showComboGroupHeader(it, idx)" class="text-xs text-gray-500 font-medium mb-1" x-text="it.combo_nombre"></div>
+                                            <div x-text="it.nombre"></div>
+                                        </td>
+                                        <td class="px-3 py-2 text-gray-600 text-xs max-w-[140px] align-top" :class="lineComplete(it) ? 'line-through' : ''" x-text="it.presentacion || '—'"></td>
+                                        <td class="px-3 py-2 text-right tabular-nums align-top" x-text="fmt(it.cantidad_total)"></td>
+                                        <td class="px-3 py-2 text-right tabular-nums align-top" x-text="fmt(it.qty_delivered)"></td>
+                                        <td class="px-3 py-2 text-right align-top overflow-hidden max-w-[6rem]">
+                                            <input type="hidden" value="0" :name="'items[' + it.quote_item_id + '][' + it.product_id + ']'">
+                                            <input type="number"
+                                                   min="0"
+                                                   step="1"
+                                                   :readonly="lineComplete(it)"
+                                                   :max="pendMax(it)"
+                                                   class="w-20 min-w-0 max-w-full border border-gray-300 rounded-lg px-1 py-1 text-center text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                   :class="lineComplete(it) ? 'bg-gray-100 text-gray-400 border-gray-200' : ''"
+                                                   x-model.number="entregados[String(it.quote_item_id) + '_' + String(it.product_id)]"
+                                                   :name="'items[' + it.quote_item_id + '][' + it.product_id + ']'">
+                                            <p x-show="lineComplete(it)" class="text-xs text-gray-400 mt-0.5">Completo</p>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="flex flex-wrap gap-2 justify-end">
+                        <button type="button" @click="open = false" class="px-3 py-2 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50">Cancelar</button>
+                        <button type="submit" class="px-4 py-2 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium">Confirmar entrega parcial</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <?php if ((string) ($quote['status'] ?? '') === 'partially_delivered' && $pendingItems !== []): ?>
+        <div class="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm space-y-2">
+            <p class="font-semibold flex items-center gap-2">⚠ Productos pendientes de entrega</p>
+            <div class="space-y-1 pl-0.5">
+                <?php
+                $shownDirectos = false;
+                $lastComboNombre = null;
+                foreach ($pendingItems as $pi) {
+                    $tipo = (string) ($pi['tipo'] ?? '');
+                    $nombre = (string) ($pi['name'] ?? '');
+                    $comboNom = isset($pi['combo_nombre']) && $pi['combo_nombre'] !== null ? (string) $pi['combo_nombre'] : '';
+                    $pend = (int) ($pi['pendiente'] ?? 0);
+                    if ($pend <= 0 || $nombre === '') {
+                        continue;
+                    }
+                    if ($tipo === 'combo_componente') {
+                        if ($comboNom !== '' && $comboNom !== $lastComboNombre) {
+                            $lastComboNombre = $comboNom;
+                            echo '<p class="font-semibold text-amber-950 mt-2 first:mt-0">Del combo ' . e($comboNom) . ':</p>';
+                        }
+                    } elseif (!$shownDirectos) {
+                        $shownDirectos = true;
+                        echo '<p class="font-semibold text-amber-950">Productos directos:</p>';
+                    }
+                    ?>
+                    <p class="text-amber-900 pl-2">· <?= e($nombre) ?> <span class="tabular-nums">×<?= $pend ?></span></p>
+                <?php } ?>
+            </div>
+        </div>
+    <?php endif; ?>
+
     <?php endif; ?>
 
     <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
@@ -211,6 +373,7 @@ $quoteEditable = in_array((string) $st, ['draft', 'sent', 'accepted'], true);
             <tbody class="divide-y divide-gray-100">
                 <?php foreach ($items as $it): ?>
                     <?php $isCombo = (int) ($it['combo_id'] ?? 0) > 0; ?>
+                    <?php $qid = (int) ($it['id'] ?? 0); ?>
                     <tr>
                         <td class="px-4 py-2"><?= $isCombo ? e((string) ($it['combo_name'] ?? 'Combo')) : e((string) $it['code']) . ' — ' . e((string) $it['name']) ?></td>
                         <td class="px-4 py-2 text-gray-700 text-sm"><?= $isCombo ? 'Combo' : e(quoteItemDetalleDisplay($it)) ?></td>
@@ -219,6 +382,16 @@ $quoteEditable = in_array((string) $st, ['draft', 'sent', 'accepted'], true);
                         <td class="px-4 py-2 text-right"><?= formatPrice((float) $it['unit_price']) ?></td>
                         <td class="px-4 py-2 text-right font-medium"><?= formatPrice((float) $it['subtotal']) ?></td>
                     </tr>
+                    <?php if ($isCombo && !empty($comboComponents[$qid])): ?>
+                        <?php foreach ($comboComponents[$qid] as $sub): ?>
+                            <tr class="bg-gray-50/60">
+                                <td colspan="6" class="pl-6 pr-4 py-1 text-xs text-gray-500">
+                                    · <?= e((string) ($sub['name'] ?? '')) ?>
+                                    <span class="text-gray-400">×<?= (int) ($sub['quantity'] ?? 1) ?></span>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
                 <?php endforeach; ?>
             </tbody>
         </table>

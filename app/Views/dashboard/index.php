@@ -14,6 +14,46 @@ $currentMonthIndex = count($labels) > 0 ? count($labels) - 1 : 0;
         </div>
     </section>
 
+    <?php $partialDeliveries = $partialDeliveries ?? []; ?>
+    <?php if (count($partialDeliveries) > 0): ?>
+        <section class="rounded-2xl border border-orange-200 border-l-4 border-l-orange-400 bg-orange-50 p-4">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+                <h3 class="text-sm font-semibold text-orange-800">⚠️ Entregas parciales pendientes</h3>
+                <span class="inline-flex items-center rounded-full bg-orange-100 px-2.5 py-1 text-xs font-semibold text-orange-800">
+                    <?= count($partialDeliveries) ?> presupuestos
+                </span>
+            </div>
+            <div class="mt-3 space-y-2">
+                <?php foreach (array_slice($partialDeliveries, 0, 5) as $pd): ?>
+                    <?php
+                    $directos = trim((string) ($pd['productos_pendientes_directos'] ?? ''));
+                    $combos = trim((string) ($pd['productos_pendientes_combos'] ?? ''));
+                    $detalle = trim(implode(' · ', array_filter([$directos, $combos], static fn ($x): bool => $x !== '')));
+                    ?>
+                    <div class="rounded-xl border border-orange-100 bg-white/80 p-3">
+                        <div class="flex flex-wrap items-start justify-between gap-2">
+                            <div class="min-w-0">
+                                <a href="<?= e(url('/presupuestos/' . (int) ($pd['id'] ?? 0))) ?>" class="text-sm font-semibold text-[#1565C0] hover:underline">
+                                    <?= e((string) ($pd['quote_number'] ?? '')) ?>
+                                </a>
+                                <p class="text-xs text-slate-700"><?= e((string) ($pd['client_name'] ?? '—')) ?></p>
+                                <p class="mt-1 text-[11px] text-slate-500"><?= e($detalle !== '' ? $detalle : 'Sin detalle de pendientes') ?></p>
+                            </div>
+                            <a href="<?= e(url('/presupuestos/' . (int) ($pd['id'] ?? 0))) ?>" class="inline-flex items-center rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-800 hover:bg-orange-100">
+                                Registrar entrega
+                            </a>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+            <?php if (count($partialDeliveries) > 5): ?>
+                <div class="mt-3">
+                    <a href="<?= e(url('/presupuestos?status=partially_delivered')) ?>" class="text-xs font-semibold text-[#1565C0] hover:underline">Ver todos</a>
+                </div>
+            <?php endif; ?>
+        </section>
+    <?php endif; ?>
+
     <section class="space-y-3">
         <div class="flex items-center justify-between gap-3">
             <h3 class="text-sm font-semibold text-slate-700">Resumen comercial</h3>
@@ -46,9 +86,11 @@ $currentMonthIndex = count($labels) > 0 ? count($labels) - 1 : 0;
         </article>
         <article class="lo-card p-5 shadow-sm">
             <p class="text-xs uppercase tracking-wide text-slate-500">Por entregar</p>
-            <p class="mt-2 text-3xl font-semibold text-amber-600"><?= formatPrice((float) ($pendingDeliveryAmount ?? 0)) ?></p>
-            <p class="mt-1 text-xs text-slate-500"><?= (int) ($pendingDeliveryCount ?? 0) ?> presupuestos pendientes</p>
-            <p class="mt-1 text-[11px] text-slate-500">Aceptados sin entregar</p>
+            <p class="mt-2 text-3xl font-semibold text-amber-600"><?= formatPrice((float) ($pendingDeliveryAmountAll ?? 0)) ?></p>
+            <p class="mt-1 text-xs text-slate-500"><?= (int) ($pendingDeliveryCountAll ?? 0) ?> presupuestos pendientes</p>
+            <p class="mt-1 text-[11px] text-slate-500">
+                <?= (int) ($pendingDeliveryPartialCount ?? 0) ?> parciales · <?= (int) ($pendingDeliveryAcceptedCount ?? 0) ?> pendientes completos
+            </p>
         </article>
         <article class="lo-card p-5 shadow-sm">
             <p class="text-xs uppercase tracking-wide text-slate-500">Por cobrar</p>
