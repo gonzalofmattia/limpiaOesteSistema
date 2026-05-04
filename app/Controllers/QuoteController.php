@@ -550,8 +550,6 @@ final class QuoteController extends Controller
             redirect('/presupuestos/' . $id);
             return;
         }
-        // DEBUG TEMPORAL - remover después
-        error_log('PARTIAL_DELIVERY POST items: ' . json_encode($_POST['items'] ?? []));
         try {
             $deliveredQtys = $this->convertExplodedPartialPostToDeliveredQtys($db, $quoteId, $rawItems);
         } catch (\InvalidArgumentException $e) {
@@ -749,6 +747,10 @@ final class QuoteController extends Controller
 
             $subtotalNet = 0.0;
             $totalWithIva = 0.0;
+            $subtotalNetDiscountable = 0.0;
+            $subtotalNetNoDiscount = 0.0;
+            $totalWithIvaDiscountable = 0.0;
+            $totalWithIvaNoDiscount = 0.0;
             $sort = 0;
             foreach ($lines as $row) {
                 if (!is_array($row)) {
@@ -802,8 +804,8 @@ final class QuoteController extends Controller
                     $lineSub = round($comboFinalUnit * $qty, 2);
                     $lineCostUnit = round(max(0, $comboCostUnit), 2);
                     $lineCostSub = round($lineCostUnit * $qty, 2);
-                    $subtotalNet += $lineSub;
-                    $totalWithIva += $lineSub;
+                    $subtotalNetNoDiscount += $lineSub;
+                    $totalWithIvaNoDiscount += $lineSub;
                     $db->insert('quote_items', [
                         'quote_id' => $id,
                         'product_id' => null,
@@ -862,8 +864,9 @@ final class QuoteController extends Controller
                 $lineSub = round($unitPrice * $qty, 2);
                 $lineCostUnit = round((float) ($calcNet['costo'] ?? 0), 2);
                 $lineCostSub = round($lineCostUnit * $qty, 2);
-                $subtotalNet += round($calcNet['precio_venta'] * $qty, 2);
-                $totalWithIva += $lineSub;
+                $lineSubNet = round($calcNet['precio_venta'] * $qty, 2);
+                $subtotalNetDiscountable += $lineSubNet;
+                $totalWithIvaDiscountable += $lineSub;
                 $db->insert('quote_items', [
                     'quote_id' => $id,
                     'product_id' => $pid,
@@ -889,17 +892,37 @@ final class QuoteController extends Controller
                 return ['error' => 'No se pudo calcular ninguna línea válida.'];
             }
 
+            $subtotalNet = round($subtotalNetDiscountable + $subtotalNetNoDiscount, 2);
+            $totalWithIva = round($totalWithIvaDiscountable + $totalWithIvaNoDiscount, 2);
             $ivaAmount = $includeIva ? round($totalWithIva - $subtotalNet, 2) : 0.0;
             $baseTotal = $includeIva ? $totalWithIva : $subtotalNet;
-            $autoDiscount = $discountPercentage !== null ? round($baseTotal * ($discountPercentage / 100), 2) : 0.0;
-            $discountAmount = $discountAmountInput ?? $autoDiscount;
-            $discountAmount = max(0.0, min($baseTotal, round($discountAmount, 2)));
-            if ($discountAmount <= 0.0) {
+            $baseDiscountable = $includeIva ? $totalWithIvaDiscountable : $subtotalNetDiscountable;
+
+            if ($baseDiscountable <= 0.0) {
                 $discountAmount = null;
-            }
-            if ($discountPercentage !== null && $discountPercentage <= 0.0) {
+                $discountPercentage = null;
+            } elseif ($discountAmountInput !== null && $discountPercentage !== null) {
+                // Ambos vinieron del POST — mantener porcentaje del frontend, acotar monto
+                $discountAmount = max(0.0, min($baseDiscountable, round($discountAmountInput, 2)));
+                // Mantener $discountPercentage tal cual vino del POST
+            } elseif ($discountAmountInput !== null) {
+                // Solo vino monto — calcular porcentaje desde monto
+                $discountAmount = max(0.0, min($baseDiscountable, round($discountAmountInput, 2)));
+                $discountPercentage = $baseDiscountable > 0 ? round(($discountAmount / $baseDiscountable) * 100, 2) : null;
+            } elseif ($discountPercentage !== null) {
+                // Solo vino porcentaje — calcular monto desde porcentaje
+                $discountAmount = round($baseDiscountable * ($discountPercentage / 100), 2);
+                $discountAmount = max(0.0, min($baseDiscountable, $discountAmount));
+            } else {
+                $discountAmount = null;
                 $discountPercentage = null;
             }
+
+            if (($discountAmount ?? 0.0) <= 0.0) {
+                $discountAmount = null;
+                $discountPercentage = null;
+            }
+
             $total = max(0.0, round($baseTotal - (float) ($discountAmount ?? 0.0), 2));
             $db->update('quotes', [
                 'subtotal' => round($subtotalNet, 2),
@@ -961,6 +984,13 @@ final class QuoteController extends Controller
         if ($raw === '') {
             return null;
         }
+        // Si el valor viene en formato JS estándar (ej: "4502.19", "10.00")
+        // detectarlo por el patrón: dígitos, opcionalmente punto, opcionalmente decimales
+        // sin comas — parsear directamente como float
+        if (preg_match('/^\d+(\.\d+)?$/', $raw)) {
+            return round((float) $raw, 2);
+        }
+        // Si tiene comas (formato argentino "4.502,19" o "10,00"), usar parseArgentineAmount
         if (!preg_match('/^-?\s*\$?\s*[\d\.,\s]+$/', $raw)) {
             return null;
         }
@@ -1129,8 +1159,6 @@ final class QuoteController extends Controller
             if ($qtyCombo <= 0) {
                 continue;
             }
-            // DEBUG TEMPORAL - remover después
-            error_log('COMBO quote_item_id=' . $itemId . ' ratios=' . json_encode($ratios) . ' min=' . min($ratios) . ' qty_combo=' . $qtyCombo);
             $out[$itemId] = $qtyCombo;
         }
 

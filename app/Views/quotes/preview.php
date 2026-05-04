@@ -8,15 +8,25 @@ $facturas = array_values(array_filter($quoteAttachments, static fn ($a) => ($a['
 $includeIvaQuote = !empty($quote['include_iva']);
 $leyendaIva = priceIvaLegendLine($includeIvaQuote);
 $waItems = [];
+$comboSubtotalExcluded = 0.0;
+$baseDiscountableFromItems = 0.0;
 foreach ($items as $it) {
     $lineName = (int) ($it['combo_id'] ?? 0) > 0 ? (string) ($it['combo_name'] ?? 'Combo') : trim((string) (($it['code'] ?? '') . ' — ' . ($it['name'] ?? '')));
+    $isComboLine = (int) ($it['combo_id'] ?? 0) > 0 || (string) ($it['unit_type'] ?? '') === 'combo';
+    $lineSub = (float) ($it['subtotal'] ?? 0);
+    if ($isComboLine) {
+        $comboSubtotalExcluded += $lineSub;
+    } else {
+        $baseDiscountableFromItems += $lineSub;
+    }
     $waItems[] = [
         'qty' => (int) $it['quantity'],
         'label' => (string) ($it['unit_label'] ?? ''),
         'product' => $lineName,
-        'sub' => formatPrice((float) $it['subtotal']),
+        'sub' => formatPrice($lineSub),
     ];
 }
+$subtotalFullLines = round($comboSubtotalExcluded + $baseDiscountableFromItems, 2);
 $waPhone = preg_replace('/\D/', '', (string) ($quote['phone'] ?? ''));
 $st = $quote['status'];
 $quoteEditable = in_array((string) $st, ['draft', 'sent', 'accepted'], true);
@@ -397,9 +407,15 @@ $quoteEditable = in_array((string) $st, ['draft', 'sent', 'accepted'], true);
         </table>
         <p class="text-xs text-gray-500 mt-2 px-4"><?= e($leyendaIva) ?></p>
         <div class="px-4 py-3 border-t border-gray-200 text-right space-y-1 text-sm">
-            <p>Subtotal (neto): <span class="font-medium"><?= formatPrice((float) $quote['subtotal']) ?></span></p>
-            <?php if ((float) $quote['iva_amount'] > 0): ?>
-                <p>IVA: <span class="font-medium"><?= formatPrice((float) $quote['iva_amount']) ?></span></p>
+            <p>Subtotal: <span class="font-medium"><?= formatPrice($subtotalFullLines) ?></span></p>
+            <?php if ($includeIvaQuote && (float) ($quote['iva_amount'] ?? 0) > 0): ?>
+                <p class="text-xs text-gray-600">
+                    Neto <?= formatPrice((float) $quote['subtotal']) ?> + IVA <?= formatPrice((float) $quote['iva_amount']) ?>
+                </p>
+            <?php endif; ?>
+            <?php if ($comboSubtotalExcluded > 0): ?>
+                <p>Combos (sin descuento): <span class="font-medium"><?= formatPrice($comboSubtotalExcluded) ?></span></p>
+                <p>Base descontable: <span class="font-medium"><?= formatPrice($baseDiscountableFromItems) ?></span></p>
             <?php endif; ?>
             <?php if ((float) ($quote['discount_amount'] ?? 0) > 0): ?>
                 <p>

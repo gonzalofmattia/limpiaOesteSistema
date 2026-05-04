@@ -175,22 +175,25 @@ window.__quoteForm = {
             <div class="grid md:grid-cols-3 gap-4">
                 <div>
                     <label class="block text-xs text-gray-500 mb-1">Porcentaje de descuento (%)</label>
-                    <input type="number" min="0" max="100" step="0.01" x-model="discountPercentage" @input="onDiscountPercentageChange()"
+                    <input type="number" min="0" max="100" step="0.01" x-model="discountPercentage" @change="onDiscountPercentageChange()" @blur="onDiscountPercentageChange()"
                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Ej: 10">
                 </div>
                 <div>
                     <label class="block text-xs text-gray-500 mb-1">Monto de descuento ($)</label>
-                    <input type="number" min="0" step="0.01" x-model="discountAmount" @input="onDiscountAmountManualInput()"
+                    <input type="number" min="0" step="0.01" x-model="discountAmount" @change="onDiscountAmountManualInput()" @blur="onDiscountAmountManualInput()"
                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Ej: 15000">
                     <p class="text-xs text-gray-500 mt-1" x-show="discountManuallyEdited">Monto ajustado manualmente.</p>
                 </div>
                 <div class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
                     <p class="text-xs text-gray-500">Subtotal</p>
                     <p class="font-medium" x-text="formatCurrency(subtotal())"></p>
+                    <p class="text-xs text-gray-500 mt-1">Base descontable</p>
+                    <p class="font-medium" x-text="formatCurrency(subtotalDiscountable())"></p>
                     <p class="text-xs text-gray-500 mt-1">Total final</p>
                     <p class="text-lg font-semibold text-[#1a6b3c]" x-text="formatCurrency(finalTotal())"></p>
                 </div>
             </div>
+            <p class="text-xs text-gray-500">El descuento no aplica a combos (<span x-text="formatCurrency(subtotalNonDiscountable())"></span>).</p>
             <input type="hidden" name="discount_percentage" :value="normalizedDiscountPercentage()">
             <input type="hidden" name="discount_amount" :value="normalizedDiscountAmount()">
         </div>
@@ -516,18 +519,27 @@ function quoteForm() {
             this.computeLineStockWarnings(line);
             return Math.max(0, qty * unit);
         },
+        isComboLine(line) {
+            return String(line.unit_type || '') === 'combo';
+        },
+        subtotalDiscountable() {
+            return this.lines.reduce((acc, line) => acc + (this.isComboLine(line) ? 0 : this.lineSubtotal(line)), 0);
+        },
+        subtotalNonDiscountable() {
+            return this.lines.reduce((acc, line) => acc + (this.isComboLine(line) ? this.lineSubtotal(line) : 0), 0);
+        },
         subtotal() {
             return this.lines.reduce((acc, line) => acc + this.lineSubtotal(line), 0);
         },
         finalTotal() {
-            const total = this.subtotal() - this.safeDiscountAmount();
+            const total = (this.subtotalDiscountable() - this.safeDiscountAmount()) + this.subtotalNonDiscountable();
             return total > 0 ? total : 0;
         },
         safeDiscountAmount() {
             const raw = Number(this.discountAmount || 0);
             if (!Number.isFinite(raw)) return 0;
             const bounded = raw < 0 ? 0 : raw;
-            const max = this.subtotal();
+            const max = this.subtotalDiscountable();
             return bounded > max ? max : bounded;
         },
         onDiscountPercentageChange() {
@@ -536,6 +548,16 @@ function quoteForm() {
         },
         onDiscountAmountManualInput() {
             this.discountManuallyEdited = true;
+            const base = this.subtotalDiscountable();
+            const raw = Number(this.discountAmount || 0);
+            if (!Number.isFinite(raw) || raw <= 0 || base <= 0) {
+                this.discountAmount = '';
+                this.discountPercentage = '';
+                return;
+            }
+            const bounded = Math.min(base, Math.max(0, raw));
+            this.discountAmount = bounded.toFixed(2);
+            this.discountPercentage = ((bounded / base) * 100).toFixed(2);
         },
         recalculateDiscountAmount() {
             const pct = Number(this.discountPercentage || 0);
@@ -544,7 +566,8 @@ function quoteForm() {
                 return;
             }
             const boundedPct = Math.min(100, Math.max(0, pct));
-            const amount = this.subtotal() * (boundedPct / 100);
+            this.discountPercentage = boundedPct.toFixed(2);
+            const amount = this.subtotalDiscountable() * (boundedPct / 100);
             this.discountAmount = amount.toFixed(2);
         },
         recalculateDiscountIfAuto() {
@@ -553,9 +576,11 @@ function quoteForm() {
             }
         },
         normalizedDiscountPercentage() {
-            const pct = Number(this.discountPercentage || 0);
-            if (!Number.isFinite(pct) || pct <= 0) return '';
-            return Math.min(100, Math.max(0, pct)).toFixed(2);
+            const base = this.subtotalDiscountable();
+            if (base <= 0) return '';
+            const amount = this.safeDiscountAmount();
+            if (amount <= 0) return '';
+            return Math.min(100, Math.max(0, (amount / base) * 100)).toFixed(2);
         },
         normalizedDiscountAmount() {
             const amount = this.safeDiscountAmount();
