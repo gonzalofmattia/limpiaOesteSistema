@@ -37,6 +37,7 @@
                         <th class="text-left px-2 py-2 w-[28%]">Producto</th>
                         <th class="text-left px-2 py-2 whitespace-nowrap">Vendido</th>
                         <th class="text-left px-2 py-2 whitespace-nowrap">Stock</th>
+                        <th class="text-left px-2 py-2 whitespace-nowrap">En camino</th>
                         <th class="text-left px-2 py-2 whitespace-nowrap">Comp.</th>
                         <th class="text-left px-2 py-2 whitespace-nowrap">Disp.</th>
                         <th class="text-left px-2 py-2 whitespace-nowrap">Falt.</th>
@@ -61,6 +62,7 @@
                         $productId = (int) ($r['product_id'] ?? 0);
                         $stockUnits = max(0, (int) ($r['stock_units'] ?? 0));
                         $committedUnits = max(0, (int) ($r['stock_committed_units'] ?? 0));
+                        $inTransitUnits = max(0, (int) ($r['in_transit_units'] ?? 0));
                         $stockAvailable = (int) ($r['stock_available_units'] ?? max(0, $stockUnits - $committedUnits));
                         $shortageUnits = max(0, (int) ($r['units_to_order_after_stock'] ?? $r['total_units_needed'] ?? 0));
                         $defaultBoxes = max(0, (int) ($r['boxes_to_order'] ?? 0));
@@ -91,6 +93,13 @@
                                 <?php endif; ?>
                             </td>
                             <td class="px-2 py-2 align-top text-gray-700 whitespace-nowrap"><?= (int) $stockUnits ?></td>
+                            <td class="px-2 py-2 align-top whitespace-nowrap">
+                                <?php if ($inTransitUnits > 0): ?>
+                                    <span class="text-blue-600 font-medium">↑ <?= (int) $inTransitUnits ?></span>
+                                <?php else: ?>
+                                    <span class="text-gray-400">—</span>
+                                <?php endif; ?>
+                            </td>
                             <td class="px-2 py-2 align-top whitespace-nowrap <?= $committedUnits > 0 ? 'text-amber-600 font-medium' : 'text-gray-500' ?>"><?= (int) $committedUnits ?></td>
                             <td class="px-2 py-2 align-top font-semibold whitespace-nowrap <?= $stockAvailable > 0 ? 'text-green-700' : 'text-red-700' ?>"><?= (int) $stockAvailable ?></td>
                             <td class="px-2 py-2 align-top text-gray-700 whitespace-nowrap"><?= (int) $shortageUnits ?></td>

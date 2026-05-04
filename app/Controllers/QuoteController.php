@@ -23,6 +23,20 @@ final class QuoteController extends Controller
         $perPage = (int) $this->query('per_page', 20);
         $perPage = $perPage > 0 ? min($perPage, 100) : 20;
         $search = trim((string) $this->query('search', ''));
+        $sort = trim((string) $this->query('sort', 'created_at'));
+        $dir = strtolower(trim((string) $this->query('dir', 'desc')));
+        $allowedSort = [
+            'quote_number' => 'q.quote_number',
+            'client_name' => 'c.name',
+            'created_at' => 'q.created_at',
+            'total' => 'q.total',
+            'status' => 'q.status',
+        ];
+        if (!isset($allowedSort[$sort])) {
+            $sort = 'created_at';
+        }
+        $dir = $dir === 'asc' ? 'ASC' : 'DESC';
+        $orderBySql = $allowedSort[$sort] . ' ' . $dir;
         $where = [];
         $params = [];
         if ($search !== '') {
@@ -56,7 +70,7 @@ final class QuoteController extends Controller
                  FROM quotes q
                  LEFT JOIN clients c ON c.id = q.client_id
                  ' . $whereSql . '
-                 ORDER BY q.created_at DESC
+                 ORDER BY ' . $orderBySql . '
                  LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
                 $params
             );
@@ -66,7 +80,7 @@ final class QuoteController extends Controller
                  FROM quotes q
                  LEFT JOIN clients c ON c.id = q.client_id
                  ' . $whereSql . '
-                 ORDER BY q.created_at DESC
+                 ORDER BY ' . $orderBySql . '
                  LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
                 $params
             );
@@ -75,6 +89,8 @@ final class QuoteController extends Controller
             'title' => 'Presupuestos',
             'quotes' => $rows,
             'search' => $search,
+            'sort' => $sort,
+            'dir' => strtolower($dir),
             'page' => $page,
             'per_page' => $perPage,
             'total' => $total,
@@ -534,6 +550,8 @@ final class QuoteController extends Controller
             redirect('/presupuestos/' . $id);
             return;
         }
+        // DEBUG TEMPORAL - remover después
+        error_log('PARTIAL_DELIVERY POST items: ' . json_encode($_POST['items'] ?? []));
         try {
             $deliveredQtys = $this->convertExplodedPartialPostToDeliveredQtys($db, $quoteId, $rawItems);
         } catch (\InvalidArgumentException $e) {
@@ -1111,6 +1129,8 @@ final class QuoteController extends Controller
             if ($qtyCombo <= 0) {
                 continue;
             }
+            // DEBUG TEMPORAL - remover después
+            error_log('COMBO quote_item_id=' . $itemId . ' ratios=' . json_encode($ratios) . ' min=' . min($ratios) . ' qty_combo=' . $qtyCombo);
             $out[$itemId] = $qtyCombo;
         }
 

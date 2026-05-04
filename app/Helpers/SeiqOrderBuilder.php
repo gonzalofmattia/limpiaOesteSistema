@@ -206,6 +206,11 @@ final class SeiqOrderBuilder
                 $quoteIds[] = $id;
             }
         }
+        $alreadyIncluded = self::alreadyIncludedQuoteIds($db);
+        $quoteIds = array_values(array_filter(
+            $quoteIds,
+            static fn (int $id): bool => !isset($alreadyIncluded[$id])
+        ));
         if ($quoteIds === []) {
             return [];
         }
@@ -221,14 +226,14 @@ final class SeiqOrderBuilder
                 $merged[$pid] = ($merged[$pid] ?? 0) + $u;
             }
         }
-
         return $merged;
     }
 
     /**
      * @param array<int, int> $realCommitments product_id => unidades comprometidas reales (pendientes)
+     * @param array<int, int> $unitsInTransit product_id => unidades en camino (pedidos status=sent)
      */
-    public static function consolidate(array $items, array $realCommitments): array
+    public static function consolidate(array $items, array $realCommitments, array $unitsInTransit = []): array
     {
         $consolidated = [];
 
@@ -284,15 +289,19 @@ final class SeiqOrderBuilder
             // Usar compromisos calculados en tiempo real desde quote_items
             // en lugar de stock_committed_units que puede estar desincronizado
             $committedUnits = max(0, (int) ($realCommitments[$row['product_id']] ?? 0));
-            $stockAvailable = $stockUnits - $committedUnits;
+            // Descontar unidades ya pedidas al proveedor (en camino, status = sent)
+            $inTransitUnits = max(0, (int) ($unitsInTransit[$row['product_id']] ?? 0));
+            $effectiveStock = $stockUnits + $inTransitUnits;
+            $stockAvailable = $effectiveStock - $committedUnits;
             // El faltante real para compra debe salir del compromiso total vs stock fisico.
             // Si usamos "vendido de este lote - disponible", duplicamos el comprometido
             // y terminamos pidiendo de mas (caso stock=2, comprometido=2 -> faltante debe ser 0).
-            $unitsToOrderAfterStock = max(0, $committedUnits - $stockUnits);
-
+            $unitsToOrderAfterStock = max(0, $committedUnits - $effectiveStock);
             $row['total_units_needed'] = $totalUnits;
             $row['stock_available_units'] = $stockAvailable;
             $row['stock_committed_units'] = $committedUnits;
+            $row['in_transit_units'] = $inTransitUnits;
+            $row['effective_stock_units'] = $effectiveStock;
             $row['units_to_order_after_stock'] = $unitsToOrderAfterStock;
             $row['units_covered_by_stock'] = min($totalUnits, $stockAvailable);
             $row['units_shortage'] = $unitsToOrderAfterStock;
@@ -370,6 +379,33 @@ final class SeiqOrderBuilder
     }
 
     /**
+     * Unidades ya pedidas al proveedor y en camino (pedidos con estado "sent").
+     *
+     * @return array<int, int> product_id => unidades en camino
+     */
+    private static function unitsInTransit(Database $db): array
+    {
+        $rows = $db->fetchAll(
+            "SELECT soi.product_id, SUM(soi.boxes_to_order * soi.units_per_box) AS units_in_transit
+             FROM seiq_order_items soi
+             JOIN seiq_orders so ON so.id = soi.seiq_order_id
+             WHERE so.status = 'sent'
+             GROUP BY soi.product_id"
+        );
+        $out = [];
+        foreach ($rows as $row) {
+            $pid = (int) ($row['product_id'] ?? 0);
+            $units = (int) ($row['units_in_transit'] ?? 0);
+            if ($pid <= 0 || $units <= 0) {
+                continue;
+            }
+            $out[$pid] = $units;
+        }
+
+        return $out;
+    }
+
+    /**
      * @return array{acceptedQuotes: list, bundle: array{consolidated: list, total_products: int, total_boxes: int}|null, error: ?string}
      */
     public static function buildFromDatabase(Database $db): array
@@ -389,7 +425,8 @@ final class SeiqOrderBuilder
         }
         $demandDetailsByProduct = self::buildDemandDetailsByProduct($db, $quoteIds, $acceptedById);
         $realCommitments = self::calculateRealCommitments($db);
-        $bundle = self::consolidate($items, $realCommitments);
+        $unitsInTransit = self::unitsInTransit($db);
+        $bundle = self::consolidate($items, $realCommitments, $unitsInTransit);
         foreach ($bundle['consolidated'] as &$row) {
             $pid = (int) ($row['product_id'] ?? 0);
             $row['demand_details'] = $demandDetailsByProduct[$pid] ?? [];
