@@ -30,7 +30,7 @@ final class SettingsController extends Controller
         try {
             $segments = $db->fetchAll(
                 "SELECT csc.*,
-                        (SELECT COUNT(*) FROM clients c WHERE c.client_type = csc.segment_key) AS clients_count
+                        (SELECT COUNT(*) FROM clients c WHERE BINARY c.client_type = BINARY csc.segment_key) AS clients_count
                  FROM client_segment_config csc
                  ORDER BY csc.sort_order, csc.id"
             );

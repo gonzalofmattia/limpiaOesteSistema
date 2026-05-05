@@ -90,10 +90,16 @@ $clientFormCfg = json_encode([
                 <label class="block text-sm font-medium text-gray-700 mb-1">Segmento</label>
                 <select name="client_type" x-model="clientType"
                         class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-                    <template x-for="seg in segments" :key="seg.segment_key">
-                        <option :value="seg.segment_key"
-                                x-text="seg.segment_label + ' (' + Number(seg.default_markup || 0) + '%)'"></option>
-                    </template>
+                    <?php foreach ($segments as $seg): ?>
+                        <?php
+                        $segKey = (string) ($seg['segment_key'] ?? '');
+                        $segLabel = (string) ($seg['segment_label'] ?? $segKey);
+                        $segMarkup = (float) ($seg['default_markup'] ?? 0);
+                        ?>
+                        <option value="<?= e($segKey) ?>" <?= $segKey === $initialType ? 'selected' : '' ?>>
+                            <?= e($segLabel) ?> (<?= e(number_format($segMarkup, 0, ',', '.')) ?>%)
+                        </option>
+                    <?php endforeach; ?>
                 </select>
                 <p class="text-xs text-gray-500 mt-1">
                     Markup del segmento:

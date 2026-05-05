@@ -271,6 +271,7 @@ function quoteForm() {
         quickClientError: '',
         quickClientForm: { name: '', phone: '', city: '' },
         async init(cfg) {
+            cfg = cfg || window.__quoteForm || {};
             this.clients = Array.isArray(cfg.clients) ? cfg.clients : [];
             this.lines = (cfg.lines || []).map(l => ({
                 combo_id: Number(l.combo_id || 0),

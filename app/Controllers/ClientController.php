@@ -48,7 +48,7 @@ final class ClientController extends Controller
                 $qAgg = ClientReceivableSummary::sqlQuotesAcceptedByClientSubquery();
                 $hybrid = ClientReceivableSummary::sqlCaseHybridBalance();
                 $segmentJoin = $hasSegmentSupport
-                    ? 'LEFT JOIN client_segment_config csc ON csc.segment_key = c.client_type'
+                    ? 'LEFT JOIN client_segment_config csc ON BINARY csc.segment_key = BINARY c.client_type'
                     : '';
                 $fromJoins = "FROM clients c
                      {$segmentJoin}
@@ -127,7 +127,7 @@ final class ClientController extends Controller
                 }
                 $offset = ($page - 1) * $perPage;
                 $segmentJoin = $hasSegmentSupport
-                    ? 'LEFT JOIN client_segment_config csc ON csc.segment_key = c.client_type'
+                    ? 'LEFT JOIN client_segment_config csc ON BINARY csc.segment_key = BINARY c.client_type'
                     : '';
                 $rows = $db->fetchAll(
                     "SELECT {$listSelect}
@@ -148,7 +148,7 @@ final class ClientController extends Controller
             }
             $offset = ($page - 1) * $perPage;
             $segmentJoin = $hasSegmentSupport
-                ? 'LEFT JOIN client_segment_config csc ON csc.segment_key = c.client_type'
+                ? 'LEFT JOIN client_segment_config csc ON BINARY csc.segment_key = BINARY c.client_type'
                 : '';
             $rows = $db->fetchAll(
                 "SELECT {$listSelect}
