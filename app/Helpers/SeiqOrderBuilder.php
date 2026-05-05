@@ -12,15 +12,21 @@ use App\Models\Database;
 final class SeiqOrderBuilder
 {
     /** @return list<array<string,mixed>> */
-    public static function fetchAcceptedQuotes(Database $db): array
+    private static function fetchOpenQuotes(Database $db): array
     {
-        $accepted = $db->fetchAll(
+        return $db->fetchAll(
             'SELECT q.*, c.name AS client_name
              FROM quotes q
              LEFT JOIN clients c ON q.client_id = c.id
              WHERE q.status IN (\'accepted\', \'partially_delivered\')
              ORDER BY q.created_at'
         );
+    }
+
+    /** @return list<array<string,mixed>> */
+    public static function fetchAcceptedQuotes(Database $db): array
+    {
+        $accepted = self::fetchOpenQuotes($db);
         if ($accepted === []) {
             return [];
         }
@@ -196,9 +202,7 @@ final class SeiqOrderBuilder
      */
     private static function calculateRealCommitments(Database $db): array
     {
-        $rows = $db->fetchAll(
-            "SELECT id FROM quotes WHERE status IN ('accepted', 'partially_delivered')"
-        );
+        $rows = self::fetchOpenQuotes($db);
         $quoteIds = [];
         foreach ($rows as $r) {
             $id = (int) ($r['id'] ?? 0);
@@ -206,11 +210,6 @@ final class SeiqOrderBuilder
                 $quoteIds[] = $id;
             }
         }
-        $alreadyIncluded = self::alreadyIncludedQuoteIds($db);
-        $quoteIds = array_values(array_filter(
-            $quoteIds,
-            static fn (int $id): bool => !isset($alreadyIncluded[$id])
-        ));
         if ($quoteIds === []) {
             return [];
         }
@@ -410,6 +409,7 @@ final class SeiqOrderBuilder
      */
     public static function buildFromDatabase(Database $db): array
     {
+        $openQuotes = self::fetchOpenQuotes($db);
         $acceptedQuotes = self::fetchAcceptedQuotes($db);
         if ($acceptedQuotes === []) {
             return ['acceptedQuotes' => [], 'bundle' => null, 'error' => 'empty'];
@@ -420,10 +420,12 @@ final class SeiqOrderBuilder
             return ['acceptedQuotes' => $acceptedQuotes, 'bundle' => null, 'error' => 'no_items'];
         }
         $acceptedById = [];
-        foreach ($acceptedQuotes as $q) {
+        foreach ($openQuotes as $q) {
             $acceptedById[(int) ($q['id'] ?? 0)] = $q;
         }
-        $demandDetailsByProduct = self::buildDemandDetailsByProduct($db, $quoteIds, $acceptedById);
+        $openQuoteIds = array_values(array_map(static fn (array $q): int => (int) ($q['id'] ?? 0), $openQuotes));
+        $openQuoteIds = array_values(array_filter($openQuoteIds, static fn (int $id): bool => $id > 0));
+        $demandDetailsByProduct = self::buildDemandDetailsByProduct($db, $openQuoteIds, $acceptedById);
         $realCommitments = self::calculateRealCommitments($db);
         $unitsInTransit = self::unitsInTransit($db);
         $bundle = self::consolidate($items, $realCommitments, $unitsInTransit);

@@ -105,6 +105,23 @@ function fmtNum(float|int $n): string
     return number_format((float) $n, 2, ',', '.');
 }
 
+function fmtMoney(float|int $n): string
+{
+    return '$' . number_format((float) $n, 2, ',', '.');
+}
+
+function statusBadgeClass(string $status): string
+{
+    return match (strtolower(trim($status))) {
+        'delivered' => 'bg-green-100 text-green-800',
+        'accepted' => 'bg-yellow-100 text-yellow-800',
+        'partially_delivered' => 'bg-orange-100 text-orange-800',
+        'draft', 'sent' => 'bg-gray-100 text-gray-800',
+        'rejected', 'expired' => 'bg-red-100 text-red-800 line-through',
+        default => 'bg-slate-100 text-slate-800',
+    };
+}
+
 function normalizeUnitType(string $type): string
 {
     $t = strtolower(trim($type));
@@ -156,7 +173,7 @@ function auditProduct(array $db, int $productId): array
     $fetchColumn = $db['fetchColumn'];
 
     $product = $fetch(
-        'SELECT p.*, c.name AS category_name
+        'SELECT p.*, c.name AS category_name, p.sale_unit_type, p.sale_unit_label
          FROM products p
          LEFT JOIN categories c ON c.id = p.category_id
          WHERE p.id = ?',
@@ -168,7 +185,8 @@ function auditProduct(array $db, int $productId): array
 
     $purchases = $fetchAll(
         "SELECT so.order_number, so.status, so.created_at, so.received_at, so.receipt_stock_applied,
-                soi.boxes_to_order, COALESCE(NULLIF(soi.units_per_box,0), NULLIF(p.units_per_box,0), 1) AS units_per_box
+                soi.boxes_to_order, COALESCE(NULLIF(soi.units_per_box,0), NULLIF(p.units_per_box,0), 1) AS units_per_box,
+                soi.qty_units_sold, soi.total_units_needed, soi.units_remainder
          FROM seiq_order_items soi
          JOIN seiq_orders so ON so.id = soi.seiq_order_id
          LEFT JOIN products p ON p.id = soi.product_id
@@ -189,14 +207,14 @@ function auditProduct(array $db, int $productId): array
     unset($r);
 
     $directRows = $fetchAll(
-        "SELECT q.quote_number, q.status, q.created_at, c.name AS client_name,
-                qi.quantity, qi.qty_delivered, qi.unit_type, qi.unit_price, qi.subtotal, p.units_per_box
+        "SELECT q.id AS quote_id, q.quote_number, q.status, q.created_at, q.delivery_stock_applied,
+                c.name AS client_name, c.city AS client_city,
+                qi.quantity, qi.qty_delivered, qi.unit_type, qi.unit_label, qi.unit_price, qi.subtotal, p.units_per_box
          FROM quote_items qi
          JOIN quotes q ON q.id = qi.quote_id
          LEFT JOIN clients c ON c.id = q.client_id
          LEFT JOIN products p ON p.id = qi.product_id
          WHERE qi.product_id = ?
-           AND q.status IN ('accepted','partially_delivered','delivered')
          ORDER BY q.created_at ASC, q.id ASC",
         [$productId]
     );
@@ -211,8 +229,13 @@ function auditProduct(array $db, int $productId): array
         $tmp['quantity'] = $deliveredSaleQty;
         $delivered = lineUnitsDirect($tmp);
         $pending = max(0.0, $sold - $delivered);
-        $totalDirectSold += $sold;
-        $totalDirectDelivered += $delivered;
+        $status = (string) ($r['status'] ?? '');
+        if (in_array($status, ['accepted', 'partially_delivered', 'delivered'], true)) {
+            $totalDirectSold += $sold;
+        }
+        if (in_array($status, ['partially_delivered', 'delivered'], true)) {
+            $totalDirectDelivered += $delivered;
+        }
         $direct[] = $r + ['sold_units' => $sold, 'delivered_units' => $delivered, 'pending_units' => $pending];
     }
 
@@ -234,13 +257,13 @@ function auditProduct(array $db, int $productId): array
         $comboIds = array_keys($comboById);
         $placeholders = implode(',', array_fill(0, count($comboIds), '?'));
         $comboSalesRows = $fetchAll(
-            "SELECT q.quote_number, q.status, q.created_at, c.name AS client_name,
-                    qi.combo_id, qi.quantity, qi.qty_delivered
+            "SELECT q.id AS quote_id, q.quote_number, q.status, q.created_at, c.name AS client_name, c.city AS client_city,
+                    qi.combo_id, qi.quantity, qi.qty_delivered, q.delivery_stock_applied,
+                    qi.unit_price AS combo_price, qi.subtotal AS combo_subtotal
              FROM quote_items qi
              JOIN quotes q ON q.id = qi.quote_id
              LEFT JOIN clients c ON c.id = q.client_id
              WHERE qi.combo_id IN ({$placeholders})
-               AND q.status IN ('accepted','partially_delivered','delivered')
              ORDER BY q.created_at ASC, q.id ASC",
             $comboIds
         );
@@ -261,8 +284,13 @@ function auditProduct(array $db, int $productId): array
         $unitsSold = $comboQty * $perCombo;
         $unitsDelivered = $comboDelivered * $perCombo;
         $unitsPending = max(0.0, $unitsSold - $unitsDelivered);
-        $totalComboSold += $unitsSold;
-        $totalComboDelivered += $unitsDelivered;
+        $status = (string) ($r['status'] ?? '');
+        if (in_array($status, ['accepted', 'partially_delivered', 'delivered'], true)) {
+            $totalComboSold += $unitsSold;
+        }
+        if (in_array($status, ['partially_delivered', 'delivered'], true)) {
+            $totalComboDelivered += $unitsDelivered;
+        }
         $comboSales[] = $r + [
             'combo_name' => (string) ($def['combo_name'] ?? ('Combo #' . $cid)),
             'units_per_combo' => $perCombo,
@@ -283,22 +311,37 @@ function auditProduct(array $db, int $productId): array
             "SELECT COUNT(*) FROM information_schema.COLUMNS
              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME='stock_adjustments' AND COLUMN_NAME='difference'"
         ) > 0;
+        $hasQtyChange = (int) $fetchColumn(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME='stock_adjustments' AND COLUMN_NAME='quantity_change'"
+        ) > 0;
+        $hasReason = (int) $fetchColumn(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME='stock_adjustments' AND COLUMN_NAME='reason'"
+        ) > 0;
+        $hasNotes = (int) $fetchColumn(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME='stock_adjustments' AND COLUMN_NAME='notes'"
+        ) > 0;
+        $reasonCol = $hasReason ? 'reason' : ($hasNotes ? 'notes' : 'NULL');
         if ($hasDiff) {
             $adjustments = $fetchAll(
-                "SELECT created_at, difference AS quantity_change, notes AS reason
+                "SELECT created_at, difference AS quantity_change, {$reasonCol} AS reason
+                 FROM stock_adjustments
+                 WHERE product_id = ?
+                 ORDER BY created_at ASC, id ASC",
+                [$productId]
+            );
+        } elseif ($hasQtyChange) {
+            $adjustments = $fetchAll(
+                "SELECT created_at, quantity_change, {$reasonCol} AS reason
                  FROM stock_adjustments
                  WHERE product_id = ?
                  ORDER BY created_at ASC, id ASC",
                 [$productId]
             );
         } else {
-            $adjustments = $fetchAll(
-                "SELECT created_at, quantity_change, reason
-                 FROM stock_adjustments
-                 WHERE product_id = ?
-                 ORDER BY created_at ASC, id ASC",
-                [$productId]
-            );
+            $adjustments = [];
         }
         foreach ($adjustments as $a) {
             $totalAdjustments += (float) ($a['quantity_change'] ?? 0);
@@ -310,6 +353,7 @@ function auditProduct(array $db, int $productId): array
         if (in_array((string) $d['status'], ['accepted', 'partially_delivered'], true)
             && (float) ($d['pending_units'] ?? 0) > 0) {
             $pendingLines[] = [
+                'quote_id' => (int) ($d['quote_id'] ?? 0),
                 'quote_number' => (string) ($d['quote_number'] ?? ''),
                 'status' => (string) ($d['status'] ?? ''),
                 'client_name' => (string) ($d['client_name'] ?? '—'),
@@ -322,6 +366,7 @@ function auditProduct(array $db, int $productId): array
         if (in_array((string) $c['status'], ['accepted', 'partially_delivered'], true)
             && (float) ($c['units_pending'] ?? 0) > 0) {
             $pendingLines[] = [
+                'quote_id' => (int) ($c['quote_id'] ?? 0),
                 'quote_number' => (string) ($c['quote_number'] ?? ''),
                 'status' => (string) ($c['status'] ?? ''),
                 'client_name' => (string) ($c['client_name'] ?? '—'),
@@ -341,6 +386,16 @@ function auditProduct(array $db, int $productId): array
     $committedSystem = (float) ($product['stock_committed_units'] ?? 0);
     $availableSystem = $stockSystem - $committedSystem;
 
+    $receivedNotApplied = array_values(array_filter($purchases, static function (array $row): bool {
+        return (string) ($row['status'] ?? '') === 'received' && (int) ($row['receipt_stock_applied'] ?? 0) !== 1;
+    }));
+    $deliveredNotAppliedDirect = array_values(array_filter($direct, static function (array $row): bool {
+        return (string) ($row['status'] ?? '') === 'delivered' && (int) ($row['delivery_stock_applied'] ?? 0) !== 1;
+    }));
+    $deliveredNotAppliedCombo = array_values(array_filter($comboSales, static function (array $row): bool {
+        return (string) ($row['status'] ?? '') === 'delivered' && (int) ($row['delivery_stock_applied'] ?? 0) !== 1;
+    }));
+
     return [
         'product' => $product,
         'purchases' => $purchases,
@@ -354,6 +409,11 @@ function auditProduct(array $db, int $productId): array
         'adjustments_total' => $totalAdjustments,
         'pending_lines' => $pendingLines,
         'pending_total' => $pendingTotal,
+        'anomalies' => [
+            'received_not_applied' => $receivedNotApplied,
+            'delivered_not_applied_direct' => $deliveredNotAppliedDirect,
+            'delivered_not_applied_combo' => $deliveredNotAppliedCombo,
+        ],
         'reconciliation' => [
             'stock_theory' => $stockTheory,
             'committed_theory' => $committedTheory,
@@ -386,6 +446,16 @@ function autoDiagnostics(array $report): array
     if ((float) ($report['pending_total'] ?? 0) > 0) {
         $out[] = 'Hay ' . fmtNum((float) $report['pending_total']) . ' unidades pendientes de entregar.';
     }
+    foreach (($report['anomalies']['received_not_applied'] ?? []) as $x) {
+        $out[] = '⚠️ Pedido ' . (string) ($x['order_number'] ?? '—') . ' recibido pero stock no aplicado (receipt_stock_applied=0).';
+    }
+    foreach (($report['anomalies']['delivered_not_applied_direct'] ?? []) as $x) {
+        $out[] = '⚠️ Presupuesto ' . (string) ($x['quote_number'] ?? '—') . ' está delivered pero delivery_stock_applied=0.';
+    }
+    foreach (($report['anomalies']['delivered_not_applied_combo'] ?? []) as $x) {
+        $out[] = '⚠️ Presupuesto ' . (string) ($x['quote_number'] ?? '—') . ' (combo) está delivered pero delivery_stock_applied=0.';
+    }
+    $out[] = '🔧 Acción sugerida: revisar cantidad real y corregir desde Productos → editar producto → stock actual.';
     if ($out === []) {
         $out[] = 'Stock consistente entre cálculo teórico y sistema.';
     }
@@ -517,10 +587,156 @@ function printWeb(array $report): void
     header('Content-Type: text/html; charset=utf-8');
     echo '<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">';
     echo '<script src="https://cdn.tailwindcss.com"></script><title>Auditoría de stock</title></head><body class="bg-slate-100 text-slate-900">';
-    echo '<div class="max-w-7xl mx-auto p-4 space-y-4">';
-    echo '<div class="bg-white rounded-xl p-4 shadow"><h1 class="text-xl font-bold">Auditoría de Stock — ' . h((string) $p['code']) . ' ' . h((string) $p['name']) . '</h1>';
-    echo '<p class="text-sm text-slate-600">Categoría: ' . h((string) ($p['category_name'] ?? '—')) . ' · Estado: ' . ((int) ($p['is_active'] ?? 0) === 1 ? '<span class="text-emerald-700 font-semibold">Activo</span>' : '<span class="text-red-700 font-semibold">Inactivo</span>') . '</p></div>';
-    echo '<div class="bg-white rounded-xl p-4 shadow"><h2 class="font-semibold mb-2">Reconciliación</h2><div class="grid md:grid-cols-3 gap-2 text-sm">';
+    echo '<div class="max-w-5xl mx-auto p-6 space-y-6">';
+    echo '<div class="bg-white rounded-lg shadow p-5">';
+    echo '<h1 class="text-xl font-bold mb-2">Auditoría de Stock — ' . h((string) $p['code']) . ' ' . h((string) $p['name']) . '</h1>';
+    echo '<h2 class="text-lg font-semibold mb-3">1) Datos del producto</h2>';
+    echo '<div class="grid md:grid-cols-2 gap-3 text-sm">';
+    echo '<p><span class="text-slate-500">Código:</span> ' . h((string) $p['code']) . '</p>';
+    echo '<p><span class="text-slate-500">Categoría:</span> ' . h((string) ($p['category_name'] ?? '—')) . '</p>';
+    echo '<p><span class="text-slate-500">Unidad:</span> ' . h((string) ($p['sale_unit_type'] ?? 'caja')) . ' ' . h((string) ($p['sale_unit_label'] ?? '')) . '</p>';
+    echo '<p><span class="text-slate-500">Unidades por caja:</span> ' . h((string) ((int) ($p['units_per_box'] ?? 1))) . '</p>';
+    echo '<p><span class="text-slate-500">Stock sistema:</span> ' . h(fmtNum((float) ($p['stock_units'] ?? 0))) . '</p>';
+    echo '<p><span class="text-slate-500">Comprometido sistema:</span> ' . h(fmtNum((float) ($p['stock_committed_units'] ?? 0))) . '</p>';
+    echo '<p><span class="text-slate-500">Disponible sistema:</span> ' . h(fmtNum((float) (($p['stock_units'] ?? 0) - ($p['stock_committed_units'] ?? 0)))) . '</p>';
+    echo '<p><span class="text-slate-500">Estado:</span> ' . ((int) ($p['is_active'] ?? 0) === 1
+        ? '<span class="inline-flex px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-xs font-semibold">ACTIVO</span>'
+        : '<span class="inline-flex px-2 py-0.5 rounded bg-red-100 text-red-800 text-xs font-semibold">INACTIVO — NO APARECE EN LISTADOS</span>') . '</p>';
+    echo '</div></div>';
+
+    echo '<div class="bg-white rounded-lg shadow p-5"><h2 class="text-lg font-semibold mb-3">2) Compras al proveedor</h2>';
+    if (($report['purchases'] ?? []) === []) {
+        echo '<p class="text-sm text-slate-500">No hay compras registradas para este producto.</p>';
+    } else {
+        echo '<div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-gray-50"><tr>';
+        foreach (['Pedido','Estado','Fecha pedido','Fecha recepción','Cajas','×Unids','Total unids','Stock aplicado'] as $h2) {
+            echo '<th class="text-left px-2 py-2 border-b">' . h($h2) . '</th>';
+        }
+        echo '</tr></thead><tbody>';
+        foreach ($report['purchases'] as $row) {
+            $warn = ((string) ($row['status'] ?? '') === 'received' && (int) ($row['receipt_stock_applied'] ?? 0) !== 1);
+            echo '<tr class="' . ($warn ? 'bg-yellow-50' : 'hover:bg-slate-50') . '">';
+            echo '<td class="px-2 py-2 border-b">' . h((string) ($row['order_number'] ?? '—')) . '</td>';
+            echo '<td class="px-2 py-2 border-b">' . h((string) ($row['status'] ?? '—')) . '</td>';
+            echo '<td class="px-2 py-2 border-b">' . h(fmtDate($row['created_at'] ?? null)) . '</td>';
+            echo '<td class="px-2 py-2 border-b">' . h(fmtDate($row['received_at'] ?? null)) . '</td>';
+            echo '<td class="px-2 py-2 border-b text-right">' . h(fmtNum((float) ($row['boxes_to_order'] ?? 0))) . '</td>';
+            echo '<td class="px-2 py-2 border-b text-right">' . h((string) ((int) ($row['units_per_box'] ?? 1))) . '</td>';
+            echo '<td class="px-2 py-2 border-b text-right">' . h(fmtNum((float) ($row['total_units'] ?? 0))) . '</td>';
+            echo '<td class="px-2 py-2 border-b">' . (((string) ($row['status'] ?? '') === 'received')
+                ? ((int) ($row['receipt_stock_applied'] ?? 0) === 1 ? '✅ Sí' : '⚠️ No')
+                : '—') . '</td>';
+            echo '</tr>';
+        }
+        echo '<tr class="font-semibold bg-slate-50"><td colspan="6" class="px-2 py-2 border-b text-right">TOTAL recibido aplicado</td><td class="px-2 py-2 border-b text-right">' . h(fmtNum((float) ($report['total_received'] ?? 0))) . '</td><td class="px-2 py-2 border-b">un.</td></tr>';
+        echo '</tbody></table></div>';
+    }
+    echo '</div>';
+
+    echo '<div class="bg-white rounded-lg shadow p-5"><h2 class="text-lg font-semibold mb-3">3) Ventas como producto directo</h2>';
+    if (($report['direct'] ?? []) === []) {
+        echo '<p class="text-sm text-slate-500">No hay ventas directas registradas.</p>';
+    } else {
+        echo '<div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-gray-50"><tr>';
+        foreach (['Presup.','Estado','Cliente','Ciudad','Fecha','Cant','Entregado','Pendiente','Precio u.','Subtotal'] as $h2) {
+            echo '<th class="text-left px-2 py-2 border-b">' . h($h2) . '</th>';
+        }
+        echo '</tr></thead><tbody>';
+        foreach ($report['direct'] as $row) {
+            $qid = (int) ($row['quote_id'] ?? 0);
+            echo '<tr class="hover:bg-slate-50">';
+            echo '<td class="px-2 py-2 border-b"><a class="text-blue-600 hover:underline" target="_blank" href="/presupuestos/' . $qid . '">' . h((string) ($row['quote_number'] ?? '—')) . '</a></td>';
+            echo '<td class="px-2 py-2 border-b"><span class="inline-flex px-2 py-0.5 rounded text-xs ' . statusBadgeClass((string) ($row['status'] ?? '')) . '">' . h((string) ($row['status'] ?? '')) . '</span></td>';
+            echo '<td class="px-2 py-2 border-b">' . h((string) ($row['client_name'] ?? '—')) . '</td>';
+            echo '<td class="px-2 py-2 border-b">' . h((string) ($row['client_city'] ?? '—')) . '</td>';
+            echo '<td class="px-2 py-2 border-b">' . h(fmtDate($row['created_at'] ?? null)) . '</td>';
+            echo '<td class="px-2 py-2 border-b text-right">' . h(fmtNum((float) ($row['sold_units'] ?? 0))) . '</td>';
+            echo '<td class="px-2 py-2 border-b text-right">' . h(fmtNum((float) ($row['delivered_units'] ?? 0))) . '</td>';
+            echo '<td class="px-2 py-2 border-b text-right">' . h(fmtNum((float) ($row['pending_units'] ?? 0))) . '</td>';
+            echo '<td class="px-2 py-2 border-b text-right">' . h(fmtMoney((float) ($row['unit_price'] ?? 0))) . '</td>';
+            echo '<td class="px-2 py-2 border-b text-right">' . h(fmtMoney((float) ($row['subtotal'] ?? 0))) . '</td>';
+            echo '</tr>';
+        }
+        echo '<tr class="font-semibold bg-slate-50"><td colspan="5" class="px-2 py-2 border-b text-right">TOTALES</td>'
+            . '<td class="px-2 py-2 border-b text-right">' . h(fmtNum((float) ($report['direct_totals']['sold'] ?? 0))) . '</td>'
+            . '<td class="px-2 py-2 border-b text-right">' . h(fmtNum((float) ($report['direct_totals']['delivered'] ?? 0))) . '</td>'
+            . '<td class="px-2 py-2 border-b text-right">' . h(fmtNum((float) ($report['direct_totals']['pending'] ?? 0))) . '</td>'
+            . '<td class="px-2 py-2 border-b"></td><td class="px-2 py-2 border-b"></td></tr>';
+        echo '</tbody></table></div>';
+    }
+    echo '</div>';
+
+    echo '<div class="bg-white rounded-lg shadow p-5"><h2 class="text-lg font-semibold mb-3">4) Ventas vía combos</h2>';
+    if (($report['combo_defs'] ?? []) === []) {
+        echo '<p class="text-sm text-slate-500">Este producto no es componente de ningún combo.</p>';
+    } else {
+        echo '<p class="text-sm mb-2">Este producto es componente de:</p><ul class="list-disc pl-5 text-sm mb-3">';
+        foreach ($report['combo_defs'] as $d) {
+            echo '<li>' . h((string) ($d['combo_name'] ?? 'Combo')) . ' → ' . h(fmtNum((float) ($d['units_per_combo'] ?? 0))) . ' unidad(es) por combo</li>';
+        }
+        echo '</ul>';
+        if (($report['combo_sales'] ?? []) === []) {
+            echo '<p class="text-sm text-slate-500">No hay ventas vía combos.</p>';
+        } else {
+            echo '<div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-gray-50"><tr>';
+            foreach (['Presup.','Estado','Cliente','Combo','Combos','Entregados','Unids producto','Entreg. prod','Pend. prod'] as $h2) {
+                echo '<th class="text-left px-2 py-2 border-b">' . h($h2) . '</th>';
+            }
+            echo '</tr></thead><tbody>';
+            foreach ($report['combo_sales'] as $row) {
+                $qid = (int) ($row['quote_id'] ?? 0);
+                echo '<tr class="hover:bg-slate-50">';
+                echo '<td class="px-2 py-2 border-b"><a class="text-blue-600 hover:underline" target="_blank" href="/presupuestos/' . $qid . '">' . h((string) ($row['quote_number'] ?? '—')) . '</a></td>';
+                echo '<td class="px-2 py-2 border-b"><span class="inline-flex px-2 py-0.5 rounded text-xs ' . statusBadgeClass((string) ($row['status'] ?? '')) . '">' . h((string) ($row['status'] ?? '')) . '</span></td>';
+                echo '<td class="px-2 py-2 border-b">' . h((string) ($row['client_name'] ?? '—')) . '</td>';
+                echo '<td class="px-2 py-2 border-b">' . h((string) ($row['combo_name'] ?? '—')) . '</td>';
+                echo '<td class="px-2 py-2 border-b text-right">' . h(fmtNum((float) ($row['quantity'] ?? 0))) . '</td>';
+                echo '<td class="px-2 py-2 border-b text-right">' . h(fmtNum((float) ($row['qty_delivered'] ?? 0))) . '</td>';
+                echo '<td class="px-2 py-2 border-b text-right">' . h(fmtNum((float) ($row['units_sold'] ?? 0))) . '</td>';
+                echo '<td class="px-2 py-2 border-b text-right">' . h(fmtNum((float) ($row['units_delivered'] ?? 0))) . '</td>';
+                echo '<td class="px-2 py-2 border-b text-right">' . h(fmtNum((float) ($row['units_pending'] ?? 0))) . '</td>';
+                echo '</tr>';
+            }
+            echo '<tr class="font-semibold bg-slate-50"><td colspan="6" class="px-2 py-2 border-b text-right">TOTALES</td>'
+                . '<td class="px-2 py-2 border-b text-right">' . h(fmtNum((float) ($report['combo_totals']['sold'] ?? 0))) . '</td>'
+                . '<td class="px-2 py-2 border-b text-right">' . h(fmtNum((float) ($report['combo_totals']['delivered'] ?? 0))) . '</td>'
+                . '<td class="px-2 py-2 border-b text-right">' . h(fmtNum((float) ($report['combo_totals']['pending'] ?? 0))) . '</td></tr>';
+            echo '</tbody></table></div>';
+        }
+    }
+    echo '</div>';
+
+    echo '<div class="bg-white rounded-lg shadow p-5"><h2 class="text-lg font-semibold mb-3">5) Ajustes manuales de stock</h2>';
+    if (($report['adjustments'] ?? []) === []) {
+        echo '<p class="text-sm text-slate-500">No hay ajustes manuales registrados.</p>';
+    } else {
+        echo '<div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-gray-50"><tr><th class="text-left px-2 py-2 border-b">Fecha</th><th class="text-right px-2 py-2 border-b">Cambio</th><th class="text-left px-2 py-2 border-b">Razón</th></tr></thead><tbody>';
+        foreach ($report['adjustments'] as $a) {
+            $chg = (float) ($a['quantity_change'] ?? 0);
+            echo '<tr><td class="px-2 py-2 border-b">' . h(fmtDate($a['created_at'] ?? null)) . '</td><td class="px-2 py-2 border-b text-right ' . ($chg >= 0 ? 'text-emerald-700' : 'text-red-700') . '">' . h(($chg >= 0 ? '+' : '') . fmtNum($chg)) . '</td><td class="px-2 py-2 border-b">' . h((string) ($a['reason'] ?? '—')) . '</td></tr>';
+        }
+        echo '<tr class="font-semibold bg-slate-50"><td class="px-2 py-2 border-b text-right">TOTAL NETO</td><td class="px-2 py-2 border-b text-right">' . h(fmtNum((float) ($report['adjustments_total'] ?? 0))) . '</td><td class="px-2 py-2 border-b"></td></tr>';
+        echo '</tbody></table></div>';
+    }
+    echo '</div>';
+
+    echo '<div class="bg-white rounded-lg shadow p-5"><h2 class="text-lg font-semibold mb-3">6) Resumen pendientes de entrega</h2>';
+    echo '<p class="text-sm mb-2">📦 PENDIENTE DE ENTREGA: <span class="font-semibold">' . h(fmtNum((float) ($report['pending_total'] ?? 0))) . ' unidades</span></p>';
+    if (($report['pending_lines'] ?? []) === []) {
+        echo '<p class="text-sm text-slate-500">No hay pendientes para este producto.</p>';
+    } else {
+        echo '<ul class="space-y-1 text-sm">';
+        foreach ($report['pending_lines'] as $pl) {
+            $qnum = (string) ($pl['quote_number'] ?? '—');
+            $qid = (int) ($pl['quote_id'] ?? 0);
+            $href = $qid > 0 ? ('/presupuestos/' . $qid) : '#';
+            echo '<li>• <a class="text-blue-600 hover:underline" target="_blank" href="' . h($href) . '">' . h($qnum) . '</a> — ' . h((string) ($pl['client_name'] ?? '—')) . ' — ' . h(fmtNum((float) ($pl['pending_units'] ?? 0))) . ' un. (' . h((string) ($pl['source'] ?? '')) . ')</li>';
+        }
+        echo '</ul>';
+    }
+    echo '</div>';
+
+    echo '<div class="bg-white rounded-lg shadow p-5"><h2 class="text-lg font-semibold mb-3">7) Reconciliación</h2><div class="grid md:grid-cols-3 gap-2 text-sm">';
     $rows = [
         ['Stock', $r['stock_theory'], $r['stock_system'], $r['diff_stock']],
         ['Comprometido', $r['committed_theory'], $r['committed_system'], $r['diff_committed']],
@@ -533,8 +749,14 @@ function printWeb(array $report): void
         echo '<p>Teórico: ' . h(fmtNum((float) $x[1])) . '</p><p>Sistema: ' . h(fmtNum((float) $x[2])) . '</p><p>Diff: ' . h(fmtNum((float) $x[3])) . '</p>';
         echo '</div>';
     }
+    echo '</div>';
+    echo '<div class="mt-3 text-sm text-slate-700"><p><span class="font-semibold">Cálculo teórico:</span></p>';
+    echo '<p>+ Comprado (received + aplicado): ' . h(fmtNum((float) ($report['total_received'] ?? 0))) . '</p>';
+    echo '<p>- Entregado directo: ' . h(fmtNum((float) ($report['direct_totals']['delivered'] ?? 0))) . '</p>';
+    echo '<p>- Entregado combos: ' . h(fmtNum((float) ($report['combo_totals']['delivered'] ?? 0))) . '</p>';
+    echo '<p>+ Ajustes netos: ' . h(fmtNum((float) ($report['adjustments_total'] ?? 0))) . '</p>';
     echo '</div></div>';
-    echo '<div class="bg-white rounded-xl p-4 shadow"><h2 class="font-semibold mb-2">Diagnóstico</h2><ul class="list-disc pl-5 text-sm">';
+    echo '<div class="bg-white rounded-lg shadow p-5"><h2 class="text-lg font-semibold mb-3">8) Diagnóstico</h2><ul class="list-disc pl-5 text-sm space-y-1">';
     foreach ($diag as $d) {
         echo '<li>' . h($d) . '</li>';
     }
