@@ -1,11 +1,23 @@
 <?php
-$totalQuotes = count($quotes ?? []);
-$acceptedQuotes = count(array_filter($quotes ?? [], fn($q) => (string) ($q['status'] ?? '') === 'accepted'));
-$pendingQuotes = count(array_filter($quotes ?? [], fn($q) => in_array((string) ($q['status'] ?? ''), ['draft', 'sent'], true)));
-$rejectedQuotes = count(array_filter($quotes ?? [], fn($q) => (string) ($q['status'] ?? '') === 'rejected'));
+$statusCounts = is_array($status_counts ?? null) ? $status_counts : [];
+$totalQuotes = array_sum(array_map(static fn($v) => (int) $v, $statusCounts));
+$acceptedQuotes = (int) ($statusCounts['accepted'] ?? 0);
+$pendingQuotes = (int) (($statusCounts['draft'] ?? 0) + ($statusCounts['sent'] ?? 0));
+$rejectedQuotes = (int) ($statusCounts['rejected'] ?? 0);
 $amountTotal = array_sum(array_map(fn($q) => (float) ($q['total'] ?? 0), $quotes ?? []));
+$currentStatus = (string) ($status ?? '');
 $currentSort = (string) ($sort ?? 'created_at');
 $currentDir = strtolower((string) ($dir ?? 'desc'));
+$filterButtons = [
+    ['status' => '', 'label' => 'Todos', 'count' => $totalQuotes],
+    ['status' => 'draft', 'label' => 'Borradores', 'count' => (int) ($statusCounts['draft'] ?? 0)],
+    ['status' => 'sent', 'label' => 'Enviados', 'count' => (int) ($statusCounts['sent'] ?? 0)],
+    ['status' => 'accepted', 'label' => 'Aceptados', 'count' => (int) ($statusCounts['accepted'] ?? 0)],
+    ['status' => 'delivered', 'label' => 'Entregados', 'count' => (int) ($statusCounts['delivered'] ?? 0)],
+    ['status' => 'partially_delivered', 'label' => 'Entrega parcial', 'count' => (int) ($statusCounts['partially_delivered'] ?? 0)],
+    ['status' => 'rejected', 'label' => 'Rechazados', 'count' => (int) ($statusCounts['rejected'] ?? 0)],
+    ['status' => 'expired', 'label' => 'Vencidos', 'count' => (int) ($statusCounts['expired'] ?? 0)],
+];
 $nextDirFor = static function (string $col, string $curSort, string $curDir): string {
     if ($curSort !== $col) {
         return 'asc';
@@ -18,13 +30,20 @@ $sortArrow = static function (string $col, string $curSort, string $curDir): str
     }
     return $curDir === 'asc' ? '↑' : '↓';
 };
-$sortUrl = static function (string $col, string $curSort, string $curDir, string $search, int $perPage) use ($nextDirFor): string {
+$sortUrl = static function (string $col, string $curSort, string $curDir, string $search, string $status, int $perPage) use ($nextDirFor): string {
     $params = [
         'search' => $search,
         'per_page' => $perPage,
+        'status' => $status,
         'sort' => $col,
         'dir' => $nextDirFor($col, $curSort, $curDir),
     ];
+    if ($params['status'] === '') {
+        unset($params['status']);
+    }
+    if ($params['search'] === '') {
+        unset($params['search']);
+    }
     return url('/presupuestos?' . http_build_query($params));
 };
 ?>
@@ -40,41 +59,61 @@ $sortUrl = static function (string $col, string $curSort, string $curDir, string
 </div>
 <form method="get" class="flex items-center gap-2">
     <input type="hidden" name="per_page" value="<?= (int) ($per_page ?? 20) ?>">
+    <input type="hidden" name="status" value="<?= e($currentStatus) ?>">
+    <input type="hidden" name="sort" value="<?= e($currentSort) ?>">
+    <input type="hidden" name="dir" value="<?= e($currentDir) ?>">
     <div class="flex-1 h-11 rounded-xl border border-lo-border bg-white px-3 flex items-center gap-2"><i data-lucide="search" class="h-4 w-4 text-slate-400"></i><input type="text" name="search" value="<?= e((string) ($search ?? '')) ?>" placeholder="Buscar por nº o cliente..." class="w-full bg-transparent outline-none text-sm"></div>
     <?php require APP_PATH . '/Views/layout/partials/ui-btn-filter.php'; ?>
 </form>
 <div class="flex gap-2 overflow-x-auto pb-1">
-    <span class="px-3 h-8 rounded-full bg-slate-900 text-white inline-flex items-center text-xs font-semibold">Todos <span class="ml-1 text-[10px]"><?= $totalQuotes ?></span></span>
-    <span class="px-3 h-8 rounded-full border border-slate-200 inline-flex items-center text-xs text-slate-600">Aceptados <span class="ml-1 text-[10px]"><?= $acceptedQuotes ?></span></span>
-    <span class="px-3 h-8 rounded-full border border-slate-200 inline-flex items-center text-xs text-slate-600">Pendientes <span class="ml-1 text-[10px]"><?= $pendingQuotes ?></span></span>
-    <span class="px-3 h-8 rounded-full border border-slate-200 inline-flex items-center text-xs text-slate-600">Rechazados <span class="ml-1 text-[10px]"><?= $rejectedQuotes ?></span></span>
+    <?php foreach ($filterButtons as $btn): ?>
+        <?php
+        $isActive = $btn['status'] === $currentStatus;
+        $filterParams = [
+            'per_page' => (int) ($per_page ?? 20),
+            'search' => (string) ($search ?? ''),
+            'sort' => $currentSort,
+            'dir' => $currentDir,
+        ];
+        if ($btn['status'] !== '') {
+            $filterParams['status'] = $btn['status'];
+        }
+        if ($filterParams['search'] === '') {
+            unset($filterParams['search']);
+        }
+        $filterHref = url('/presupuestos?' . http_build_query($filterParams));
+        ?>
+        <a href="<?= e($filterHref) ?>" class="px-3 h-8 rounded-full inline-flex items-center text-xs font-semibold whitespace-nowrap <?= $isActive ? 'bg-slate-900 text-white' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50' ?>">
+            <?= e($btn['label']) ?> <span class="ml-1 text-[10px]">(<?= (int) $btn['count'] ?>)</span>
+        </a>
+    <?php endforeach; ?>
 </div>
 <div class="lo-table-wrap">
     <table class="min-w-full text-sm lo-table">
         <thead class="bg-gray-50 border-b border-gray-200 text-gray-600">
             <tr>
                 <th class="text-left px-4 py-3">
-                    <a href="<?= e($sortUrl('quote_number', $currentSort, $currentDir, (string) ($search ?? ''), (int) ($per_page ?? 20))) ?>" class="inline-flex items-center gap-1 hover:text-slate-900">
+                    <a href="<?= e($sortUrl('quote_number', $currentSort, $currentDir, (string) ($search ?? ''), $currentStatus, (int) ($per_page ?? 20))) ?>" class="inline-flex items-center gap-1 hover:text-slate-900">
                         Número <span class="text-xs"><?= e($sortArrow('quote_number', $currentSort, $currentDir) !== '' ? $sortArrow('quote_number', $currentSort, $currentDir) : '↕') ?></span>
                     </a>
                 </th>
                 <th class="text-left px-4 py-3">
-                    <a href="<?= e($sortUrl('client_name', $currentSort, $currentDir, (string) ($search ?? ''), (int) ($per_page ?? 20))) ?>" class="inline-flex items-center gap-1 hover:text-slate-900">
+                    <a href="<?= e($sortUrl('client_name', $currentSort, $currentDir, (string) ($search ?? ''), $currentStatus, (int) ($per_page ?? 20))) ?>" class="inline-flex items-center gap-1 hover:text-slate-900">
                         Cliente <span class="text-xs"><?= e($sortArrow('client_name', $currentSort, $currentDir) !== '' ? $sortArrow('client_name', $currentSort, $currentDir) : '↕') ?></span>
                     </a>
                 </th>
                 <th class="text-left px-4 py-3">
-                    <a href="<?= e($sortUrl('created_at', $currentSort, $currentDir, (string) ($search ?? ''), (int) ($per_page ?? 20))) ?>" class="inline-flex items-center gap-1 hover:text-slate-900">
+                    <a href="<?= e($sortUrl('created_at', $currentSort, $currentDir, (string) ($search ?? ''), $currentStatus, (int) ($per_page ?? 20))) ?>" class="inline-flex items-center gap-1 hover:text-slate-900">
                         Fecha <span class="text-xs"><?= e($sortArrow('created_at', $currentSort, $currentDir) !== '' ? $sortArrow('created_at', $currentSort, $currentDir) : '↕') ?></span>
                     </a>
                 </th>
                 <th class="text-right px-4 py-3">
-                    <a href="<?= e($sortUrl('total', $currentSort, $currentDir, (string) ($search ?? ''), (int) ($per_page ?? 20))) ?>" class="inline-flex items-center gap-1 hover:text-slate-900">
+                    <a href="<?= e($sortUrl('total', $currentSort, $currentDir, (string) ($search ?? ''), $currentStatus, (int) ($per_page ?? 20))) ?>" class="inline-flex items-center gap-1 hover:text-slate-900">
                         Total <span class="text-xs"><?= e($sortArrow('total', $currentSort, $currentDir) !== '' ? $sortArrow('total', $currentSort, $currentDir) : '↕') ?></span>
                     </a>
                 </th>
                 <th class="text-center px-4 py-3">
-                    <a href="<?= e($sortUrl('status', $currentSort, $currentDir, (string) ($search ?? ''), (int) ($per_page ?? 20))) ?>" class="inline-flex items-center gap-1 hover:text-slate-900">
+                    <a href="<?= e($sortUrl('status', $currentSort, $currentDir, (string) ($search ?? ''), $currentStatus, (int) ($per_page ?? 20))) ?>" class="inline-flex items-center gap-1 hover:text-slate-900">
                         Estado <span class="text-xs"><?= e($sortArrow('status', $currentSort, $currentDir) !== '' ? $sortArrow('status', $currentSort, $currentDir) : '↕') ?></span>
                     </a>
                 </th>

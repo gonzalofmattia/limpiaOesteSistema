@@ -23,8 +23,13 @@ final class QuoteController extends Controller
         $perPage = (int) $this->query('per_page', 20);
         $perPage = $perPage > 0 ? min($perPage, 100) : 20;
         $search = trim((string) $this->query('search', ''));
+        $status = trim((string) $this->query('status', ''));
         $sort = trim((string) $this->query('sort', 'created_at'));
         $dir = strtolower(trim((string) $this->query('dir', 'desc')));
+        $allowedStatuses = ['draft', 'sent', 'accepted', 'delivered', 'partially_delivered', 'rejected', 'expired'];
+        if ($status !== '' && !in_array($status, $allowedStatuses, true)) {
+            $status = '';
+        }
         $allowedSort = [
             'quote_number' => 'q.quote_number',
             'client_name' => 'c.name',
@@ -39,12 +44,29 @@ final class QuoteController extends Controller
         $orderBySql = $allowedSort[$sort] . ' ' . $dir;
         $where = [];
         $params = [];
+        if ($status !== '') {
+            $where[] = 'q.status = ?';
+            $params[] = $status;
+        }
         if ($search !== '') {
             $where[] = '(q.quote_number LIKE ? OR c.name LIKE ?)';
             $params[] = '%' . $search . '%';
             $params[] = '%' . $search . '%';
         }
         $whereSql = $where === [] ? '' : ('WHERE ' . implode(' AND ', $where));
+        $rawStatusCounts = $db->fetchAll(
+            "SELECT status, COUNT(*) AS qty
+             FROM quotes
+             GROUP BY status"
+        );
+        $statusCounts = [];
+        foreach ($rawStatusCounts as $row) {
+            $key = (string) ($row['status'] ?? '');
+            if ($key === '') {
+                continue;
+            }
+            $statusCounts[$key] = (int) ($row['qty'] ?? 0);
+        }
         $hasAttach = false;
         try {
             $hasAttach = (bool) $db->fetchColumn("SHOW TABLES LIKE 'quote_attachments'");
@@ -89,6 +111,8 @@ final class QuoteController extends Controller
             'title' => 'Presupuestos',
             'quotes' => $rows,
             'search' => $search,
+            'status' => $status,
+            'status_counts' => $statusCounts,
             'sort' => $sort,
             'dir' => strtolower($dir),
             'page' => $page,

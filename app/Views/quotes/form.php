@@ -268,7 +268,6 @@ function quoteForm() {
         quickClientForm: { name: '', phone: '', city: '' },
         async init(cfg) {
             this.clients = Array.isArray(cfg.clients) ? cfg.clients : [];
-            this.selectedClientId = Number(cfg.selectedClientId || 0) || '';
             this.lines = (cfg.lines || []).map(l => ({
                 combo_id: Number(l.combo_id || 0),
                 product_id: l.product_id || 0,
@@ -296,6 +295,7 @@ function quoteForm() {
             this.discountManuallyEdited = this.discountAmount !== '';
             if (this.lines.length === 0) this.addLine();
             await this.loadCombos();
+            this.selectedClientId = Number(cfg.selectedClientId || 0) || '';
             this.refreshAllLinePrices(false);
             if (this.discountPercentage !== '' && !this.discountManuallyEdited) {
                 this.recalculateDiscountAmount();
