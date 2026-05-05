@@ -14,7 +14,7 @@ use Dompdf\Options;
 
 final class QuoteController extends Controller
 {
-    private const EDITABLE_STATUSES = ['draft', 'sent', 'accepted'];
+    private const EDITABLE_STATUSES = ['draft', 'sent', 'accepted', 'delivered'];
 
     public function index(): void
     {
@@ -472,7 +472,10 @@ final class QuoteController extends Controller
                 QuoteDeliveryStock::releaseRemainingCommittedStock($db, (int) $id);
             }
             if ($oldStatus === 'delivered' && $status !== 'delivered' && $deliveryApplied) {
-                QuoteDeliveryStock::reverseDelivery($db, (int) $id);
+                $revert = QuoteDeliveryStock::revertDeliveredStock((int) $id, $db);
+                if (!$revert['success']) {
+                    throw new \RuntimeException('No se pudo revertir stock delivered: ' . implode(' | ', $revert['errors']));
+                }
                 $extra['delivery_stock_applied'] = 0;
             }
             if ($status === 'accepted' && $oldStatus !== 'accepted') {
@@ -743,7 +746,7 @@ final class QuoteController extends Controller
                     'status' => 'draft',
                 ]);
             } else {
-                $existingQuote = $db->fetch('SELECT id, status, client_id FROM quotes WHERE id = ?', [$id]);
+                $existingQuote = $db->fetch('SELECT id, status, client_id, delivery_stock_applied FROM quotes WHERE id = ?', [$id]);
                 if (!$existingQuote) {
                     $db->getPdo()->rollBack();
                     return ['error' => 'No encontrado.'];
@@ -752,6 +755,14 @@ final class QuoteController extends Controller
                 if (!$this->quoteIsEditable($existingQuote)) {
                     $db->getPdo()->rollBack();
                     return ['error' => 'No se puede editar un presupuesto en este estado.'];
+                }
+                if ((string) ($existingQuote['status'] ?? '') === 'delivered'
+                    && (int) ($existingQuote['delivery_stock_applied'] ?? 0) === 1) {
+                    $revert = QuoteDeliveryStock::revertDeliveredStock($id, $db);
+                    if (!$revert['success']) {
+                        $db->getPdo()->rollBack();
+                        return ['error' => 'No se pudo revertir stock entregado: ' . implode(' | ', $revert['errors'])];
+                    }
                 }
                 if ((string) ($existingQuote['status'] ?? '') === 'accepted') {
                     QuoteDeliveryStock::releaseCommittedStock($db, $id);
@@ -957,6 +968,10 @@ final class QuoteController extends Controller
             ], 'id = :id', ['id' => $id]);
             if ($existingQuote !== null && (string) ($existingQuote['status'] ?? '') === 'accepted') {
                 QuoteDeliveryStock::commitStock($db, $id);
+            }
+            if ($existingQuote !== null && (string) ($existingQuote['status'] ?? '') === 'delivered') {
+                QuoteDeliveryStock::markDelivered($db, $id);
+                $db->update('quotes', ['delivery_stock_applied' => 1], 'id = :id', ['id' => $id]);
             }
 
             if ($existingQuote !== null && $prevClientId !== null && $prevClientId > 0 && $prevClientId !== $clientId) {

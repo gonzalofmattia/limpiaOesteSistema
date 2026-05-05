@@ -23,6 +23,37 @@ use App\Models\Database;
 final class QuoteDeliveryStock
 {
     /**
+     * Aplica delta de stock con validaciones de seguridad y log de inconsistencias.
+     */
+    private static function applyProductDelta(Database $db, int $productId, int $stockDelta = 0, int $committedDelta = 0): void
+    {
+        if ($productId <= 0 || ($stockDelta === 0 && $committedDelta === 0)) {
+            return;
+        }
+        $product = $db->fetch(
+            'SELECT stock_units, COALESCE(stock_committed_units, 0) AS stock_committed_units FROM products WHERE id = ?',
+            [$productId]
+        );
+        if ($product === null) {
+            return;
+        }
+        $currentStock = (int) ($product['stock_units'] ?? 0);
+        $currentCommitted = (int) ($product['stock_committed_units'] ?? 0);
+        if ($currentStock + $stockDelta < 0) {
+            error_log("WARNING: stock_units quedaría negativo para product_id={$productId}");
+        }
+        if ($currentCommitted + $committedDelta < 0) {
+            error_log("WARNING: stock_committed_units quedaría negativo para product_id={$productId}");
+        }
+        $nextStock = $stockDelta !== 0 ? max(0, $currentStock + $stockDelta) : $currentStock;
+        $nextCommitted = $committedDelta !== 0 ? max(0, $currentCommitted + $committedDelta) : $currentCommitted;
+        $db->query(
+            'UPDATE products SET stock_units = :stock, stock_committed_units = :committed WHERE id = :pid',
+            ['stock' => $nextStock, 'committed' => $nextCommitted, 'pid' => $productId]
+        );
+    }
+
+    /**
      * @return array<int, int> product_id => unidades totales vendidas en el presupuesto
      */
     public static function unitsByProductForQuote(int $quoteId): array
@@ -170,40 +201,28 @@ final class QuoteDeliveryStock
     public static function applyDelivery(Database $db, int $quoteId): void
     {
         foreach (self::unitsByProductForQuote($quoteId) as $pid => $units) {
-            $db->query(
-                'UPDATE products SET stock_units = GREATEST(0, stock_units - :u) WHERE id = :pid',
-                ['u' => $units, 'pid' => $pid]
-            );
+            self::applyProductDelta($db, (int) $pid, -((int) $units), 0);
         }
     }
 
     public static function reverseDelivery(Database $db, int $quoteId): void
     {
         foreach (self::unitsByProductForQuote($quoteId) as $pid => $units) {
-            $db->query(
-                'UPDATE products SET stock_units = stock_units + :u WHERE id = :pid',
-                ['u' => $units, 'pid' => $pid]
-            );
+            self::applyProductDelta($db, (int) $pid, (int) $units, 0);
         }
     }
 
     public static function commitStock(Database $db, int $quoteId): void
     {
         foreach (self::unitsByProductForQuote($quoteId) as $pid => $units) {
-            $db->query(
-                'UPDATE products SET stock_committed_units = stock_committed_units + :u WHERE id = :pid',
-                ['u' => $units, 'pid' => $pid]
-            );
+            self::applyProductDelta($db, (int) $pid, 0, (int) $units);
         }
     }
 
     public static function releaseCommittedStock(Database $db, int $quoteId): void
     {
         foreach (self::unitsByProductForQuote($quoteId) as $pid => $units) {
-            $db->query(
-                'UPDATE products SET stock_committed_units = GREATEST(0, stock_committed_units - :u) WHERE id = :pid',
-                ['u' => $units, 'pid' => $pid]
-            );
+            self::applyProductDelta($db, (int) $pid, 0, -((int) $units));
         }
     }
 
@@ -214,6 +233,7 @@ final class QuoteDeliveryStock
     {
         self::releaseCommittedStock($db, $quoteId);
         self::applyDelivery($db, $quoteId);
+        $db->query('UPDATE quote_items SET qty_delivered = quantity WHERE quote_id = ?', [$quoteId]);
     }
 
     /**
@@ -229,10 +249,69 @@ final class QuoteDeliveryStock
             if ($pid <= 0 || $u <= 0) {
                 continue;
             }
-            $db->query(
-                'UPDATE products SET stock_committed_units = GREATEST(0, stock_committed_units - :u) WHERE id = :pid',
-                ['u' => $u, 'pid' => $pid]
-            );
+            self::applyProductDelta($db, $pid, 0, -$u);
+        }
+    }
+
+    /**
+     * Revertir el descuento de stock de un presupuesto delivered.
+     * Restaura stock_units según qty_delivered de cada ítem.
+     * Para combos, explota los componentes vía combo_products.
+     *
+     * @return array{success:bool,reverted:array<int,int>,errors:list<string>}
+     */
+    public static function revertDeliveredStock(int $quoteId, Database $db): array
+    {
+        $result = ['success' => false, 'reverted' => [], 'errors' => []];
+        $quote = $db->fetch('SELECT id, delivery_stock_applied FROM quotes WHERE id = ?', [$quoteId]);
+        if ($quote === null) {
+            $result['errors'][] = 'Presupuesto no encontrado.';
+            return $result;
+        }
+        if ((int) ($quote['delivery_stock_applied'] ?? 0) !== 1) {
+            $result['errors'][] = 'El presupuesto no tiene entrega aplicada.';
+            return $result;
+        }
+
+        $pdo = $db->getPdo();
+        $startedHere = !$pdo->inTransaction();
+        if ($startedHere) {
+            $db->query('START TRANSACTION');
+        }
+        try {
+            $lines = $db->fetchAll('SELECT id, product_id, combo_id, unit_type, qty_delivered FROM quote_items WHERE quote_id = ?', [$quoteId]);
+            $productDeltas = [];
+            foreach ($lines as $line) {
+                $qtyDelivered = (float) ($line['qty_delivered'] ?? 0);
+                if ($qtyDelivered <= 0) {
+                    continue;
+                }
+                foreach (self::unitsByProductForLineQty($db, $line, $qtyDelivered) as $pid => $units) {
+                    if ($units <= 0) {
+                        continue;
+                    }
+                    $productDeltas[(int) $pid] = ($productDeltas[(int) $pid] ?? 0) + (int) $units;
+                }
+            }
+
+            foreach ($productDeltas as $pid => $delta) {
+                self::applyProductDelta($db, (int) $pid, (int) $delta, 0);
+                $result['reverted'][(int) $pid] = (int) $delta;
+            }
+            $db->query('UPDATE quote_items SET qty_delivered = 0 WHERE quote_id = ?', [$quoteId]);
+            $db->query('UPDATE quotes SET delivery_stock_applied = 0 WHERE id = ?', [$quoteId]);
+
+            if ($startedHere) {
+                $db->query('COMMIT');
+            }
+            $result['success'] = true;
+            return $result;
+        } catch (\Throwable $e) {
+            if ($startedHere) {
+                $db->query('ROLLBACK');
+            }
+            $result['errors'][] = $e->getMessage();
+            return $result;
         }
     }
 
@@ -279,10 +358,7 @@ final class QuoteDeliveryStock
             if ($pid <= 0 || $u <= 0) {
                 continue;
             }
-            $db->query(
-                'UPDATE products SET stock_units = stock_units + :u WHERE id = :pid',
-                ['u' => $u, 'pid' => $pid]
-            );
+            self::applyProductDelta($db, $pid, $u, 0);
         }
     }
 
@@ -311,10 +387,7 @@ final class QuoteDeliveryStock
             if ($pid <= 0 || $u <= 0) {
                 continue;
             }
-            $db->query(
-                'UPDATE products SET stock_units = GREATEST(0, stock_units - :u) WHERE id = :pid',
-                ['u' => $u, 'pid' => $pid]
-            );
+            self::applyProductDelta($db, $pid, -$u, 0);
         }
         $db->query('UPDATE quote_items SET qty_delivered = quantity WHERE quote_id = ?', [$quoteId]);
     }
@@ -429,10 +502,7 @@ final class QuoteDeliveryStock
             if ($pid <= 0 || $u <= 0) {
                 continue;
             }
-            $db->query(
-                'UPDATE products SET stock_units = GREATEST(0, stock_units - :u) WHERE id = :pid',
-                ['u' => $u, 'pid' => $pid]
-            );
+            self::applyProductDelta($db, $pid, -$u, 0);
         }
     }
 

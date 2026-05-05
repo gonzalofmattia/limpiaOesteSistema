@@ -56,36 +56,66 @@ function formatPercent(?float $value): string
     return number_format($value, 1, ',', '.') . '%';
 }
 
+function parseAmount($value): float
+{
+    if ($value === null || $value === '') {
+        return 0.0;
+    }
+
+    $value = (string) $value;
+
+    // Remover moneda, espacios y caracteres no numéricos excepto . , -
+    $value = preg_replace('/[^\d.,-]/', '', trim($value));
+
+    if ($value === '' || $value === '-') {
+        return 0.0;
+    }
+
+    $negative = str_starts_with($value, '-');
+    $value = ltrim($value, '-');
+
+    $hasComma = str_contains($value, ',');
+    $hasDot = str_contains($value, '.');
+
+    if ($hasComma && $hasDot) {
+        // Ambos presentes: el ÚLTIMO separador es el decimal
+        $lastComma = strrpos($value, ',');
+        $lastDot = strrpos($value, '.');
+
+        if ($lastComma > $lastDot) {
+            // Formato argentino: 12.450,75
+            $value = str_replace('.', '', $value);
+            $value = str_replace(',', '.', $value);
+        } else {
+            // Formato anglosajón: 1,234.56
+            $value = str_replace(',', '', $value);
+        }
+    } elseif ($hasComma) {
+        // Solo coma
+        $parts = explode(',', $value);
+        $lastPart = end($parts);
+
+        if (count($parts) === 2 && strlen((string) $lastPart) <= 2) {
+            // "450,75" o "0,5" → coma es decimal
+            $value = str_replace(',', '.', $value);
+        } else {
+            // "1,234" o "1,234,567" → comas son separador de miles
+            $value = str_replace(',', '', $value);
+        }
+    } elseif ($hasDot && substr_count($value, '.') > 1) {
+        // Múltiples puntos = separador de miles AR: "1.234.567"
+        $value = str_replace('.', '', $value);
+    }
+    // Si solo tiene UN punto: PHP lo maneja nativamente como decimal
+
+    $result = (float) $value;
+
+    return $negative ? -$result : $result;
+}
+
 function parseArgentineAmount(string $raw): float
 {
-    $normalized = trim($raw);
-    if ($normalized === '') {
-        return 0.0;
-    }
-    $normalized = str_replace(['$', ' '], '', $normalized);
-    $negative = false;
-    if (str_starts_with($normalized, '-')) {
-        $negative = true;
-        $normalized = ltrim(substr($normalized, 1));
-    }
-
-    if (str_contains($normalized, ',')) {
-        $normalized = str_replace('.', '', $normalized);
-        $normalized = str_replace(',', '.', $normalized);
-    } elseif (str_contains($normalized, '.')) {
-        $normalized = str_replace('.', '', $normalized);
-    }
-
-    if (!is_numeric($normalized)) {
-        return 0.0;
-    }
-
-    $value = (float) $normalized;
-    if ($negative) {
-        $value *= -1;
-    }
-
-    return round($value, 2);
+    return round(parseAmount($raw), 2);
 }
 
 /**
