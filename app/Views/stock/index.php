@@ -3,10 +3,13 @@ $skuCount = (int) ($total ?? count($products));
 $stockValue = 0.0;
 $sinStock = 0;
 $reponer = 0;
+$enCaminoTotal = 0;
 foreach (($products ?? []) as $p) {
     $stock = (int) ($p['stock_units'] ?? 0);
+    $inTransit = (int) ($p['in_transit_units'] ?? 0);
     $min = (int) ($p['units_per_box'] ?? 0);
     $stockValue += max(0, $stock) * (float) ($p['cost'] ?? 0);
+    $enCaminoTotal += max(0, $inTransit);
     if ($stock <= 0) { $sinStock++; }
     if ($stock > 0 && $min > 0 && $stock < $min) { $reponer++; }
 }
@@ -18,14 +21,15 @@ foreach (($products ?? []) as $p) {
         <button type="button" class="inline-flex w-full sm:w-auto items-center justify-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">Ingreso</button>
     </div>
 </div>
-<div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+<div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
     <div class="lo-card p-4"><p class="text-xs text-slate-500">SKUs</p><p class="text-2xl font-semibold"><?= $skuCount ?></p></div>
     <div class="lo-card p-4"><p class="text-xs text-slate-500">Valorizado al costo</p><p class="text-xl font-semibold"><?= formatPrice($stockValue) ?></p></div>
     <div class="lo-card p-4"><p class="text-xs text-slate-500">Sin stock</p><p class="text-2xl font-semibold text-red-600"><?= $sinStock ?></p></div>
     <div class="lo-card p-4"><p class="text-xs text-slate-500">Para reponer</p><p class="text-2xl font-semibold text-amber-600"><?= $reponer ?></p></div>
+    <div class="lo-card p-4"><p class="text-xs text-slate-500">En camino (un.)</p><p class="text-2xl font-semibold text-blue-700"><?= $enCaminoTotal ?></p></div>
 </div>
 <form method="get" class="flex items-center gap-2">
-        <input type="hidden" name="per_page" value="<?= (int) ($per_page ?? 20) ?>">
+        <input type="hidden" name="per_page" value="<?= (int) ($per_page ?? 50) ?>">
     <div class="flex-1 h-11 rounded-xl border border-lo-border bg-white px-3 flex items-center gap-2"><i data-lucide="search" class="h-4 w-4 text-slate-400"></i><input type="text" name="search" value="<?= e((string) ($q ?? '')) ?>" placeholder="Buscar producto..." class="w-full bg-transparent outline-none text-sm"></div>
     <?php require APP_PATH . '/Views/layout/partials/ui-btn-filter.php'; ?>
 </form>
@@ -65,7 +69,7 @@ foreach (($products ?? []) as $p) {
     <?php endif; ?>
 </div>
 
-<p class="text-sm text-gray-500 mb-2"><?= (int) ($total ?? count($products)) ?> productos con stock mayor a 0</p>
+<p class="text-sm text-gray-500 mb-2"><?= (int) ($total ?? count($products)) ?> productos con stock o en camino</p>
 
 <div class="lo-table-wrap">
     <table class="min-w-full text-sm lo-table">
@@ -78,28 +82,41 @@ foreach (($products ?? []) as $p) {
                 <th class="text-right px-3 py-2">Stock total</th>
                 <th class="text-right px-3 py-2">Comprometido</th>
                 <th class="text-right px-3 py-2">Disponible</th>
+                <th class="text-right px-3 py-2">En camino</th>
+                <th class="text-right px-3 py-2">Disp. + camino</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
             <?php foreach ($products as $p): ?>
                 <tr class="hover:bg-gray-50">
                     <td class="px-3 py-2 font-mono text-xs"><?= e((string) $p['code']) ?></td>
-                    <td class="px-3 py-2"><span class="lo-truncate" title="<?= e((string) $p['name']) ?>"><?= e((string) $p['name']) ?></span></td>
+                    <?php if ((int) ($p['is_active'] ?? 1) !== 1): ?>
+                        <td class="px-3 py-2">
+                            <span class="lo-truncate" title="<?= e((string) $p['name']) ?>"><?= e((string) $p['name']) ?></span>
+                            <span class="ml-2 inline-flex px-2 py-0.5 rounded-full text-[10px] bg-slate-100 text-slate-700">Inactivo</span>
+                        </td>
+                    <?php else: ?>
+                        <td class="px-3 py-2"><span class="lo-truncate" title="<?= e((string) $p['name']) ?>"><?= e((string) $p['name']) ?></span></td>
+                    <?php endif; ?>
                     <td class="px-3 py-2 text-gray-600"><?= e((string) $p['category_name']) ?></td>
                     <td class="px-3 py-2 text-right text-gray-600"><?= (int) ($p['units_per_box'] ?? 1) ?></td>
                     <?php
                     $stockTotal = max(0, (int) ($p['stock_units'] ?? 0));
                     $stockCommitted = max(0, (int) ($p['stock_committed_units'] ?? 0));
                     $stockAvailable = $stockTotal - $stockCommitted;
+                    $inTransit = max(0, (int) ($p['in_transit_units'] ?? 0));
+                    $availablePlusTransit = $stockAvailable + $inTransit;
                     ?>
                     <td class="px-3 py-2 text-right"><?= $stockTotal ?></td>
                     <td class="px-3 py-2 text-right <?= $stockCommitted > 0 ? 'text-amber-600 font-medium' : 'text-gray-500' ?>"><?= $stockCommitted ?></td>
                     <td class="px-3 py-2 text-right font-semibold <?= $stockAvailable > 0 ? 'text-green-700' : 'text-red-700' ?>"><?= $stockAvailable ?></td>
+                    <td class="px-3 py-2 text-right <?= $inTransit > 0 ? 'text-blue-700 font-semibold' : 'text-gray-500' ?>"><?= $inTransit ?></td>
+                    <td class="px-3 py-2 text-right font-semibold <?= $availablePlusTransit > 0 ? 'text-emerald-700' : 'text-red-700' ?>"><?= $availablePlusTransit ?></td>
                 </tr>
             <?php endforeach; ?>
             <?php if ($products === []): ?>
                 <tr>
-                    <td colspan="7" class="px-3 py-6 text-center text-gray-500">No hay productos con stock para mostrar.</td>
+                    <td colspan="9" class="px-3 py-6 text-center text-gray-500">No hay productos con stock para mostrar.</td>
                 </tr>
             <?php endif; ?>
         </tbody>

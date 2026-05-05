@@ -14,13 +14,13 @@ final class StockController extends Controller
         $db = Database::getInstance();
         $hasAdjustmentsTable = $this->hasAdjustmentsTable($db);
         $page = max(1, (int) $this->query('page', 1));
-        $perPage = (int) $this->query('per_page', 20);
-        $perPage = $perPage > 0 ? min($perPage, 100) : 20;
+        $perPage = (int) $this->query('per_page', 50);
+        $perPage = $perPage > 0 ? min($perPage, 100) : 50;
         $q = trim((string) $this->query('search', ''));
         if ($q === '') {
             $q = trim((string) $this->query('q', ''));
         }
-        $where = ['p.is_active = 1', 'COALESCE(p.stock_units, 0) > 0'];
+        $where = ['1=1'];
         $params = [];
 
         if ($q !== '') {
@@ -29,10 +29,22 @@ final class StockController extends Controller
             $params['q2'] = '%' . $q . '%';
         }
 
+        $inTransitJoin = 'LEFT JOIN (
+                SELECT soi.product_id, SUM(soi.boxes_to_order * soi.units_per_box) AS in_transit_units
+                FROM seiq_order_items soi
+                JOIN seiq_orders so ON so.id = soi.seiq_order_id
+                WHERE so.status = \'sent\'
+                GROUP BY soi.product_id
+             ) t ON t.product_id = p.id';
+
+        // Mostrar productos con stock físico o con unidades en camino
+        $where[] = '(COALESCE(p.stock_units, 0) > 0 OR COALESCE(t.in_transit_units, 0) > 0)';
+
         $total = (int) $db->fetchColumn(
             'SELECT COUNT(*)
              FROM products p
              JOIN categories c ON c.id = p.category_id
+             ' . $inTransitJoin . '
              WHERE ' . implode(' AND ', $where),
             $params
         );
@@ -42,10 +54,11 @@ final class StockController extends Controller
         }
         $offset = ($page - 1) * $perPage;
         $rows = $db->fetchAll(
-            'SELECT p.id, p.code, p.name, p.stock_units, COALESCE(p.stock_committed_units, 0) AS stock_committed_units, p.units_per_box,
-                    c.name AS category_name
+            'SELECT p.id, p.code, p.name, p.is_active, p.stock_units, COALESCE(p.stock_committed_units, 0) AS stock_committed_units, p.units_per_box,
+                    c.name AS category_name, COALESCE(t.in_transit_units, 0) AS in_transit_units
              FROM products p
              JOIN categories c ON c.id = p.category_id
+             ' . $inTransitJoin . '
              WHERE ' . implode(' AND ', $where) . '
              ORDER BY p.stock_units DESC, p.name ASC
              LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
