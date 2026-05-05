@@ -15,6 +15,7 @@ final class ClientController extends Controller
     public function index(): void
     {
         $db = Database::getInstance();
+        $hasSegmentSupport = $this->hasClientSegmentSupport($db);
         $page = max(1, (int) $this->query('page', 1));
         $perPage = (int) $this->query('per_page', 20);
         $perPage = $perPage > 0 ? min($perPage, 100) : 20;
@@ -29,8 +30,12 @@ final class ClientController extends Controller
         $whereSql = $where === [] ? '' : ('WHERE ' . implode(' AND ', $where));
 
         $lastQuoteSub = "(SELECT MAX(q2.created_at) FROM quotes q2 WHERE q2.client_id = c.id AND q2.status IN ('accepted', 'delivered')) AS last_quote_at";
-        $listSelect = "c.id, c.name, c.email, c.business_name, c.balance, c.client_type, c.default_markup,
-                       csc.segment_label, csc.default_markup AS segment_default_markup, {$lastQuoteSub}";
+        $listSelect = "c.id, c.name, c.email, c.business_name, c.balance, {$lastQuoteSub}";
+        if ($hasSegmentSupport) {
+            $listSelect .= ", c.client_type, c.default_markup, csc.segment_label, csc.default_markup AS segment_default_markup";
+        } else {
+            $listSelect .= ", 'mayorista' AS client_type, NULL AS default_markup, NULL AS segment_label, NULL AS segment_default_markup";
+        }
         $stats = ['total' => 0, 'with_debt' => 0, 'sum_balance' => 0.0];
         $rows = [];
         $total = 0;
@@ -42,8 +47,11 @@ final class ClientController extends Controller
                 $txAgg = ClientReceivableSummary::sqlTxAggByClientSubquery();
                 $qAgg = ClientReceivableSummary::sqlQuotesAcceptedByClientSubquery();
                 $hybrid = ClientReceivableSummary::sqlCaseHybridBalance();
+                $segmentJoin = $hasSegmentSupport
+                    ? 'LEFT JOIN client_segment_config csc ON csc.segment_key = c.client_type'
+                    : '';
                 $fromJoins = "FROM clients c
-                     LEFT JOIN client_segment_config csc ON csc.segment_key = c.client_type
+                     {$segmentJoin}
                      LEFT JOIN ({$txAgg}) tx ON tx.account_id = c.id
                      LEFT JOIN ({$qAgg}) q ON q.client_id = c.id
                      {$whereSql}";
@@ -118,10 +126,13 @@ final class ClientController extends Controller
                     $page = $totalPages;
                 }
                 $offset = ($page - 1) * $perPage;
+                $segmentJoin = $hasSegmentSupport
+                    ? 'LEFT JOIN client_segment_config csc ON csc.segment_key = c.client_type'
+                    : '';
                 $rows = $db->fetchAll(
                     "SELECT {$listSelect}
                      FROM clients c
-                     LEFT JOIN client_segment_config csc ON csc.segment_key = c.client_type
+                     {$segmentJoin}
                      {$debtClause}
                      ORDER BY c.name
                      LIMIT {$perPage} OFFSET {$offset}",
@@ -136,10 +147,13 @@ final class ClientController extends Controller
                 $page = $totalPages;
             }
             $offset = ($page - 1) * $perPage;
+            $segmentJoin = $hasSegmentSupport
+                ? 'LEFT JOIN client_segment_config csc ON csc.segment_key = c.client_type'
+                : '';
             $rows = $db->fetchAll(
                 "SELECT {$listSelect}
                  FROM clients c
-                 LEFT JOIN client_segment_config csc ON csc.segment_key = c.client_type
+                 {$segmentJoin}
                  {$debtClause}
                  ORDER BY c.name
                  LIMIT {$perPage} OFFSET {$offset}",
@@ -393,6 +407,27 @@ final class ClientController extends Controller
             return null;
         }
         return round(parseAmount($raw), 2);
+    }
+
+    private function hasClientSegmentSupport(Database $db): bool
+    {
+        try {
+            $hasTable = (bool) $db->fetchColumn("SHOW TABLES LIKE 'client_segment_config'");
+            if (!$hasTable) {
+                return false;
+            }
+            $hasType = (bool) $db->fetchColumn(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'clients' AND COLUMN_NAME = 'client_type'"
+            );
+            $hasMarkup = (bool) $db->fetchColumn(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'clients' AND COLUMN_NAME = 'default_markup'"
+            );
+            return $hasType && $hasMarkup;
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     private function nullStr(mixed $v): ?string

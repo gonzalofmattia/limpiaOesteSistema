@@ -8,8 +8,31 @@ $initialType = (string) ($c['client_type'] ?? 'mayorista');
 $initialMarkup = isset($c['default_markup']) && $c['default_markup'] !== null && $c['default_markup'] !== ''
     ? (string) $c['default_markup']
     : '';
+$clientFormCfg = json_encode([
+    'clientType' => $initialType,
+    'customMarkup' => $initialMarkup,
+    'segments' => $segments,
+], JSON_UNESCAPED_UNICODE);
 ?>
 <div class="max-w-2xl bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+    <script>
+    window.__clientFormCfg = <?= $clientFormCfg ?: '{"clientType":"mayorista","customMarkup":"","segments":[]}' ?>;
+    function clientFormState(cfg) {
+        return {
+            clientType: cfg && cfg.clientType ? cfg.clientType : 'mayorista',
+            customMarkup: cfg && cfg.customMarkup ? cfg.customMarkup : '',
+            segments: cfg && Array.isArray(cfg.segments) ? cfg.segments : [],
+            segmentMarkup() {
+                const seg = this.segments.find((s) => s.segment_key === this.clientType);
+                return seg ? Number(seg.default_markup || 0) : 60;
+            },
+            effectiveMarkup() {
+                const cm = String(this.customMarkup || '').trim();
+                return cm !== '' ? Number(cm) : this.segmentMarkup();
+            }
+        };
+    }
+    </script>
     <?php if ($isEdit): ?>
         <?php $balance = isset($c['effective_balance']) ? (float) $c['effective_balance'] : (float) ($c['balance'] ?? 0); ?>
         <div class="mb-4">
@@ -20,24 +43,7 @@ $initialMarkup = isset($c['default_markup']) && $c['default_markup'] !== null &&
             <?php endif; ?>
         </div>
     <?php endif; ?>
-    <form method="post" action="<?= e($action) ?>" class="space-y-4"
-          x-data="{
-              clientType: <?= json_encode($initialType, JSON_UNESCAPED_UNICODE) ?>,
-              customMarkup: <?= json_encode($initialMarkup, JSON_UNESCAPED_UNICODE) ?>,
-              segments: <?= $segmentsJson ?: '[]' ?>,
-              segmentMarkup() {
-                  const seg = this.segments.find(s => s.segment_key === this.clientType);
-                  return seg ? Number(seg.default_markup || 0) : 60;
-              },
-              effectiveMarkup() {
-                  const cm = String(this.customMarkup || '').trim();
-                  return cm !== '' ? Number(cm) : this.segmentMarkup();
-              },
-              segmentLabel() {
-                  const seg = this.segments.find(s => s.segment_key === this.clientType);
-                  return seg ? String(seg.segment_label || this.clientType) : this.clientType;
-              }
-          }">
+    <form method="post" action="<?= e($action) ?>" class="space-y-4" x-data="clientFormState(window.__clientFormCfg)">
         <?= csrfField() ?>
         <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
