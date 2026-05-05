@@ -93,6 +93,51 @@ foreach ($labels as $key => $meta) {
                 <?php endforeach; ?>
             </div>
         </section>
+        <section class="lo-card p-6">
+            <h2 class="text-sm font-semibold text-gray-800 border-b border-gray-100 pb-2 mb-4">Segmentos de clientes</h2>
+            <p class="text-xs text-gray-500 mb-4">Podés ajustar markup por segmento. No se eliminan segmentos; solo se activan/desactivan.</p>
+            <div class="overflow-x-auto">
+                <table class="min-w-full text-sm">
+                    <thead class="bg-gray-50 text-gray-600 border-b border-gray-200">
+                        <tr>
+                            <th class="text-left px-3 py-2">Segmento</th>
+                            <th class="text-left px-3 py-2">Markup (%)</th>
+                            <th class="text-left px-3 py-2">Clientes</th>
+                            <th class="text-left px-3 py-2">Activo</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        <?php foreach (($segments ?? []) as $seg): ?>
+                            <tr>
+                                <td class="px-3 py-2">
+                                    <div class="font-medium text-gray-900"><?= e((string) ($seg['segment_label'] ?? '')) ?></div>
+                                    <div class="text-xs text-gray-500"><?= e((string) ($seg['segment_key'] ?? '')) ?></div>
+                                </td>
+                                <td class="px-3 py-2">
+                                    <input type="number"
+                                           step="0.01"
+                                           min="0"
+                                           max="500"
+                                           name="segment_<?= (int) $seg['id'] ?>_default_markup"
+                                           value="<?= e(number_format((float) ($seg['default_markup'] ?? 0), 2, '.', '')) ?>"
+                                           class="w-28 border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
+                                </td>
+                                <td class="px-3 py-2 text-gray-700"><?= (int) ($seg['clients_count'] ?? 0) ?></td>
+                                <td class="px-3 py-2">
+                                    <label class="inline-flex items-center gap-2 text-sm">
+                                        <input type="checkbox"
+                                               name="segment_<?= (int) $seg['id'] ?>_is_active"
+                                               value="1"
+                                               <?= (int) ($seg['is_active'] ?? 0) === 1 ? 'checked' : '' ?>>
+                                        Activo
+                                    </label>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </section>
         <div class="flex justify-end"><button type="submit" class="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"><i data-lucide="save" class="w-4 h-4 shrink-0"></i><span>Guardar cambios</span></button></div>
         </div>
     </form>

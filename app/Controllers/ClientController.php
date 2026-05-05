@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Controller;
+use App\Helpers\ClientMarkupResolver;
 use App\Helpers\ClientReceivableSummary;
 use App\Models\Database;
 use PDOException;
@@ -28,7 +29,8 @@ final class ClientController extends Controller
         $whereSql = $where === [] ? '' : ('WHERE ' . implode(' AND ', $where));
 
         $lastQuoteSub = "(SELECT MAX(q2.created_at) FROM quotes q2 WHERE q2.client_id = c.id AND q2.status IN ('accepted', 'delivered')) AS last_quote_at";
-        $listSelect = "c.id, c.name, c.email, c.business_name, c.balance, {$lastQuoteSub}";
+        $listSelect = "c.id, c.name, c.email, c.business_name, c.balance, c.client_type, c.default_markup,
+                       csc.segment_label, csc.default_markup AS segment_default_markup, {$lastQuoteSub}";
         $stats = ['total' => 0, 'with_debt' => 0, 'sum_balance' => 0.0];
         $rows = [];
         $total = 0;
@@ -41,6 +43,7 @@ final class ClientController extends Controller
                 $qAgg = ClientReceivableSummary::sqlQuotesAcceptedByClientSubquery();
                 $hybrid = ClientReceivableSummary::sqlCaseHybridBalance();
                 $fromJoins = "FROM clients c
+                     LEFT JOIN client_segment_config csc ON csc.segment_key = c.client_type
                      LEFT JOIN ({$txAgg}) tx ON tx.account_id = c.id
                      LEFT JOIN ({$qAgg}) q ON q.client_id = c.id
                      {$whereSql}";
@@ -116,7 +119,12 @@ final class ClientController extends Controller
                 }
                 $offset = ($page - 1) * $perPage;
                 $rows = $db->fetchAll(
-                    "SELECT {$listSelect} FROM clients c {$debtClause} ORDER BY c.name LIMIT {$perPage} OFFSET {$offset}",
+                    "SELECT {$listSelect}
+                     FROM clients c
+                     LEFT JOIN client_segment_config csc ON csc.segment_key = c.client_type
+                     {$debtClause}
+                     ORDER BY c.name
+                     LIMIT {$perPage} OFFSET {$offset}",
                     $params
                 );
             }
@@ -129,7 +137,12 @@ final class ClientController extends Controller
             }
             $offset = ($page - 1) * $perPage;
             $rows = $db->fetchAll(
-                "SELECT {$listSelect} FROM clients c {$debtClause} ORDER BY c.name LIMIT {$perPage} OFFSET {$offset}",
+                "SELECT {$listSelect}
+                 FROM clients c
+                 LEFT JOIN client_segment_config csc ON csc.segment_key = c.client_type
+                 {$debtClause}
+                 ORDER BY c.name
+                 LIMIT {$perPage} OFFSET {$offset}",
                 $params
             );
             $statsRow = $db->fetch(
@@ -161,7 +174,9 @@ final class ClientController extends Controller
 
     public function create(): void
     {
-        $this->view('clients/form', ['title' => 'Nuevo cliente', 'client' => null]);
+        $db = Database::getInstance();
+        $segments = ClientMarkupResolver::getSegments($db);
+        $this->view('clients/form', ['title' => 'Nuevo cliente', 'client' => null, 'segments' => $segments]);
     }
 
     public function store(): void
@@ -214,7 +229,8 @@ final class ClientController extends Controller
         } else {
             $c['effective_balance'] = (float) ($c['balance'] ?? 0);
         }
-        $this->view('clients/form', ['title' => 'Editar cliente', 'client' => $c]);
+        $segments = ClientMarkupResolver::getSegments($db);
+        $this->view('clients/form', ['title' => 'Editar cliente', 'client' => $c, 'segments' => $segments]);
     }
 
     public function update(string $id): void
@@ -357,8 +373,26 @@ final class ClientController extends Controller
             'address' => $this->nullStr($this->input('address', '')),
             'city' => $this->nullStr($this->input('city', '')),
             'notes' => $this->nullStr($this->input('notes', '')),
+            'client_type' => $this->validateClientType((string) $this->input('client_type', 'mayorista')),
+            'default_markup' => $this->nullableMarkup($this->input('default_markup', '')),
             'is_active' => $this->input('is_active') ? 1 : 0,
         ];
+    }
+
+    private function validateClientType(string $raw): string
+    {
+        $allowed = ['mayorista', 'minorista', 'barrio_cerrado', 'gastronomico', 'mercadolibre'];
+        $type = trim($raw);
+        return in_array($type, $allowed, true) ? $type : 'mayorista';
+    }
+
+    private function nullableMarkup(mixed $value): ?float
+    {
+        $raw = trim((string) $value);
+        if ($raw === '') {
+            return null;
+        }
+        return round(parseAmount($raw), 2);
     }
 
     private function nullStr(mixed $v): ?string

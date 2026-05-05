@@ -56,6 +56,7 @@ $clientsTabUrl = static function (bool $debtTab): string {
         <thead class="bg-gray-50 border-b border-gray-200 text-gray-600">
             <tr>
                 <th class="text-left px-4 py-3">Nombre</th>
+                <th class="text-left px-4 py-3">Segmento</th>
                 <th class="text-right px-4 py-3">Saldo</th>
                 <th class="text-left px-4 py-3">Última</th>
                 <th class="text-right px-4 py-3">Acciones</th>
@@ -67,6 +68,19 @@ $clientsTabUrl = static function (bool $debtTab): string {
                 $balance = isset($c['effective_balance']) ? (float) $c['effective_balance'] : (float) ($c['balance'] ?? 0);
                 $ultimaRaw = $c['last_quote_at'] ?? null;
                 $ultimaTxt = $fmtUltimaCompra($ultimaRaw);
+                $segmentKey = (string) ($c['client_type'] ?? 'mayorista');
+                $segmentLabel = (string) ($c['segment_label'] ?? ucfirst(str_replace('_', ' ', $segmentKey)));
+                $segmentMarkup = ($c['default_markup'] ?? null) !== null && $c['default_markup'] !== ''
+                    ? (float) $c['default_markup']
+                    : (float) ($c['segment_default_markup'] ?? 60);
+                $segmentBadge = match ($segmentKey) {
+                    'mayorista' => 'bg-blue-100 text-blue-800',
+                    'minorista' => 'bg-gray-100 text-gray-800',
+                    'barrio_cerrado' => 'bg-green-100 text-green-800',
+                    'gastronomico' => 'bg-orange-100 text-orange-800',
+                    'mercadolibre' => 'bg-yellow-100 text-yellow-800',
+                    default => 'bg-slate-100 text-slate-700',
+                };
                 ?>
                 <tr class="hover:bg-gray-50">
                     <td class="px-4 py-3">
@@ -78,6 +92,11 @@ $clientsTabUrl = static function (bool $debtTab): string {
                                 <p class="text-xs text-slate-500"><?= e((string) ($c['email'] ?? '—')) ?></p>
                             </div>
                         </div>
+                    </td>
+                    <td class="px-4 py-3">
+                        <span class="inline-flex px-2 py-0.5 rounded-full text-xs <?= e($segmentBadge) ?>">
+                            <?= e($segmentLabel) ?> (<?= e(number_format($segmentMarkup, 2, ',', '.')) ?>%)
+                        </span>
                     </td>
                     <td class="px-4 py-3 text-right">
                         <?php if ($balance > 0): ?>

@@ -42,7 +42,8 @@ window.__quoteForm = {
     customMarkup: <?= json_encode(isset($q['custom_markup']) && $q['custom_markup'] !== null && $q['custom_markup'] !== '' ? (string) $q['custom_markup'] : '', JSON_UNESCAPED_UNICODE) ?>,
     includeIva: <?= !empty($q['include_iva']) ? 'true' : 'false' ?>,
     discountPercentage: <?= json_encode(isset($q['discount_percentage']) && $q['discount_percentage'] !== null ? (string) $q['discount_percentage'] : '', JSON_UNESCAPED_UNICODE) ?>,
-    discountAmount: <?= json_encode(isset($q['discount_amount']) && $q['discount_amount'] !== null ? (string) $q['discount_amount'] : '', JSON_UNESCAPED_UNICODE) ?>
+    discountAmount: <?= json_encode(isset($q['discount_amount']) && $q['discount_amount'] !== null ? (string) $q['discount_amount'] : '', JSON_UNESCAPED_UNICODE) ?>,
+    isEdit: <?= $isEdit ? 'true' : 'false' ?>
 };
 </script>
 <div class="max-w-5xl" x-data="quoteForm()" x-init="init(window.__quoteForm)">
@@ -58,7 +59,7 @@ window.__quoteForm = {
             <div class="sm:col-span-2">
                 <label class="block text-sm font-medium text-gray-700 mb-1">Cliente</label>
                 <div class="flex items-center gap-2">
-                    <select name="client_id" required x-model.number="selectedClientId" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                    <select name="client_id" required x-model.number="selectedClientId" @change="onClientChanged()" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm">
                         <option value="">Seleccionar…</option>
                         <template x-for="client in clients" :key="client.id">
                             <option :value="client.id" x-text="client.name"></option>
@@ -83,6 +84,7 @@ window.__quoteForm = {
                        @change="refreshAllLinePrices()"
                        value="<?= isset($q['custom_markup']) && $q['custom_markup'] !== null && $q['custom_markup'] !== '' ? e((string) $q['custom_markup']) : '' ?>"
                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                <p class="text-xs text-gray-500 mt-1" x-show="clientMarkupInfo" x-text="clientMarkupInfo"></p>
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Validez (días)</label>
@@ -257,6 +259,8 @@ function quoteForm() {
         combos: [],
         clients: [],
         selectedClientId: '',
+        isEdit: false,
+        clientMarkupInfo: '',
         customMarkup: '',
         includeIva: false,
         discountPercentage: '',
@@ -289,6 +293,7 @@ function quoteForm() {
                 results: []
             }));
             this.customMarkup = cfg.customMarkup || '';
+            this.isEdit = !!cfg.isEdit;
             this.includeIva = !!cfg.includeIva;
             this.discountPercentage = cfg.discountPercentage || '';
             this.discountAmount = cfg.discountAmount || '';
@@ -296,9 +301,42 @@ function quoteForm() {
             if (this.lines.length === 0) this.addLine();
             await this.loadCombos();
             this.selectedClientId = Number(cfg.selectedClientId || 0) || '';
+            if (!this.isEdit && this.selectedClientId) {
+                await this.applyClientMarkup(this.selectedClientId);
+            }
             this.refreshAllLinePrices(false);
             if (this.discountPercentage !== '' && !this.discountManuallyEdited) {
                 this.recalculateDiscountAmount();
+            }
+        },
+        async onClientChanged() {
+            const clientId = Number(this.selectedClientId || 0);
+            if (!clientId) {
+                this.clientMarkupInfo = '';
+                return;
+            }
+            await this.applyClientMarkup(clientId);
+        },
+        async applyClientMarkup(clientId) {
+            try {
+                const res = await fetch(window.appUrl('/api/clientes/' + clientId + '/markup'));
+                const data = await res.json();
+                if (!res.ok) {
+                    return;
+                }
+                const markup = Number(data.markup || 0);
+                this.customMarkup = Number.isFinite(markup) ? markup.toFixed(2) : '';
+                const label = String(data.segment_label || '');
+                if (data.is_override) {
+                    this.clientMarkupInfo = 'Markup cliente: ' + this.customMarkup + '% (override individual)';
+                } else {
+                    this.clientMarkupInfo = label !== ''
+                        ? 'Segmento ' + label + ': ' + this.customMarkup + '%'
+                        : 'Markup segmento: ' + this.customMarkup + '%';
+                }
+                await this.refreshAllLinePrices();
+            } catch (e) {
+                // Silencioso: si falla API no bloquea el formulario.
             }
         },
         openQuickClientModal() {
@@ -351,6 +389,7 @@ function quoteForm() {
                     this.clients.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'es', { sensitivity: 'base' }));
                 }
                 this.selectedClientId = created.id;
+                await this.applyClientMarkup(created.id);
                 this.quickClientModalOpen = false;
             } catch (e) {
                 this.quickClientError = 'Error de conexión al crear cliente.';

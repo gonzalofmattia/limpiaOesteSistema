@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Controller;
+use App\Helpers\ClientMarkupResolver;
 use App\Helpers\CategoryHierarchy;
 use App\Helpers\ImageUploader;
 use App\Helpers\PricingEngine;
@@ -13,6 +14,25 @@ use App\Models\Database;
 
 final class ApiController extends Controller
 {
+    public function clientMarkup(string $id): void
+    {
+        $clientId = (int) $id;
+        $db = Database::getInstance();
+        $markup = ClientMarkupResolver::resolve($clientId, $db);
+        $client = $db->fetch(
+            'SELECT client_type, default_markup FROM clients WHERE id = ?',
+            [$clientId]
+        );
+        $segmentKey = (string) ($client['client_type'] ?? 'mayorista');
+        $segmentLabel = ClientMarkupResolver::getSegmentLabel($segmentKey, $db);
+        $this->json([
+            'markup' => round($markup, 2),
+            'client_type' => $segmentKey,
+            'segment_label' => $segmentLabel,
+            'is_override' => isset($client['default_markup']) && $client['default_markup'] !== null && $client['default_markup'] !== '',
+        ]);
+    }
+
     public function searchProducts(): void
     {
         $q = trim((string) $this->query('q', ''));

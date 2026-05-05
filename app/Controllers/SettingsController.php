@@ -27,7 +27,22 @@ final class SettingsController extends Controller
             $settings[$r['setting_key']] = $r;
         }
         $suppliers = $db->fetchAll('SELECT * FROM suppliers ORDER BY name');
-        $this->view('settings/index', ['title' => 'Configuración', 'settings' => $settings, 'suppliers' => $suppliers]);
+        try {
+            $segments = $db->fetchAll(
+                "SELECT csc.*,
+                        (SELECT COUNT(*) FROM clients c WHERE c.client_type = csc.segment_key) AS clients_count
+                 FROM client_segment_config csc
+                 ORDER BY csc.sort_order, csc.id"
+            );
+        } catch (\Throwable) {
+            $segments = [];
+        }
+        $this->view('settings/index', [
+            'title' => 'Configuración',
+            'settings' => $settings,
+            'suppliers' => $suppliers,
+            'segments' => $segments,
+        ]);
     }
 
     public function update(): void
@@ -56,6 +71,24 @@ final class SettingsController extends Controller
                 'condicion_pago' => trim((string) $this->input('supplier_' . $sid . '_condicion_pago', '')),
                 'observaciones' => trim((string) $this->input('supplier_' . $sid . '_observaciones', '')),
             ], 'id = :id', ['id' => $sid]);
+        }
+        try {
+            $segmentRows = $db->fetchAll('SELECT id FROM client_segment_config');
+            foreach ($segmentRows as $row) {
+                $segId = (int) ($row['id'] ?? 0);
+                if ($segId <= 0) {
+                    continue;
+                }
+                $markupRaw = trim((string) $this->input('segment_' . $segId . '_default_markup', ''));
+                $active = $this->input('segment_' . $segId . '_is_active') ? 1 : 0;
+                $markup = $markupRaw === '' ? 0.0 : round(parseAmount($markupRaw), 2);
+                $db->update('client_segment_config', [
+                    'default_markup' => $markup,
+                    'is_active' => $active,
+                ], 'id = :id', ['id' => $segId]);
+            }
+        } catch (\Throwable) {
+            // Si no existe aún la tabla de segmentos, no bloquear guardado general.
         }
         SettingsCache::forget();
         flash('success', 'Configuración guardada.');
