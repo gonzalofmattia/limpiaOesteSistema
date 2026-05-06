@@ -135,7 +135,6 @@ final class SeiqOrderController extends Controller
                     $boxesToOrder = $this->resolveBoxesToOrder($manualBoxes[$productId] ?? null, $defaultBoxes);
                     $row['boxes_to_order'] = $boxesToOrder;
                     $row['units_remainder'] = max(0, ($boxesToOrder * $unitsPerBox) - $unitsToOrderAfterStock);
-                    $row['origin'] = 'auto';
                     $rowsForOrder[] = $row;
                     $supplierTotalBoxes += $boxesToOrder;
                 }
@@ -171,7 +170,6 @@ final class SeiqOrderController extends Controller
                         'units_per_box' => (int) $row['units_per_box'],
                         'boxes_to_order' => (int) $row['boxes_to_order'],
                         'units_remainder' => (int) $row['units_remainder'],
-                        'origin' => (string) ($row['origin'] ?? 'auto'),
                         'sort_order' => $sort++,
                     ]);
                 }
@@ -217,7 +215,6 @@ final class SeiqOrderController extends Controller
                         'units_per_box' => (int) $row['units_per_box'],
                         'boxes_to_order' => (int) $row['boxes_to_order'],
                         'units_remainder' => (int) $row['units_remainder'],
-                        'origin' => 'manual',
                         'sort_order' => $sort++,
                     ]);
                 }
@@ -643,7 +640,6 @@ final class SeiqOrderController extends Controller
             $hasItems = (bool) $db->fetchColumn("SHOW TABLES LIKE 'seiq_order_items'");
             $hasSuppliers = (bool) $db->fetchColumn("SHOW TABLES LIKE 'suppliers'");
             if ($hasOrders && $hasItems && $hasSuppliers) {
-                $this->ensureSeiqOrderItemsOriginColumn($db);
                 return true;
             }
         } catch (\Throwable) {
@@ -655,26 +651,6 @@ final class SeiqOrderController extends Controller
         return false;
     }
 
-    private function ensureSeiqOrderItemsOriginColumn(Database $db): void
-    {
-        try {
-            $exists = (bool) $db->fetchColumn(
-                "SELECT 1
-                 FROM information_schema.columns
-                 WHERE table_schema = DATABASE()
-                   AND table_name = 'seiq_order_items'
-                   AND column_name = 'origin'
-                 LIMIT 1"
-            );
-            if ($exists) {
-                return;
-            }
-            $db->query("ALTER TABLE seiq_order_items ADD COLUMN origin ENUM('auto','manual') NOT NULL DEFAULT 'auto' AFTER units_remainder");
-        } catch (\Throwable) {
-            // No bloquear el flujo; en caso de falla se usará default de inserción previa.
-        }
-    }
-
     /**
      * @param mixed $rawLines
      * @return array<int, list<array<string,mixed>>>
@@ -684,22 +660,33 @@ final class SeiqOrderController extends Controller
         if (!is_array($rawLines) || $rawLines === []) {
             return [];
         }
-        $byProduct = [];
+        $normalized = [];
+        $productIds = [];
+        $requestedSupplierIds = [];
         foreach ($rawLines as $line) {
             if (!is_array($line)) {
                 continue;
             }
             $productId = (int) ($line['product_id'] ?? 0);
-            $boxes = max(0, (int) ($line['boxes_to_order'] ?? 0));
+            $boxes = max(0, (int) ($line['boxes'] ?? $line['boxes_to_order'] ?? 0));
+            $supplierId = (int) ($line['supplier_id'] ?? 0);
             if ($productId <= 0 || $boxes <= 0) {
                 continue;
             }
-            $byProduct[$productId] = ($byProduct[$productId] ?? 0) + $boxes;
+            $normalized[] = [
+                'product_id' => $productId,
+                'boxes' => $boxes,
+                'supplier_id' => $supplierId,
+            ];
+            $productIds[$productId] = true;
+            if ($supplierId > 0) {
+                $requestedSupplierIds[$supplierId] = true;
+            }
         }
-        if ($byProduct === []) {
+        if ($normalized === []) {
             return [];
         }
-        $ids = array_keys($byProduct);
+        $ids = array_keys($productIds);
         $ph = implode(',', array_fill(0, count($ids), '?'));
         $rows = $db->fetchAll(
             "SELECT p.id, p.code, p.name, p.units_per_box, p.content, p.sale_unit_label, p.presentation, p.sale_unit_description,
@@ -716,38 +703,68 @@ final class SeiqOrderController extends Controller
         foreach ($rows as $row) {
             $metaByProduct[(int) ($row['id'] ?? 0)] = $row;
         }
-        $out = [];
-        foreach ($byProduct as $productId => $boxes) {
+        $validSupplierIds = [];
+        if ($requestedSupplierIds !== []) {
+            $supplierIds = array_keys($requestedSupplierIds);
+            $sph = implode(',', array_fill(0, count($supplierIds), '?'));
+            $supplierRows = $db->fetchAll("SELECT id FROM suppliers WHERE id IN ({$sph})", $supplierIds);
+            foreach ($supplierRows as $srow) {
+                $sid = (int) ($srow['id'] ?? 0);
+                if ($sid > 0) {
+                    $validSupplierIds[$sid] = true;
+                }
+            }
+        }
+
+        $bySupplierProduct = [];
+        foreach ($normalized as $line) {
+            $productId = (int) $line['product_id'];
+            $boxes = (int) $line['boxes'];
+            $requestedSupplierId = (int) $line['supplier_id'];
             $meta = $metaByProduct[$productId] ?? null;
             if ($meta === null) {
                 continue;
             }
-            $supplierId = (int) ($meta['supplier_id'] ?? 0);
+            $resolvedSupplierId = (int) ($meta['supplier_id'] ?? 0);
+            $supplierId = $requestedSupplierId > 0 ? $requestedSupplierId : $resolvedSupplierId;
             if ($supplierId <= 0) {
                 continue;
             }
-            $unitsPerBox = max(1, (int) ($meta['units_per_box'] ?? 1));
-            $out[$supplierId][] = [
-                'product_id' => $productId,
-                'code' => (string) ($meta['code'] ?? ''),
-                'name' => (string) ($meta['name'] ?? ''),
-                'content' => (string) ($meta['content'] ?? ''),
-                'presentation' => (string) ($meta['presentation'] ?? ''),
-                'sale_unit_label' => (string) ($meta['sale_unit_label'] ?? ''),
-                'sale_unit_description' => (string) ($meta['sale_unit_description'] ?? ''),
-                'qty_units_sold' => 0,
-                'qty_boxes_sold' => 0,
-                'total_units_needed' => $boxes * $unitsPerBox,
-                'units_per_box' => $unitsPerBox,
-                'boxes_to_order' => $boxes,
-                'units_remainder' => 0,
-                'origin' => 'manual',
-                'category_name' => (string) ($meta['category_name'] ?? ''),
-                'parent_category_name' => (string) ($meta['parent_category_name'] ?? ''),
-                'supplier_id' => $supplierId,
-                'supplier_name' => (string) ($meta['supplier_name'] ?? ''),
-                'supplier_slug' => (string) ($meta['supplier_slug'] ?? ''),
-            ];
+            if ($requestedSupplierId > 0 && !isset($validSupplierIds[$requestedSupplierId])) {
+                continue;
+            }
+            $bySupplierProduct[$supplierId][$productId] = ($bySupplierProduct[$supplierId][$productId] ?? 0) + $boxes;
+        }
+
+        $out = [];
+        foreach ($bySupplierProduct as $supplierId => $products) {
+            foreach ($products as $productId => $boxes) {
+                $meta = $metaByProduct[(int) $productId] ?? null;
+                if ($meta === null) {
+                    continue;
+                }
+                $unitsPerBox = max(1, (int) ($meta['units_per_box'] ?? 1));
+                $out[(int) $supplierId][] = [
+                    'product_id' => (int) $productId,
+                    'code' => (string) ($meta['code'] ?? ''),
+                    'name' => (string) ($meta['name'] ?? ''),
+                    'content' => (string) ($meta['content'] ?? ''),
+                    'presentation' => (string) ($meta['presentation'] ?? ''),
+                    'sale_unit_label' => (string) ($meta['sale_unit_label'] ?? ''),
+                    'sale_unit_description' => (string) ($meta['sale_unit_description'] ?? ''),
+                    'qty_units_sold' => 0,
+                    'qty_boxes_sold' => 0,
+                    'total_units_needed' => (int) $boxes * $unitsPerBox,
+                    'units_per_box' => $unitsPerBox,
+                    'boxes_to_order' => (int) $boxes,
+                    'units_remainder' => 0,
+                    'category_name' => (string) ($meta['category_name'] ?? ''),
+                    'parent_category_name' => (string) ($meta['parent_category_name'] ?? ''),
+                    'supplier_id' => (int) $supplierId,
+                    'supplier_name' => (string) ($meta['supplier_name'] ?? ''),
+                    'supplier_slug' => (string) ($meta['supplier_slug'] ?? ''),
+                ];
+            }
         }
 
         return $out;

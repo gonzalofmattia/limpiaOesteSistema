@@ -203,7 +203,8 @@
         <template x-for="(line, idx) in manualLines" :key="'hidden-' + line.product_id">
             <div>
                 <input type="hidden" :name="'manual_lines[' + idx + '][product_id]'" :value="line.product_id">
-                <input type="hidden" :name="'manual_lines[' + idx + '][boxes_to_order]'" :value="line.boxes_to_order">
+                <input type="hidden" :name="'manual_lines[' + idx + '][boxes]'" :value="line.boxes_to_order">
+                <input type="hidden" :name="'manual_lines[' + idx + '][supplier_id]'" :value="line.supplier_id">
             </div>
         </template>
     </div>
@@ -264,6 +265,7 @@ function manualOrderBuilder(searchUrl) {
                 product_id: pid,
                 code: this.selectedProduct.code || '',
                 name: this.selectedProduct.name || '',
+                supplier_id: Number(this.selectedProduct.supplier_id || 0),
                 supplier_name: this.selectedProduct.supplier_name || '',
                 units_per_box: Math.max(1, Number(this.selectedProduct.units_per_box || 1)),
                 boxes_to_order: boxes,

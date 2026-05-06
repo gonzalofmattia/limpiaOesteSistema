@@ -966,7 +966,7 @@ final class QuoteController extends Controller
                 'iva_amount' => round($ivaAmount, 2),
                 'total' => round($total, 2),
             ], 'id = :id', ['id' => $id]);
-            if ($existingQuote !== null && (string) ($existingQuote['status'] ?? '') === 'accepted') {
+            if ($existingQuote !== null && in_array((string) ($existingQuote['status'] ?? ''), ['accepted', 'partially_delivered'], true)) {
                 $this->removeQuoteFromDraftSupplierOrders($db, (int) $id);
             }
             if ($existingQuote !== null && (string) ($existingQuote['status'] ?? '') === 'accepted') {
