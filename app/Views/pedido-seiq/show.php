@@ -103,11 +103,20 @@ $remainderRows = array_values(array_filter($items, static fn ($it) => (int) ($it
                             $vendidoLines[] = $qu . ' un.';
                         }
                         $vendidoBody = implode(' + ', $vendidoLines);
+                        if ($vendidoBody === '') {
+                            $vendidoBody = 'Reposición manual';
+                        }
                         $pedir = (int) $r['boxes_to_order'] . ' ' . $pack . ' (×' . (int) $r['units_per_box'] . ' u.)';
+                        $isManual = ((string) ($r['origin'] ?? 'auto')) === 'manual';
                         ?>
                         <tr class="hover:bg-gray-50/80">
                             <td class="px-2 py-2 align-top font-mono text-xs whitespace-nowrap"><?= e($r['code']) ?></td>
-                            <td class="px-2 py-2 align-top"><span class="block truncate max-w-[220px]" title="<?= e($r['product_name']) ?>"><?= e($r['product_name']) ?></span></td>
+                            <td class="px-2 py-2 align-top">
+                                <span class="block truncate max-w-[220px]" title="<?= e($r['product_name']) ?>"><?= e($r['product_name']) ?></span>
+                                <?php if ($isManual): ?>
+                                    <span class="inline-flex mt-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-violet-100 text-violet-800">(reposición)</span>
+                                <?php endif; ?>
+                            </td>
                             <td class="px-2 py-2 align-top whitespace-nowrap">
                                 <div><?= e($vendidoBody) ?></div>
                                 <div class="text-[11px] text-gray-500">= <?= (int) $r['total_units_needed'] ?></div>

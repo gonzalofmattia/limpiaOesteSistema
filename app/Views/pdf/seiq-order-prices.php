@@ -1,6 +1,6 @@
 <?php
 /** @var array{order_number:string,created_at:string,total_boxes:int,total_amount:float,supplier_name?:string,cliente_id?:string,cliente_nombre?:string,condicion_pago?:string,observaciones?:string} $order */
-/** @var list<array{code:string,name:string,presentation?:string,content?:string,sale_unit_description?:string,boxes_to_order:int,price_per_box:float,line_total:float}> $lines */
+/** @var list<array{code:string,name:string,presentation?:string,content?:string,sale_unit_description?:string,boxes_to_order:int,price_per_box:float,line_total:float,origin?:string}> $lines */
 $logoPath = defined('PUBLIC_PATH') ? realpath(PUBLIC_PATH . '/assets/img/logoLimpiaOeste.png') : false;
 $logoSrc = '';
 if ($logoPath && is_readable($logoPath)) {
@@ -67,6 +67,9 @@ $wa = setting('empresa_whatsapp', '');
                     $extra = trim((string) ($line['content'] ?? ''));
                 }
                 $desc = $extra !== '' ? $name . ' (' . $extra . ')' : $name;
+                if (((string) ($line['origin'] ?? 'auto')) === 'manual') {
+                    $desc .= ' (reposición)';
+                }
                 ?>
                 <tr>
                     <td><?= htmlspecialchars((string) ($line['code'] ?? '')) ?></td>

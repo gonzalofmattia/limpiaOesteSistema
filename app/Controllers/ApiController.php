@@ -54,6 +54,7 @@ final class ApiController extends Controller
                     p.units_per_box, p.content, p.stock_units, COALESCE(p.stock_committed_units, 0) AS stock_committed_units,
                     c.name AS category_name, c.slug AS category_slug,
                     pc.name AS parent_category_name,
+                    s.id AS supplier_id,
                     s.name AS supplier_name,
                     s.slug AS supplier_slug,
                     c.presentation_info AS category_presentation_info

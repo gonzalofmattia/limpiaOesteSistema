@@ -70,18 +70,15 @@ final class SeiqOrderController extends Controller
             return;
         }
         $built = SeiqOrderBuilder::buildFromDatabase($db);
-        if ($built['error'] === 'empty') {
-            flash('info', 'No hay presupuestos aceptados ni con entrega parcial pendiente para generar pedido.');
-            redirect('/pedidos-proveedor');
-            return;
-        }
-        if ($built['error'] === 'no_items') {
-            flash('info', 'Los presupuestos incluidos no tienen unidades pendientes para pedir.');
-            redirect('/pedidos-proveedor');
-            return;
+        $bundle = $built['bundle'];
+        if ($bundle === null) {
+            $bundle = [
+                'consolidated' => [],
+                'total_products' => 0,
+                'total_boxes' => 0,
+            ];
         }
         /** @var array{consolidated: list<array<string,mixed>>, total_products: int, total_boxes: int} $bundle */
-        $bundle = $built['bundle'];
         $supplierBundles = SeiqOrderBuilder::groupConsolidatedBySupplier($bundle['consolidated']);
         $this->view('pedido-seiq/generate', [
             'title' => 'Generar pedidos a proveedores',
@@ -102,21 +99,17 @@ final class SeiqOrderController extends Controller
             return;
         }
         $built = SeiqOrderBuilder::buildFromDatabase($db);
-        if ($built['bundle'] === null) {
-            flash('error', 'No hay datos para generar el pedido.');
-            redirect('/pedidos-proveedor/generar');
-        }
         $notes = trim((string) $this->input('notes', ''));
         $manualBoxesInput = $_POST['boxes_to_order'] ?? [];
         $manualBoxes = is_array($manualBoxesInput) ? $manualBoxesInput : [];
-        $bundle = $built['bundle'];
+        $bundle = $built['bundle'] ?? ['consolidated' => [], 'total_products' => 0, 'total_boxes' => 0];
         $acceptedQuotes = $built['acceptedQuotes'];
         $quoteIds = array_map(static fn ($q) => (int) $q['id'], $acceptedQuotes);
-
+        $manualBySupplier = $this->parseManualRowsBySupplier($db, $_POST['manual_lines'] ?? []);
         $includedJson = json_encode($quoteIds, JSON_THROW_ON_ERROR);
         $supplierBundles = SeiqOrderBuilder::groupConsolidatedBySupplier($bundle['consolidated']);
-        if ($supplierBundles === []) {
-            flash('error', 'No se encontraron proveedores asociados a los productos.');
+        if ($supplierBundles === [] && $manualBySupplier === []) {
+            flash('error', 'Agregá al menos un producto para generar el pedido.');
             redirect('/pedidos-proveedor/generar');
             return;
         }
@@ -142,8 +135,13 @@ final class SeiqOrderController extends Controller
                     $boxesToOrder = $this->resolveBoxesToOrder($manualBoxes[$productId] ?? null, $defaultBoxes);
                     $row['boxes_to_order'] = $boxesToOrder;
                     $row['units_remainder'] = max(0, ($boxesToOrder * $unitsPerBox) - $unitsToOrderAfterStock);
+                    $row['origin'] = 'auto';
                     $rowsForOrder[] = $row;
                     $supplierTotalBoxes += $boxesToOrder;
+                }
+                foreach (($manualBySupplier[$supplierId] ?? []) as $manualRow) {
+                    $rowsForOrder[] = $manualRow;
+                    $supplierTotalBoxes += (int) ($manualRow['boxes_to_order'] ?? 0);
                 }
                 if ($rowsForOrder === [] || $supplierTotalBoxes <= 0) {
                     continue;
@@ -173,16 +171,63 @@ final class SeiqOrderController extends Controller
                         'units_per_box' => (int) $row['units_per_box'],
                         'boxes_to_order' => (int) $row['boxes_to_order'],
                         'units_remainder' => (int) $row['units_remainder'],
+                        'origin' => (string) ($row['origin'] ?? 'auto'),
                         'sort_order' => $sort++,
                     ]);
                 }
+                unset($manualBySupplier[$supplierId]);
                 $pdfFile = $this->renderSeiqOrderPdf($orderId, $orderNumber, $rowsForOrder, $supplier);
                 $db->update('seiq_orders', ['pdf_path' => $pdfFile], 'id = :id', ['id' => $orderId]);
                 $lastOrderId = $orderId;
                 $numbers[] = $orderNumber;
             }
+            foreach ($manualBySupplier as $supplierId => $manualRows) {
+                if (!is_int($supplierId) || $supplierId <= 0 || $manualRows === []) {
+                    continue;
+                }
+                $supplier = $db->fetch('SELECT id, name, slug, cliente_id, cliente_nombre, condicion_pago, observaciones FROM suppliers WHERE id = ?', [$supplierId]);
+                if (!$supplier) {
+                    continue;
+                }
+                $supplierTotalBoxes = (int) array_sum(array_map(static fn (array $r): int => (int) ($r['boxes_to_order'] ?? 0), $manualRows));
+                if ($supplierTotalBoxes <= 0) {
+                    continue;
+                }
+                $orderNumber = $this->nextOrderNumber($db, (string) ($supplier['slug'] ?? ''));
+                $orderId = $db->insert('seiq_orders', [
+                    'supplier_id' => $supplierId,
+                    'order_number' => $orderNumber,
+                    'notes' => $notes !== '' ? $notes : null,
+                    'included_quotes' => $includedJson,
+                    'total_products' => count($manualRows),
+                    'total_boxes' => $supplierTotalBoxes,
+                    'status' => 'draft',
+                    'sent_at' => null,
+                    'received_at' => null,
+                    'pdf_path' => null,
+                ]);
+                $sort = 0;
+                foreach ($manualRows as $row) {
+                    $db->insert('seiq_order_items', [
+                        'seiq_order_id' => $orderId,
+                        'product_id' => (int) $row['product_id'],
+                        'qty_units_sold' => 0,
+                        'qty_boxes_sold' => 0,
+                        'total_units_needed' => (int) $row['total_units_needed'],
+                        'units_per_box' => (int) $row['units_per_box'],
+                        'boxes_to_order' => (int) $row['boxes_to_order'],
+                        'units_remainder' => (int) $row['units_remainder'],
+                        'origin' => 'manual',
+                        'sort_order' => $sort++,
+                    ]);
+                }
+                $pdfFile = $this->renderSeiqOrderPdf($orderId, $orderNumber, $manualRows, $supplier);
+                $db->update('seiq_orders', ['pdf_path' => $pdfFile], 'id = :id', ['id' => $orderId]);
+                $lastOrderId = $orderId;
+                $numbers[] = $orderNumber;
+            }
             if ($numbers === []) {
-                throw new \RuntimeException('No hay cantidades para pedir. Ajustá los ítems antes de generar.');
+                throw new \RuntimeException('Agregá al menos un producto para generar el pedido.');
             }
 
             $db->getPdo()->commit();
@@ -312,6 +357,7 @@ final class SeiqOrderController extends Controller
                 'content' => $it['content'],
                 'sale_unit_description' => $it['sale_unit_description'],
                 'boxes_to_order' => (int) $it['boxes_to_order'],
+                'origin' => (string) ($it['origin'] ?? 'auto'),
             ];
         }
         $lines = $this->filterSupplierOrderLinesForSupplierFacing($lines);
@@ -393,6 +439,7 @@ final class SeiqOrderController extends Controller
                 'boxes_to_order' => $boxes,
                 'price_per_box' => round($pricePerBox, 2),
                 'line_total' => $lineTotal,
+                'origin' => (string) ($it['origin'] ?? 'auto'),
             ];
         }
         $orderForPdf = [
@@ -596,6 +643,7 @@ final class SeiqOrderController extends Controller
             $hasItems = (bool) $db->fetchColumn("SHOW TABLES LIKE 'seiq_order_items'");
             $hasSuppliers = (bool) $db->fetchColumn("SHOW TABLES LIKE 'suppliers'");
             if ($hasOrders && $hasItems && $hasSuppliers) {
+                $this->ensureSeiqOrderItemsOriginColumn($db);
                 return true;
             }
         } catch (\Throwable) {
@@ -605,6 +653,104 @@ final class SeiqOrderController extends Controller
         flash('error', 'Falta migrar base de datos para pedidos de proveedores. Ejecutá install.php o la migración multi-proveedor en producción.');
         redirect('/');
         return false;
+    }
+
+    private function ensureSeiqOrderItemsOriginColumn(Database $db): void
+    {
+        try {
+            $exists = (bool) $db->fetchColumn(
+                "SELECT 1
+                 FROM information_schema.columns
+                 WHERE table_schema = DATABASE()
+                   AND table_name = 'seiq_order_items'
+                   AND column_name = 'origin'
+                 LIMIT 1"
+            );
+            if ($exists) {
+                return;
+            }
+            $db->query("ALTER TABLE seiq_order_items ADD COLUMN origin ENUM('auto','manual') NOT NULL DEFAULT 'auto' AFTER units_remainder");
+        } catch (\Throwable) {
+            // No bloquear el flujo; en caso de falla se usará default de inserción previa.
+        }
+    }
+
+    /**
+     * @param mixed $rawLines
+     * @return array<int, list<array<string,mixed>>>
+     */
+    private function parseManualRowsBySupplier(Database $db, mixed $rawLines): array
+    {
+        if (!is_array($rawLines) || $rawLines === []) {
+            return [];
+        }
+        $byProduct = [];
+        foreach ($rawLines as $line) {
+            if (!is_array($line)) {
+                continue;
+            }
+            $productId = (int) ($line['product_id'] ?? 0);
+            $boxes = max(0, (int) ($line['boxes_to_order'] ?? 0));
+            if ($productId <= 0 || $boxes <= 0) {
+                continue;
+            }
+            $byProduct[$productId] = ($byProduct[$productId] ?? 0) + $boxes;
+        }
+        if ($byProduct === []) {
+            return [];
+        }
+        $ids = array_keys($byProduct);
+        $ph = implode(',', array_fill(0, count($ids), '?'));
+        $rows = $db->fetchAll(
+            "SELECT p.id, p.code, p.name, p.units_per_box, p.content, p.sale_unit_label, p.presentation, p.sale_unit_description,
+                    c.name AS category_name, c.slug AS category_slug, pc.name AS parent_category_name,
+                    COALESCE(c.supplier_id, pc.supplier_id) AS supplier_id, s.name AS supplier_name, s.slug AS supplier_slug
+             FROM products p
+             JOIN categories c ON p.category_id = c.id
+             LEFT JOIN categories pc ON c.parent_id = pc.id
+             LEFT JOIN suppliers s ON s.id = COALESCE(c.supplier_id, pc.supplier_id)
+             WHERE p.id IN ({$ph})",
+            $ids
+        );
+        $metaByProduct = [];
+        foreach ($rows as $row) {
+            $metaByProduct[(int) ($row['id'] ?? 0)] = $row;
+        }
+        $out = [];
+        foreach ($byProduct as $productId => $boxes) {
+            $meta = $metaByProduct[$productId] ?? null;
+            if ($meta === null) {
+                continue;
+            }
+            $supplierId = (int) ($meta['supplier_id'] ?? 0);
+            if ($supplierId <= 0) {
+                continue;
+            }
+            $unitsPerBox = max(1, (int) ($meta['units_per_box'] ?? 1));
+            $out[$supplierId][] = [
+                'product_id' => $productId,
+                'code' => (string) ($meta['code'] ?? ''),
+                'name' => (string) ($meta['name'] ?? ''),
+                'content' => (string) ($meta['content'] ?? ''),
+                'presentation' => (string) ($meta['presentation'] ?? ''),
+                'sale_unit_label' => (string) ($meta['sale_unit_label'] ?? ''),
+                'sale_unit_description' => (string) ($meta['sale_unit_description'] ?? ''),
+                'qty_units_sold' => 0,
+                'qty_boxes_sold' => 0,
+                'total_units_needed' => $boxes * $unitsPerBox,
+                'units_per_box' => $unitsPerBox,
+                'boxes_to_order' => $boxes,
+                'units_remainder' => 0,
+                'origin' => 'manual',
+                'category_name' => (string) ($meta['category_name'] ?? ''),
+                'parent_category_name' => (string) ($meta['parent_category_name'] ?? ''),
+                'supplier_id' => $supplierId,
+                'supplier_name' => (string) ($meta['supplier_name'] ?? ''),
+                'supplier_slug' => (string) ($meta['supplier_slug'] ?? ''),
+            ];
+        }
+
+        return $out;
     }
 
     private function registerSupplierInvoiceOnReceive(Database $db, int $orderId): void
@@ -749,6 +895,7 @@ final class SeiqOrderController extends Controller
                 'content' => $row['content'],
                 'sale_unit_description' => $row['sale_unit_description'],
                 'boxes_to_order' => (int) $row['boxes_to_order'],
+                'origin' => (string) ($row['origin'] ?? 'auto'),
             ];
         }
         usort($lines, static fn (array $a, array $b) => strcmp((string) $a['code'], (string) $b['code']));

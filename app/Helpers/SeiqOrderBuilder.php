@@ -26,53 +26,7 @@ final class SeiqOrderBuilder
     /** @return list<array<string,mixed>> */
     public static function fetchAcceptedQuotes(Database $db): array
     {
-        $accepted = self::fetchOpenQuotes($db);
-        if ($accepted === []) {
-            return [];
-        }
-        $alreadyIncluded = self::alreadyIncludedQuoteIds($db);
-        if ($alreadyIncluded === []) {
-            return $accepted;
-        }
-
-        return array_values(array_filter(
-            $accepted,
-            static fn (array $q): bool => !isset($alreadyIncluded[(int) ($q['id'] ?? 0)])
-        ));
-    }
-
-    /**
-     * IDs de presupuestos ya incluidos en pedidos a proveedor existentes.
-     *
-     * @return array<int, true>
-     */
-    private static function alreadyIncludedQuoteIds(Database $db): array
-    {
-        $out = [];
-        $rows = $db->fetchAll(
-            "SELECT included_quotes
-             FROM seiq_orders
-             WHERE included_quotes IS NOT NULL
-               AND included_quotes <> ''"
-        );
-        foreach ($rows as $r) {
-            $raw = (string) ($r['included_quotes'] ?? '');
-            if ($raw === '') {
-                continue;
-            }
-            $decoded = json_decode($raw, true);
-            if (!is_array($decoded)) {
-                continue;
-            }
-            foreach ($decoded as $qid) {
-                $id = (int) $qid;
-                if ($id > 0) {
-                    $out[$id] = true;
-                }
-            }
-        }
-
-        return $out;
+        return self::fetchOpenQuotes($db);
     }
 
     /**
@@ -87,6 +41,27 @@ final class SeiqOrderBuilder
         $unitsByQuote = QuoteDeliveryStock::pendingUnitsByProductForQuotes($db, $quoteIds);
         if ($unitsByQuote === []) {
             return [];
+        }
+        $coveredByQuote = self::coveredUnitsByQuoteProduct($db, $unitsByQuote);
+        if ($coveredByQuote !== []) {
+            foreach ($unitsByQuote as $qid => &$products) {
+                foreach ($products as $pid => $units) {
+                    $covered = (int) ($coveredByQuote[(int) $qid][(int) $pid] ?? 0);
+                    $products[(int) $pid] = max(0, (int) $units - $covered);
+                }
+                $products = array_filter(
+                    $products,
+                    static fn (int $units): bool => $units > 0
+                );
+            }
+            unset($products);
+            $unitsByQuote = array_filter(
+                $unitsByQuote,
+                static fn (array $products): bool => $products !== []
+            );
+            if ($unitsByQuote === []) {
+                return [];
+            }
         }
         $productIds = [];
         foreach ($unitsByQuote as $items) {
@@ -137,6 +112,114 @@ final class SeiqOrderBuilder
         }
 
         return $out;
+    }
+
+    /**
+     * Reparte unidades ya cubiertas por pedidos previos (sent/received) en base a quote_id + product_id.
+     * Como seiq_order_items se guarda consolidado, la distribución por presupuesto se hace proporcional
+     * a la demanda pendiente actual de cada presupuesto incluido en ese pedido.
+     *
+     * @param array<int, array<int, int>> $unitsByQuote quote_id => [product_id => pending_units]
+     * @return array<int, array<int, int>> quote_id => [product_id => covered_units]
+     */
+    private static function coveredUnitsByQuoteProduct(Database $db, array $unitsByQuote): array
+    {
+        $orders = $db->fetchAll(
+            "SELECT id, included_quotes
+             FROM seiq_orders
+             WHERE status IN ('sent', 'received')
+               AND included_quotes IS NOT NULL
+               AND included_quotes <> ''"
+        );
+        if ($orders === []) {
+            return [];
+        }
+        $orderIds = [];
+        $quoteIdsByOrder = [];
+        foreach ($orders as $order) {
+            $orderId = (int) ($order['id'] ?? 0);
+            if ($orderId <= 0) {
+                continue;
+            }
+            $decoded = json_decode((string) ($order['included_quotes'] ?? ''), true);
+            if (!is_array($decoded) || $decoded === []) {
+                continue;
+            }
+            $validQuoteIds = [];
+            foreach ($decoded as $qid) {
+                $qid = (int) $qid;
+                if ($qid > 0 && isset($unitsByQuote[$qid])) {
+                    $validQuoteIds[] = $qid;
+                }
+            }
+            if ($validQuoteIds === []) {
+                continue;
+            }
+            $orderIds[] = $orderId;
+            $quoteIdsByOrder[$orderId] = $validQuoteIds;
+        }
+        if ($orderIds === []) {
+            return [];
+        }
+        $ph = implode(',', array_fill(0, count($orderIds), '?'));
+        $itemRows = $db->fetchAll(
+            "SELECT seiq_order_id, product_id, SUM(boxes_to_order * units_per_box) AS ordered_units
+             FROM seiq_order_items
+             WHERE seiq_order_id IN ({$ph})
+             GROUP BY seiq_order_id, product_id",
+            $orderIds
+        );
+        if ($itemRows === []) {
+            return [];
+        }
+
+        $covered = [];
+        foreach ($itemRows as $row) {
+            $orderId = (int) ($row['seiq_order_id'] ?? 0);
+            $productId = (int) ($row['product_id'] ?? 0);
+            $orderedUnits = (int) ($row['ordered_units'] ?? 0);
+            if ($orderId <= 0 || $productId <= 0 || $orderedUnits <= 0) {
+                continue;
+            }
+            $quoteIds = $quoteIdsByOrder[$orderId] ?? [];
+            if ($quoteIds === []) {
+                continue;
+            }
+            $weights = [];
+            $totalWeight = 0;
+            foreach ($quoteIds as $qid) {
+                $pendingUnits = (int) ($unitsByQuote[$qid][$productId] ?? 0);
+                if ($pendingUnits <= 0) {
+                    continue;
+                }
+                $weights[$qid] = $pendingUnits;
+                $totalWeight += $pendingUnits;
+            }
+            if ($totalWeight <= 0) {
+                continue;
+            }
+            $remaining = $orderedUnits;
+            foreach ($weights as $qid => $weight) {
+                $alloc = (int) floor(($orderedUnits * $weight) / $totalWeight);
+                if ($alloc <= 0) {
+                    continue;
+                }
+                $covered[$qid][$productId] = (int) ($covered[$qid][$productId] ?? 0) + $alloc;
+                $remaining -= $alloc;
+            }
+            if ($remaining > 0) {
+                arsort($weights);
+                foreach ($weights as $qid => $_weight) {
+                    if ($remaining <= 0) {
+                        break;
+                    }
+                    $covered[$qid][$productId] = (int) ($covered[$qid][$productId] ?? 0) + 1;
+                    $remaining--;
+                }
+            }
+        }
+
+        return $covered;
     }
 
     /**

@@ -967,6 +967,9 @@ final class QuoteController extends Controller
                 'total' => round($total, 2),
             ], 'id = :id', ['id' => $id]);
             if ($existingQuote !== null && (string) ($existingQuote['status'] ?? '') === 'accepted') {
+                $this->removeQuoteFromDraftSupplierOrders($db, (int) $id);
+            }
+            if ($existingQuote !== null && (string) ($existingQuote['status'] ?? '') === 'accepted') {
                 QuoteDeliveryStock::commitStock($db, $id);
             }
             if ($existingQuote !== null && (string) ($existingQuote['status'] ?? '') === 'delivered') {
@@ -1041,6 +1044,46 @@ final class QuoteController extends Controller
     private function quoteIsEditable(array $quote): bool
     {
         return in_array((string) ($quote['status'] ?? ''), self::EDITABLE_STATUSES, true);
+    }
+
+    private function removeQuoteFromDraftSupplierOrders(Database $db, int $quoteId): void
+    {
+        if ($quoteId <= 0) {
+            return;
+        }
+        $rows = $db->fetchAll(
+            "SELECT id, included_quotes
+             FROM seiq_orders
+             WHERE status = 'draft'
+               AND included_quotes IS NOT NULL
+               AND included_quotes <> ''"
+        );
+        foreach ($rows as $row) {
+            $orderId = (int) ($row['id'] ?? 0);
+            if ($orderId <= 0) {
+                continue;
+            }
+            $decoded = json_decode((string) ($row['included_quotes'] ?? ''), true);
+            if (!is_array($decoded) || $decoded === []) {
+                continue;
+            }
+            $updated = [];
+            foreach ($decoded as $qid) {
+                $qid = (int) $qid;
+                if ($qid > 0 && $qid !== $quoteId) {
+                    $updated[] = $qid;
+                }
+            }
+            if (count($updated) === count($decoded)) {
+                continue;
+            }
+            $db->update(
+                'seiq_orders',
+                ['included_quotes' => $updated === [] ? null : json_encode(array_values($updated), JSON_UNESCAPED_UNICODE)],
+                'id = :id',
+                ['id' => $orderId]
+            );
+        }
     }
 
     private function nextSaleNumber(Database $db): string

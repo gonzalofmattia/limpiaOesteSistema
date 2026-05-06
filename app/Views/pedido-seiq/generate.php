@@ -6,134 +6,207 @@
 <div class="max-w-6xl space-y-6">
     <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
         <p class="text-sm font-medium text-gray-800">Presupuestos incluidos (aceptados o con entrega parcial pendiente): <?= count($acceptedQuotes) ?></p>
-        <ul class="mt-2 space-y-1 text-sm text-gray-700 list-disc list-inside">
-            <?php foreach ($acceptedQuotes as $q): ?>
-                <?php $qst = (string) ($q['status'] ?? ''); ?>
-                <li>
-                    <span class="font-mono"><?= e($q['quote_number']) ?></span>
-                    — <?= e($q['client_name'] ?? '—') ?>
-                    (<span class="whitespace-nowrap"><?= formatPrice((float) $q['total']) ?></span>)
-                    <?php if ($qst === 'partially_delivered'): ?>
-                        <span class="ml-1 inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium bg-sky-100 text-sky-900">Entrega parcial</span>
-                    <?php endif; ?>
-                </li>
-            <?php endforeach; ?>
-        </ul>
+        <?php if ($acceptedQuotes !== []): ?>
+            <ul class="mt-2 space-y-1 text-sm text-gray-700 list-disc list-inside">
+                <?php foreach ($acceptedQuotes as $q): ?>
+                    <?php $qst = (string) ($q['status'] ?? ''); ?>
+                    <li>
+                        <span class="font-mono"><?= e($q['quote_number']) ?></span>
+                        — <?= e($q['client_name'] ?? '—') ?>
+                        (<span class="whitespace-nowrap"><?= formatPrice((float) $q['total']) ?></span>)
+                        <?php if ($qst === 'partially_delivered'): ?>
+                            <span class="ml-1 inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium bg-sky-100 text-sky-900">Entrega parcial</span>
+                        <?php endif; ?>
+                    </li>
+                <?php endforeach; ?>
+            </ul>
+        <?php else: ?>
+            <p class="mt-2 text-sm text-amber-700">No hay demanda automática pendiente. Podés generar un pedido con productos de reposición.</p>
+        <?php endif; ?>
     </div>
 
-    <form method="post" action="<?= e(url('/pedidos-proveedor')) ?>" class="space-y-6">
+    <form method="post" action="<?= e(url('/pedidos-proveedor')) ?>" class="space-y-6"
+          x-data="manualOrderBuilder('<?= e(url('/api/productos/buscar')) ?>')">
         <?= csrfField() ?>
-    <?php foreach ($supplierBundles as $supplierBundle): ?>
-    <?php $supplier = $supplierBundle['supplier']; $rows = $supplierBundle['bundle']['consolidated']; ?>
-    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div class="px-4 py-3 border-b border-gray-100 bg-gray-50">
-            <h3 class="text-sm font-semibold text-gray-800">Pedido a <?= e((string) $supplier['name']) ?></h3>
-        </div>
-        <div class="overflow-x-auto">
-            <table class="min-w-full text-xs table-auto lo-table">
-                <thead class="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs uppercase tracking-wide">
-                    <tr>
-                        <th class="text-left px-2 py-2">Cód.</th>
-                        <th class="text-left px-2 py-2 w-[28%]">Producto</th>
-                        <th class="text-left px-2 py-2 whitespace-nowrap">Vendido</th>
-                        <th class="text-left px-2 py-2 whitespace-nowrap">Stock</th>
-                        <th class="text-left px-2 py-2 whitespace-nowrap">En camino</th>
-                        <th class="text-left px-2 py-2 whitespace-nowrap">Comp.</th>
-                        <th class="text-left px-2 py-2 whitespace-nowrap">Disp.</th>
-                        <th class="text-left px-2 py-2 whitespace-nowrap">Falt.</th>
-                        <th class="text-left px-2 py-2 whitespace-nowrap">Pedir</th>
-                        <th class="text-left px-2 py-2 whitespace-nowrap">Rem.</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-100">
-                    <?php foreach ($rows as $r):
-                        $group = (string) ($r['sort_group'] ?? '');
-                        $pack = strtolower(trim((string) ($r['sale_unit_label'] ?? ''))) ?: 'caja';
-                        $qb = (int) $r['qty_boxes_sold'];
-                        $qu = (int) $r['qty_units_sold'];
-                        $vendidoLines = [];
-                        if ($qb > 0) {
-                            $vendidoLines[] = $qb . ' ' . $pack . ($qb !== 1 ? '' : '');
-                        }
-                        if ($qu > 0) {
-                            $vendidoLines[] = $qu . ' un.';
-                        }
-                        $vendidoBody = implode(' + ', $vendidoLines);
-                        $productId = (int) ($r['product_id'] ?? 0);
-                        $stockUnits = max(0, (int) ($r['stock_units'] ?? 0));
-                        $committedUnits = max(0, (int) ($r['stock_committed_units'] ?? 0));
-                        $inTransitUnits = max(0, (int) ($r['in_transit_units'] ?? 0));
-                        $stockAvailable = (int) ($r['stock_available_units'] ?? max(0, $stockUnits - $committedUnits));
-                        $shortageUnits = max(0, (int) ($r['units_to_order_after_stock'] ?? $r['total_units_needed'] ?? 0));
-                        $defaultBoxes = max(0, (int) ($r['boxes_to_order'] ?? 0));
-                        ?>
-                        <tr class="hover:bg-gray-50/80">
-                            <td class="px-2 py-2 align-top font-mono text-xs whitespace-nowrap"><?= e($r['code']) ?></td>
-                            <td class="px-2 py-2 align-top"><span class="block truncate max-w-[220px]" title="<?= e($r['name']) ?>"><?= e($r['name']) ?></span></td>
-                            <td class="px-2 py-2 align-top text-gray-800 whitespace-nowrap">
-                                <div><?= e($vendidoBody) ?></div>
-                                <div class="text-[11px] text-gray-500">= <?= (int) $r['total_units_needed'] ?></div>
-                                <?php $demandDetails = is_array($r['demand_details'] ?? null) ? $r['demand_details'] : []; ?>
-                                <?php if ($demandDetails !== []): ?>
-                                    <details class="mt-1">
-                                        <summary class="text-xs text-[#1a6b3c] cursor-pointer">Ver presupuestos que lo demandan</summary>
-                                        <ul class="mt-1 space-y-1 text-xs text-gray-600">
-                                            <?php foreach ($demandDetails as $d): ?>
-                                                <li>
-                                                    <span class="font-mono"><?= e((string) ($d['quote_number'] ?? ('#' . (int) ($d['quote_id'] ?? 0)))) ?></span>
-                                                    — <?= e((string) ($d['client_name'] ?? '—')) ?>
-                                                    — <?= (int) ($d['units'] ?? 0) ?>
-                                                    <?php if (($d['source_type'] ?? '') === 'combo'): ?>
-                                                        (combo: <?= e((string) ($d['combo_name'] ?? 'sin nombre')) ?>)
-                                                    <?php endif; ?>
-                                                </li>
-                                            <?php endforeach; ?>
-                                        </ul>
-                                    </details>
-                                <?php endif; ?>
-                            </td>
-                            <td class="px-2 py-2 align-top text-gray-700 whitespace-nowrap"><?= (int) $stockUnits ?></td>
-                            <td class="px-2 py-2 align-top whitespace-nowrap">
-                                <?php if ($inTransitUnits > 0): ?>
-                                    <span class="text-blue-600 font-medium">↑ <?= (int) $inTransitUnits ?></span>
-                                <?php else: ?>
-                                    <span class="text-gray-400">—</span>
-                                <?php endif; ?>
-                            </td>
-                            <td class="px-2 py-2 align-top whitespace-nowrap <?= $committedUnits > 0 ? 'text-amber-600 font-medium' : 'text-gray-500' ?>"><?= (int) $committedUnits ?></td>
-                            <td class="px-2 py-2 align-top font-semibold whitespace-nowrap <?= $stockAvailable > 0 ? 'text-green-700' : 'text-red-700' ?>"><?= (int) $stockAvailable ?></td>
-                            <td class="px-2 py-2 align-top text-gray-700 whitespace-nowrap"><?= (int) $shortageUnits ?></td>
-                            <td class="px-2 py-2 align-top whitespace-nowrap">
-                                <label class="sr-only" for="boxes_to_order_<?= $productId ?>">Cajas a pedir</label>
-                                <div class="flex items-center gap-2">
-                                    <input
-                                        id="boxes_to_order_<?= $productId ?>"
-                                        type="number"
-                                        min="0"
-                                        step="1"
-                                        name="boxes_to_order[<?= $productId ?>]"
-                                        value="<?= (int) $defaultBoxes ?>"
-                                        class="w-20 border border-gray-300 rounded-lg px-2 py-1 text-xs font-medium text-[#1a6b3c] focus:ring-2 focus:ring-[#1a6b3c]"
-                                    >
-                                    <span class="text-[11px] text-gray-500"><?= e($pack) ?> (×<?= (int) $r['units_per_box'] ?>)</span>
-                                </div>
-                            </td>
-                            <td class="px-2 py-2 align-top whitespace-nowrap"><?= e(seiqRemainderLabel($r)) ?></td>
+    <?php if ($supplierBundles !== []): ?>
+        <?php foreach ($supplierBundles as $supplierBundle): ?>
+        <?php $supplier = $supplierBundle['supplier']; $rows = $supplierBundle['bundle']['consolidated']; ?>
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div class="px-4 py-3 border-b border-gray-100 bg-gray-50">
+                <h3 class="text-sm font-semibold text-gray-800">Pedido a <?= e((string) $supplier['name']) ?></h3>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full text-xs table-auto lo-table">
+                    <thead class="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs uppercase tracking-wide">
+                        <tr>
+                            <th class="text-left px-2 py-2">Cód.</th>
+                            <th class="text-left px-2 py-2 w-[28%]">Producto</th>
+                            <th class="text-left px-2 py-2 whitespace-nowrap">Vendido</th>
+                            <th class="text-left px-2 py-2 whitespace-nowrap">Stock</th>
+                            <th class="text-left px-2 py-2 whitespace-nowrap">En camino</th>
+                            <th class="text-left px-2 py-2 whitespace-nowrap">Comp.</th>
+                            <th class="text-left px-2 py-2 whitespace-nowrap">Disp.</th>
+                            <th class="text-left px-2 py-2 whitespace-nowrap">Falt.</th>
+                            <th class="text-left px-2 py-2 whitespace-nowrap">Pedir</th>
+                            <th class="text-left px-2 py-2 whitespace-nowrap">Rem.</th>
                         </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        <?php foreach ($rows as $r):
+                            $pack = strtolower(trim((string) ($r['sale_unit_label'] ?? ''))) ?: 'caja';
+                            $qb = (int) $r['qty_boxes_sold'];
+                            $qu = (int) $r['qty_units_sold'];
+                            $vendidoLines = [];
+                            if ($qb > 0) {
+                                $vendidoLines[] = $qb . ' ' . $pack . ($qb !== 1 ? '' : '');
+                            }
+                            if ($qu > 0) {
+                                $vendidoLines[] = $qu . ' un.';
+                            }
+                            $vendidoBody = implode(' + ', $vendidoLines);
+                            $productId = (int) ($r['product_id'] ?? 0);
+                            $stockUnits = max(0, (int) ($r['stock_units'] ?? 0));
+                            $committedUnits = max(0, (int) ($r['stock_committed_units'] ?? 0));
+                            $inTransitUnits = max(0, (int) ($r['in_transit_units'] ?? 0));
+                            $stockAvailable = (int) ($r['stock_available_units'] ?? max(0, $stockUnits - $committedUnits));
+                            $shortageUnits = max(0, (int) ($r['units_to_order_after_stock'] ?? $r['total_units_needed'] ?? 0));
+                            $defaultBoxes = max(0, (int) ($r['boxes_to_order'] ?? 0));
+                            ?>
+                            <tr class="hover:bg-gray-50/80">
+                                <td class="px-2 py-2 align-top font-mono text-xs whitespace-nowrap"><?= e($r['code']) ?></td>
+                                <td class="px-2 py-2 align-top"><span class="block truncate max-w-[220px]" title="<?= e($r['name']) ?>"><?= e($r['name']) ?></span></td>
+                                <td class="px-2 py-2 align-top text-gray-800 whitespace-nowrap">
+                                    <div><?= e($vendidoBody) ?></div>
+                                    <div class="text-[11px] text-gray-500">= <?= (int) $r['total_units_needed'] ?></div>
+                                    <?php $demandDetails = is_array($r['demand_details'] ?? null) ? $r['demand_details'] : []; ?>
+                                    <?php if ($demandDetails !== []): ?>
+                                        <details class="mt-1">
+                                            <summary class="text-xs text-[#1a6b3c] cursor-pointer">Ver presupuestos que lo demandan</summary>
+                                            <ul class="mt-1 space-y-1 text-xs text-gray-600">
+                                                <?php foreach ($demandDetails as $d): ?>
+                                                    <li>
+                                                        <span class="font-mono"><?= e((string) ($d['quote_number'] ?? ('#' . (int) ($d['quote_id'] ?? 0)))) ?></span>
+                                                        — <?= e((string) ($d['client_name'] ?? '—')) ?>
+                                                        — <?= (int) ($d['units'] ?? 0) ?>
+                                                        <?php if (($d['source_type'] ?? '') === 'combo'): ?>
+                                                            (combo: <?= e((string) ($d['combo_name'] ?? 'sin nombre')) ?>)
+                                                        <?php endif; ?>
+                                                    </li>
+                                                <?php endforeach; ?>
+                                            </ul>
+                                        </details>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="px-2 py-2 align-top text-gray-700 whitespace-nowrap"><?= (int) $stockUnits ?></td>
+                                <td class="px-2 py-2 align-top whitespace-nowrap">
+                                    <?php if ($inTransitUnits > 0): ?>
+                                        <span class="text-blue-600 font-medium">↑ <?= (int) $inTransitUnits ?></span>
+                                    <?php else: ?>
+                                        <span class="text-gray-400">—</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="px-2 py-2 align-top whitespace-nowrap <?= $committedUnits > 0 ? 'text-amber-600 font-medium' : 'text-gray-500' ?>"><?= (int) $committedUnits ?></td>
+                                <td class="px-2 py-2 align-top font-semibold whitespace-nowrap <?= $stockAvailable > 0 ? 'text-green-700' : 'text-red-700' ?>"><?= (int) $stockAvailable ?></td>
+                                <td class="px-2 py-2 align-top text-gray-700 whitespace-nowrap"><?= (int) $shortageUnits ?></td>
+                                <td class="px-2 py-2 align-top whitespace-nowrap">
+                                    <label class="sr-only" for="boxes_to_order_<?= $productId ?>">Cajas a pedir</label>
+                                    <div class="flex items-center gap-2">
+                                        <input
+                                            id="boxes_to_order_<?= $productId ?>"
+                                            type="number"
+                                            min="0"
+                                            step="1"
+                                            name="boxes_to_order[<?= $productId ?>]"
+                                            value="<?= (int) $defaultBoxes ?>"
+                                            class="w-20 border border-gray-300 rounded-lg px-2 py-1 text-xs font-medium text-[#1a6b3c] focus:ring-2 focus:ring-[#1a6b3c]"
+                                        >
+                                        <span class="text-[11px] text-gray-500"><?= e($pack) ?> (×<?= (int) $r['units_per_box'] ?>)</span>
+                                    </div>
+                                </td>
+                                <td class="px-2 py-2 align-top whitespace-nowrap"><?= e(seiqRemainderLabel($r)) ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <div class="px-4 py-3 border-t border-gray-100 text-sm text-gray-700">
+                Subtotal <?= e((string) $supplier['name']) ?>: <strong><?= (int) $supplierBundle['bundle']['total_boxes'] ?></strong> cajas/packs
+            </div>
         </div>
-        <div class="px-4 py-3 border-t border-gray-100 text-sm text-gray-700">
-            Subtotal <?= e((string) $supplier['name']) ?>: <strong><?= (int) $supplierBundle['bundle']['total_boxes'] ?></strong> cajas/packs
-        </div>
-    </div>
-    <?php endforeach; ?>
+        <?php endforeach; ?>
+    <?php endif; ?>
 
     <p class="text-sm text-gray-700">
         <strong>Total:</strong> <?= (int) $bundle['total_products'] ?> productos distintos —
         <strong><?= (int) $bundle['total_boxes'] ?></strong> cajas/packs a pedir
     </p>
+
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-4">
+        <h3 class="text-sm font-semibold text-gray-800">Agregar productos adicionales</h3>
+        <div class="grid md:grid-cols-[1fr_auto_auto] gap-3 items-end">
+            <div class="relative">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Buscar producto</label>
+                <input type="text" x-model="query" @input.debounce.300ms="search()" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Código o nombre...">
+                <div x-show="results.length > 0" class="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+                    <template x-for="item in results" :key="item.id">
+                        <button type="button" @click="selectProduct(item)" class="w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0">
+                            <div class="text-xs font-mono text-gray-700" x-text="item.code"></div>
+                            <div class="text-sm text-gray-900" x-text="item.name"></div>
+                            <div class="text-[11px] text-gray-500" x-text="item.category_context"></div>
+                        </button>
+                    </template>
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Cajas</label>
+                <input type="number" min="1" step="1" x-model.number="selectedBoxes" class="w-24 border border-gray-300 rounded-lg px-2 py-2 text-sm">
+            </div>
+            <button type="button" @click="addManualLine()" class="px-4 py-2 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium">Agregar</button>
+        </div>
+        <template x-if="selectedProduct">
+            <p class="text-xs text-gray-600">
+                Seleccionado: <span class="font-medium" x-text="selectedProduct.name"></span> —
+                <span x-text="'Proveedor: ' + (selectedProduct.supplier_name || 'Sin proveedor')"></span> —
+                <span x-text="'Unidades por caja: ' + selectedProduct.units_per_box"></span>
+            </p>
+        </template>
+        <div class="overflow-x-auto" x-show="manualLines.length > 0">
+            <table class="min-w-full text-xs table-auto lo-table">
+                <thead class="bg-gray-50 border border-gray-200 text-gray-600 uppercase tracking-wide">
+                    <tr>
+                        <th class="text-left px-2 py-2">Cód.</th>
+                        <th class="text-left px-2 py-2">Producto</th>
+                        <th class="text-left px-2 py-2">Proveedor</th>
+                        <th class="text-left px-2 py-2">U/caja</th>
+                        <th class="text-left px-2 py-2">Cajas</th>
+                        <th class="text-left px-2 py-2"></th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 border-x border-b border-gray-200">
+                    <template x-for="(line, idx) in manualLines" :key="line.product_id">
+                        <tr>
+                            <td class="px-2 py-2 font-mono" x-text="line.code"></td>
+                            <td class="px-2 py-2" x-text="line.name"></td>
+                            <td class="px-2 py-2" x-text="line.supplier_name || '—'"></td>
+                            <td class="px-2 py-2" x-text="line.units_per_box"></td>
+                            <td class="px-2 py-2">
+                                <input type="number" min="1" step="1" x-model.number="line.boxes_to_order" class="w-20 border border-gray-300 rounded-lg px-2 py-1 text-xs">
+                            </td>
+                            <td class="px-2 py-2">
+                                <button type="button" @click="removeLine(idx)" class="text-red-600 hover:underline">Eliminar</button>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+        <template x-for="(line, idx) in manualLines" :key="'hidden-' + line.product_id">
+            <div>
+                <input type="hidden" :name="'manual_lines[' + idx + '][product_id]'" :value="line.product_id">
+                <input type="hidden" :name="'manual_lines[' + idx + '][boxes_to_order]'" :value="line.boxes_to_order">
+            </div>
+        </template>
+    </div>
 
     <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-4">
         <div>
@@ -147,3 +220,58 @@
     </div>
     </form>
 </div>
+<script>
+function manualOrderBuilder(searchUrl) {
+    return {
+        query: '',
+        results: [],
+        selectedProduct: null,
+        selectedBoxes: 1,
+        manualLines: [],
+        async search() {
+            const q = (this.query || '').trim();
+            if (q.length < 2) {
+                this.results = [];
+                return;
+            }
+            try {
+                const res = await fetch(searchUrl + '?q=' + encodeURIComponent(q));
+                const data = await res.json();
+                this.results = Array.isArray(data.results) ? data.results : [];
+            } catch (_e) {
+                this.results = [];
+            }
+        },
+        selectProduct(item) {
+            this.selectedProduct = item;
+            this.query = item.code + ' - ' + item.name;
+            this.results = [];
+            if (!this.selectedBoxes || this.selectedBoxes < 1) {
+                this.selectedBoxes = 1;
+            }
+        },
+        addManualLine() {
+            if (!this.selectedProduct) return;
+            const pid = Number(this.selectedProduct.id || 0);
+            const boxes = Math.max(1, Number(this.selectedBoxes || 1));
+            if (pid <= 0) return;
+            const existing = this.manualLines.find((x) => Number(x.product_id) === pid);
+            if (existing) {
+                existing.boxes_to_order = Number(existing.boxes_to_order || 0) + boxes;
+                return;
+            }
+            this.manualLines.push({
+                product_id: pid,
+                code: this.selectedProduct.code || '',
+                name: this.selectedProduct.name || '',
+                supplier_name: this.selectedProduct.supplier_name || '',
+                units_per_box: Math.max(1, Number(this.selectedProduct.units_per_box || 1)),
+                boxes_to_order: boxes,
+            });
+        },
+        removeLine(idx) {
+            this.manualLines.splice(idx, 1);
+        },
+    };
+}
+</script>
