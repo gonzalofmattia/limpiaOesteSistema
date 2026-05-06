@@ -124,10 +124,36 @@ final class SeiqOrderBuilder
      */
     private static function coveredUnitsByQuoteProduct(Database $db, array $unitsByQuote): array
     {
+        $pendingByQuote = [];
+        foreach ($unitsByQuote as $qid => $products) {
+            $quoteId = (int) $qid;
+            if ($quoteId <= 0 || !is_array($products)) {
+                continue;
+            }
+            foreach ($products as $pid => $units) {
+                $productId = (int) $pid;
+                $pendingUnits = max(0, (int) $units);
+                if ($productId <= 0 || $pendingUnits <= 0) {
+                    continue;
+                }
+                $pendingByQuote[$quoteId][$productId] = $pendingUnits;
+            }
+        }
+        if ($pendingByQuote === []) {
+            $logsDir = STORAGE_PATH . '/logs';
+            if (!is_dir($logsDir)) {
+                @mkdir($logsDir, 0755, true);
+            }
+            $logFile = $logsDir . '/seiq_order_builder.log';
+            $line = '[' . date('Y-m-d H:i:s') . '] [SeiqOrderBuilder] coveredUnitsByQuoteProduct: pendingByQuote vacío' . PHP_EOL;
+            @file_put_contents($logFile, $line, FILE_APPEND | LOCK_EX);
+            return [];
+        }
+
         $orders = $db->fetchAll(
             "SELECT id, included_quotes
              FROM seiq_orders
-             WHERE status IN ('sent', 'received')
+             WHERE LOWER(status) IN ('sent', 'received')
                AND included_quotes IS NOT NULL
                AND included_quotes <> ''"
         );
@@ -141,17 +167,33 @@ final class SeiqOrderBuilder
             if ($orderId <= 0) {
                 continue;
             }
-            $decoded = json_decode((string) ($order['included_quotes'] ?? ''), true);
-            if (!is_array($decoded) || $decoded === []) {
+            $rawIncluded = trim((string) ($order['included_quotes'] ?? ''));
+            if ($rawIncluded === '') {
+                continue;
+            }
+            $decoded = json_decode($rawIncluded, true);
+            $candidateIds = [];
+            if (is_array($decoded)) {
+                foreach ($decoded as $qid) {
+                    $candidateIds[] = $qid;
+                }
+            } else {
+                // Compatibilidad: registros legacy en CSV o texto con IDs embebidos.
+                if (preg_match_all('/\d+/', $rawIncluded, $m)) {
+                    $candidateIds = $m[0];
+                }
+            }
+            if ($candidateIds === []) {
                 continue;
             }
             $validQuoteIds = [];
-            foreach ($decoded as $qid) {
+            foreach ($candidateIds as $qid) {
                 $qid = (int) $qid;
-                if ($qid > 0 && isset($unitsByQuote[$qid])) {
+                if ($qid > 0) {
                     $validQuoteIds[] = $qid;
                 }
             }
+            $validQuoteIds = array_values(array_unique($validQuoteIds));
             if ($validQuoteIds === []) {
                 continue;
             }
@@ -185,40 +227,72 @@ final class SeiqOrderBuilder
             if ($quoteIds === []) {
                 continue;
             }
-            $weights = [];
-            $totalWeight = 0;
+            $pendingPerQuote = [];
+            $totalPending = 0;
             foreach ($quoteIds as $qid) {
-                $pendingUnits = (int) ($unitsByQuote[$qid][$productId] ?? 0);
+                $pendingUnits = (int) ($pendingByQuote[$qid][$productId] ?? 0);
                 if ($pendingUnits <= 0) {
                     continue;
                 }
-                $weights[$qid] = $pendingUnits;
-                $totalWeight += $pendingUnits;
+                $pendingPerQuote[$qid] = $pendingUnits;
+                $totalPending += $pendingUnits;
             }
-            if ($totalWeight <= 0) {
+            if ($totalPending <= 0) {
                 continue;
             }
-            $remaining = $orderedUnits;
-            foreach ($weights as $qid => $weight) {
-                $alloc = (int) floor(($orderedUnits * $weight) / $totalWeight);
+
+            $remaining = min($orderedUnits, $totalPending);
+            $allocated = [];
+            foreach ($pendingPerQuote as $qid => $pendingUnits) {
+                $alloc = (int) floor(($remaining * $pendingUnits) / $totalPending);
+                $alloc = min($alloc, $pendingUnits);
+                if ($alloc <= 0) {
+                    continue;
+                }
+                $allocated[$qid] = $alloc;
+            }
+            $assigned = (int) array_sum($allocated);
+            $remainingToAssign = max(0, $remaining - $assigned);
+
+            if ($remainingToAssign > 0) {
+                arsort($pendingPerQuote);
+                while ($remainingToAssign > 0) {
+                    $progress = false;
+                    foreach ($pendingPerQuote as $qid => $pendingUnits) {
+                        $used = (int) ($allocated[$qid] ?? 0);
+                        if ($used >= $pendingUnits) {
+                            continue;
+                        }
+                        $allocated[$qid] = $used + 1;
+                        $remainingToAssign--;
+                        $progress = true;
+                        if ($remainingToAssign <= 0) {
+                            break;
+                        }
+                    }
+                    if (!$progress) {
+                        break;
+                    }
+                }
+            }
+
+            foreach ($allocated as $qid => $alloc) {
                 if ($alloc <= 0) {
                     continue;
                 }
                 $covered[$qid][$productId] = (int) ($covered[$qid][$productId] ?? 0) + $alloc;
-                $remaining -= $alloc;
-            }
-            if ($remaining > 0) {
-                arsort($weights);
-                foreach ($weights as $qid => $_weight) {
-                    if ($remaining <= 0) {
-                        break;
-                    }
-                    $covered[$qid][$productId] = (int) ($covered[$qid][$productId] ?? 0) + 1;
-                    $remaining--;
-                }
             }
         }
 
+        $logsDir = STORAGE_PATH . '/logs';
+        if (!is_dir($logsDir)) {
+            @mkdir($logsDir, 0755, true);
+        }
+        $logFile = $logsDir . '/seiq_order_builder.log';
+        $line = '[' . date('Y-m-d H:i:s') . '] [SeiqOrderBuilder] coveredUnitsByQuoteProduct= '
+            . json_encode($covered, JSON_UNESCAPED_UNICODE)
+            . PHP_EOL;
+        @file_put_contents($logFile, $line, FILE_APPEND | LOCK_EX);
         return $covered;
     }
 
