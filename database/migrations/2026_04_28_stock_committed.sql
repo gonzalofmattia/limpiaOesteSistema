@@ -5,7 +5,7 @@ SET @has_committed_units = (
     SELECT COUNT(*)
     FROM information_schema.COLUMNS
     WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'products'
+      AND TABLE_NAME = 'products' 
       AND COLUMN_NAME = 'stock_committed_units'
 );
 
