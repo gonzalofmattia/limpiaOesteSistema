@@ -103,10 +103,7 @@ final class SeiqOrderController extends Controller
         $manualBoxesInput = $_POST['boxes_to_order'] ?? [];
         $manualBoxes = is_array($manualBoxesInput) ? $manualBoxesInput : [];
         $bundle = $built['bundle'] ?? ['consolidated' => [], 'total_products' => 0, 'total_boxes' => 0];
-        $acceptedQuotes = $built['acceptedQuotes'];
-        $quoteIds = array_map(static fn ($q) => (int) $q['id'], $acceptedQuotes);
         $manualBySupplier = $this->parseManualRowsBySupplier($db, $_POST['manual_lines'] ?? []);
-        $includedJson = json_encode($quoteIds, JSON_THROW_ON_ERROR);
         $supplierBundles = SeiqOrderBuilder::groupConsolidatedBySupplier($bundle['consolidated']);
         if ($supplierBundles === [] && $manualBySupplier === []) {
             flash('error', 'Agregá al menos un producto para generar el pedido.');
@@ -146,6 +143,30 @@ final class SeiqOrderController extends Controller
                 if ($rowsForOrder === [] || $supplierTotalBoxes <= 0) {
                     continue;
                 }
+                $includedQuoteIdsForOrder = [];
+                foreach ($rowsForOrder as $row) {
+                    if ((string) ($row['origin'] ?? 'auto') !== 'auto') {
+                        continue;
+                    }
+                    if ((int) ($row['boxes_to_order'] ?? 0) <= 0) {
+                        continue;
+                    }
+                    $fromQuotes = $row['from_quotes'] ?? [];
+                    if (!is_array($fromQuotes)) {
+                        continue;
+                    }
+                    foreach (array_keys($fromQuotes) as $qid) {
+                        $qid = (int) $qid;
+                        if ($qid > 0) {
+                            $includedQuoteIdsForOrder[$qid] = true;
+                        }
+                    }
+                }
+                $includedQuoteIds = array_keys($includedQuoteIdsForOrder);
+                sort($includedQuoteIds);
+                $includedJson = $includedQuoteIds === []
+                    ? null
+                    : json_encode(array_values($includedQuoteIds), JSON_THROW_ON_ERROR);
                 $orderNumber = $this->nextOrderNumber($db, (string) ($supplier['slug'] ?? ''));
                 $orderId = $db->insert('seiq_orders', [
                     'supplier_id' => $supplierId,
@@ -198,7 +219,7 @@ final class SeiqOrderController extends Controller
                     'supplier_id' => $supplierId,
                     'order_number' => $orderNumber,
                     'notes' => $notes !== '' ? $notes : null,
-                    'included_quotes' => $includedJson,
+                    'included_quotes' => null,
                     'total_products' => count($manualRows),
                     'total_boxes' => $supplierTotalBoxes,
                     'status' => 'draft',

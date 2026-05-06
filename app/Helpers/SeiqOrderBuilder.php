@@ -206,8 +206,9 @@ final class SeiqOrderBuilder
         $ph = implode(',', array_fill(0, count($orderIds), '?'));
         $itemRows = $db->fetchAll(
             "SELECT seiq_order_id, product_id, SUM(boxes_to_order * units_per_box) AS ordered_units
-             FROM seiq_order_items
-             WHERE seiq_order_id IN ({$ph})
+             FROM seiq_order_items soi
+             WHERE soi.seiq_order_id IN ({$ph})
+               AND soi.boxes_to_order > 0
              GROUP BY seiq_order_id, product_id",
             $orderIds
         );
