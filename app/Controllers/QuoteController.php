@@ -1054,7 +1054,7 @@ final class QuoteController extends Controller
         $rows = $db->fetchAll(
             "SELECT id, included_quotes
              FROM seiq_orders
-             WHERE status = 'draft'
+             WHERE status IN ('draft', 'sent')
                AND included_quotes IS NOT NULL
                AND included_quotes <> ''"
         );
