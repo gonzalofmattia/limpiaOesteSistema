@@ -39,6 +39,7 @@ $amtDisplay = $type === 'adjustment'
                     <?php $m = (string) ($movement['payment_method'] ?? 'efectivo'); ?>
                     <option value="efectivo" <?= $m === 'efectivo' ? 'selected' : '' ?>>Efectivo</option>
                     <option value="transferencia" <?= $m === 'transferencia' ? 'selected' : '' ?>>Transferencia</option>
+                    <option value="mercadopago" <?= $m === 'mercadopago' ? 'selected' : '' ?>>Mercado Pago</option>
                     <option value="otro" <?= $m === 'otro' ? 'selected' : '' ?>>Otro</option>
                 </select>
             </div>

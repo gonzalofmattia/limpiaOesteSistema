@@ -33,6 +33,7 @@
                 <select name="payment_method" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
                     <option value="efectivo">Efectivo</option>
                     <option value="transferencia">Transferencia</option>
+                    <option value="mercadopago">Mercado Pago</option>
                     <option value="otro">Otro</option>
                 </select>
                 <input type="text" name="payment_reference" placeholder="Referencia" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">

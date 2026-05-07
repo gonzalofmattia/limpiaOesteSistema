@@ -112,7 +112,12 @@ final class AccountController extends Controller
                     COALESCE(SUM(CASE WHEN at.transaction_type = 'payment' THEN at.amount ELSE 0 END), 0) AS total_paid,
                     COALESCE(SUM(CASE WHEN at.transaction_type = 'adjustment' THEN at.amount ELSE 0 END), 0) AS total_adjustments,
                     COALESCE((
-                        SELECT SUM(q2.total) FROM quotes q2
+                        SELECT SUM(
+                            CASE
+                                WHEN COALESCE(q2.is_mercadolibre, 0) = 1 THEN COALESCE(q2.ml_net_amount, 0)
+                                ELSE COALESCE(q2.total, 0)
+                            END
+                        ) FROM quotes q2
                         WHERE q2.client_id = c.id AND q2.status IN ('accepted', 'delivered')
                     ), 0) AS quotes_accepted_total
              FROM clients c
@@ -315,7 +320,7 @@ final class AccountController extends Controller
         }
 
         $amount = parseArgentineAmount((string) $this->input('amount', '0'));
-        $method = (string) $this->input('payment_method', 'efectivo');
+        $method = $this->normalizePaymentMethod((string) $this->input('payment_method', 'efectivo'));
         $reference = trim((string) $this->input('payment_reference', ''));
         $date = (string) $this->input('transaction_date', date('Y-m-d'));
         $notes = trim((string) $this->input('notes', ''));
@@ -326,7 +331,7 @@ final class AccountController extends Controller
             return;
         }
 
-        $description = 'Cobro ' . ($method === 'transferencia' ? 'transferencia' : 'efectivo');
+        $description = 'Cobro ' . strtolower($this->paymentMethodLabel($method));
         if ($reference !== '') {
             $description .= ' (ref: ' . $reference . ')';
         }
@@ -371,10 +376,7 @@ final class AccountController extends Controller
 
         $amountRaw = trim((string) $this->input('amount', '0'));
         $amount = parseArgentineAmount($amountRaw);
-        $method = (string) $this->input('payment_method', 'efectivo');
-        if (!in_array($method, ['efectivo', 'transferencia', 'otro'], true)) {
-            $method = 'otro';
-        }
+        $method = $this->normalizePaymentMethod((string) $this->input('payment_method', 'efectivo'));
         $reference = trim((string) $this->input('payment_reference', ''));
         $notes = trim((string) $this->input('notes', ''));
         $quoteId = (int) $this->input('quote_id', 0);
@@ -432,7 +434,7 @@ final class AccountController extends Controller
         }
 
         $amount = parseArgentineAmount((string) $this->input('amount', '0'));
-        $method = (string) $this->input('payment_method', 'efectivo');
+        $method = $this->normalizePaymentMethod((string) $this->input('payment_method', 'efectivo'));
         $reference = trim((string) $this->input('payment_reference', ''));
         $date = (string) $this->input('transaction_date', date('Y-m-d'));
         $notes = trim((string) $this->input('notes', ''));
@@ -443,7 +445,7 @@ final class AccountController extends Controller
             return;
         }
 
-        $description = 'Pago a proveedor ' . ($method === 'transferencia' ? 'transferencia' : 'efectivo');
+        $description = 'Pago a proveedor ' . strtolower($this->paymentMethodLabel($method));
         if ($reference !== '') {
             $description .= ' (ref: ' . $reference . ')';
         }
@@ -609,12 +611,12 @@ final class AccountController extends Controller
                 redirect('/cuenta-corriente/movimiento/' . $id . '/editar');
                 return;
             }
-            $method = (string) $this->input('payment_method', 'efectivo');
+            $method = $this->normalizePaymentMethod((string) $this->input('payment_method', 'efectivo'));
             $reference = trim((string) $this->input('payment_reference', ''));
             $isClient = (string) ($movement['account_type'] ?? '') === 'client';
             $description = $isClient
-                ? ('Cobro ' . ($method === 'transferencia' ? 'transferencia' : 'efectivo'))
-                : ('Pago a proveedor ' . ($method === 'transferencia' ? 'transferencia' : 'efectivo'));
+                ? ('Cobro ' . strtolower($this->paymentMethodLabel($method)))
+                : ('Pago a proveedor ' . strtolower($this->paymentMethodLabel($method)));
             if ($reference !== '') {
                 $description .= ' (ref: ' . $reference . ')';
             }
@@ -841,6 +843,23 @@ final class AccountController extends Controller
         }
 
         return $returnTo;
+    }
+
+    private function normalizePaymentMethod(string $method): string
+    {
+        return in_array($method, ['efectivo', 'transferencia', 'mercadopago', 'otro'], true)
+            ? $method
+            : 'otro';
+    }
+
+    private function paymentMethodLabel(string $method): string
+    {
+        return match ($method) {
+            'efectivo' => 'Efectivo',
+            'transferencia' => 'Transferencia',
+            'mercadopago' => 'Mercado Pago',
+            default => 'Otro',
+        };
     }
 
     /** @param array<string,mixed> $entity @param list<array<string,mixed>> $transactions */

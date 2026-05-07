@@ -16,14 +16,15 @@ final class DashboardController extends Controller
         $db = Database::getInstance();
         $accountsTable = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
         $salesBaseWhere = "status IN ('accepted','delivered') AND COALESCE(sale_number,'') <> ''";
+        $billedAmountExpr = "CASE WHEN COALESCE(is_mercadolibre,0) = 1 THEN COALESCE(ml_net_amount,0) ELSE COALESCE(total,0) END";
         $today = date('Y-m-d');
 
         $salesTodayCount = (int) $db->fetchColumn("SELECT COUNT(*) FROM quotes WHERE {$salesBaseWhere} AND DATE(created_at)=?", [$today]);
-        $salesTodayAmount = (float) $db->fetchColumn("SELECT COALESCE(SUM(total),0) FROM quotes WHERE {$salesBaseWhere} AND DATE(created_at)=?", [$today]);
+        $salesTodayAmount = (float) $db->fetchColumn("SELECT COALESCE(SUM({$billedAmountExpr}),0) FROM quotes WHERE {$salesBaseWhere} AND DATE(created_at)=?", [$today]);
         $salesWeekCount = (int) $db->fetchColumn("SELECT COUNT(*) FROM quotes WHERE {$salesBaseWhere} AND DATE(created_at) >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)");
-        $salesWeekAmount = (float) $db->fetchColumn("SELECT COALESCE(SUM(total),0) FROM quotes WHERE {$salesBaseWhere} AND DATE(created_at) >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)");
+        $salesWeekAmount = (float) $db->fetchColumn("SELECT COALESCE(SUM({$billedAmountExpr}),0) FROM quotes WHERE {$salesBaseWhere} AND DATE(created_at) >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)");
         $salesMonthCount = (int) $db->fetchColumn("SELECT COUNT(*) FROM quotes WHERE {$salesBaseWhere} AND YEAR(created_at)=YEAR(CURDATE()) AND MONTH(created_at)=MONTH(CURDATE())");
-        $salesMonthAmount = (float) $db->fetchColumn("SELECT COALESCE(SUM(total),0) FROM quotes WHERE {$salesBaseWhere} AND YEAR(created_at)=YEAR(CURDATE()) AND MONTH(created_at)=MONTH(CURDATE())");
+        $salesMonthAmount = (float) $db->fetchColumn("SELECT COALESCE(SUM({$billedAmountExpr}),0) FROM quotes WHERE {$salesBaseWhere} AND YEAR(created_at)=YEAR(CURDATE()) AND MONTH(created_at)=MONTH(CURDATE())");
         $salesMonthAvgTicket = $salesMonthCount > 0 ? round($salesMonthAmount / $salesMonthCount, 2) : 0.0;
         $periodKey = strtolower(trim((string) $this->query('periodo', '30')));
         $period = $this->resolveMainPeriod($periodKey, $today);
@@ -37,7 +38,7 @@ final class DashboardController extends Controller
             $periodParams
         );
         $mainSalesAmount = (float) $db->fetchColumn(
-            "SELECT COALESCE(SUM(total),0) FROM quotes WHERE {$salesBaseWhere} {$periodWhere}",
+            "SELECT COALESCE(SUM({$billedAmountExpr}),0) FROM quotes WHERE {$salesBaseWhere} {$periodWhere}",
             $periodParams
         );
 
@@ -82,13 +83,13 @@ final class DashboardController extends Controller
             "SELECT COUNT(*) FROM quotes WHERE status = 'accepted'"
         );
         $pendingDeliveryAmount = (float) $db->fetchColumn(
-            "SELECT COALESCE(SUM(total),0) FROM quotes WHERE status = 'accepted'"
+            "SELECT COALESCE(SUM({$billedAmountExpr}),0) FROM quotes WHERE status = 'accepted'"
         );
         $pendingDeliveryCountAll = (int) $db->fetchColumn(
             "SELECT COUNT(*) FROM quotes WHERE status IN ('accepted', 'partially_delivered')"
         );
         $pendingDeliveryAmountAll = (float) $db->fetchColumn(
-            "SELECT COALESCE(SUM(total),0) FROM quotes WHERE status IN ('accepted', 'partially_delivered')"
+            "SELECT COALESCE(SUM({$billedAmountExpr}),0) FROM quotes WHERE status IN ('accepted', 'partially_delivered')"
         );
         $pendingDeliveryPartialCount = (int) $db->fetchColumn(
             "SELECT COUNT(*) FROM quotes WHERE status = 'partially_delivered'"
@@ -137,7 +138,7 @@ final class DashboardController extends Controller
             $months[$ym] = ['label' => date('M', $dt), 'total' => 0.0];
         }
         $monthlyRows = $db->fetchAll(
-            "SELECT DATE_FORMAT(created_at, '%Y-%m') AS ym, COALESCE(SUM(total),0) AS total
+            "SELECT DATE_FORMAT(created_at, '%Y-%m') AS ym, COALESCE(SUM({$billedAmountExpr}),0) AS total
              FROM quotes
              WHERE {$salesBaseWhere} AND created_at >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
              GROUP BY ym
@@ -188,7 +189,7 @@ final class DashboardController extends Controller
         }
 
         $topClientsAll = $db->fetchAll(
-            "SELECT c.name, ROUND(SUM(q.total),2) AS total_amount
+            "SELECT c.name, ROUND(SUM(CASE WHEN COALESCE(q.is_mercadolibre,0) = 1 THEN COALESCE(q.ml_net_amount,0) ELSE COALESCE(q.total,0) END),2) AS total_amount
              FROM quotes q
              INNER JOIN clients c ON c.id = q.client_id
              WHERE {$salesBaseWhere}
@@ -256,13 +257,15 @@ final class DashboardController extends Controller
         if ($metric === 'aceptados') {
             $title = 'Detalle - Presupuestos aceptados';
             $value = (float) $db->fetchColumn(
-                "SELECT COALESCE(SUM(total), 0)
+                "SELECT COALESCE(SUM(CASE WHEN COALESCE(is_mercadolibre,0) = 1 THEN COALESCE(ml_net_amount,0) ELSE COALESCE(total,0) END), 0)
                  FROM quotes
                  WHERE status IN ('accepted', 'delivered')"
             );
-            $explain = "Suma de total de presupuestos con estado accepted o delivered.";
+            $explain = "Suma facturada de presupuestos accepted/delivered (en ML usa neto MP).";
             $rows = $db->fetchAll(
-                "SELECT q.id, q.quote_number, q.total, q.status, q.created_at, c.name AS client_name
+                "SELECT q.id, q.quote_number,
+                        CASE WHEN COALESCE(q.is_mercadolibre,0) = 1 THEN COALESCE(q.ml_net_amount,0) ELSE COALESCE(q.total,0) END AS total,
+                        q.status, q.created_at, c.name AS client_name
                  FROM quotes q
                  LEFT JOIN clients c ON c.id = q.client_id
                  WHERE q.status IN ('accepted', 'delivered')

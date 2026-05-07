@@ -70,7 +70,13 @@ final class ClientReceivableSummary
 
     public static function sqlQuotesAcceptedByClientSubquery(): string
     {
-        return "SELECT client_id, SUM(total) AS quotes_total
+        return "SELECT client_id,
+                    SUM(
+                        CASE
+                            WHEN COALESCE(is_mercadolibre, 0) = 1 THEN COALESCE(ml_net_amount, 0)
+                            ELSE COALESCE(total, 0)
+                        END
+                    ) AS quotes_total
                 FROM quotes
                 WHERE status IN ('accepted', 'delivered')
                 GROUP BY client_id";
@@ -137,7 +143,12 @@ final class ClientReceivableSummary
             [$clientId]
         );
         $quotes = (float) $db->fetchColumn(
-            "SELECT COALESCE(SUM(total), 0) FROM quotes
+            "SELECT COALESCE(SUM(
+                CASE
+                    WHEN COALESCE(is_mercadolibre, 0) = 1 THEN COALESCE(ml_net_amount, 0)
+                    ELSE COALESCE(total, 0)
+                END
+            ), 0) FROM quotes
              WHERE client_id = ? AND status IN ('accepted', 'delivered')",
             [$clientId]
         );
@@ -158,7 +169,12 @@ final class ClientReceivableSummary
         }
 
         $quotes = (float) $db->fetchColumn(
-            "SELECT COALESCE(SUM(total), 0) FROM quotes
+            "SELECT COALESCE(SUM(
+                CASE
+                    WHEN COALESCE(is_mercadolibre, 0) = 1 THEN COALESCE(ml_net_amount, 0)
+                    ELSE COALESCE(total, 0)
+                END
+            ), 0) FROM quotes
              WHERE client_id = ? AND status IN ('accepted', 'delivered')",
             [$clientId]
         );

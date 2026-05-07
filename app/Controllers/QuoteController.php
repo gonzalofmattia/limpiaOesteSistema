@@ -509,7 +509,7 @@ final class QuoteController extends Controller
                     [(int) $id]
                 );
                 $clientId = (int) ($quote['client_id'] ?? 0);
-                $amount = round((float) ($quote['total'] ?? 0), 2);
+                $amount = $this->invoiceAmountFromQuote($quote);
                 if (!$existing) {
                     if ($clientId > 0 && $amount > 0) {
                         $db->insert('account_transactions', [
@@ -1006,9 +1006,13 @@ final class QuoteController extends Controller
                         );
                     }
                     if ($invoiceTx !== null) {
+                        $quoteForInvoice = $db->fetch(
+                            'SELECT total, ml_net_amount, is_mercadolibre FROM quotes WHERE id = ?',
+                            [(int) $id]
+                        ) ?? ['total' => round($total, 2), 'ml_net_amount' => 0, 'is_mercadolibre' => 0];
                         $db->update(
                             'account_transactions',
-                            ['amount' => round($total, 2), 'account_id' => $clientId],
+                            ['amount' => $this->invoiceAmountFromQuote($quoteForInvoice), 'account_id' => $clientId],
                             'id = :id',
                             ['id' => (int) ($invoiceTx['id'] ?? 0)]
                         );
@@ -1065,6 +1069,17 @@ final class QuoteController extends Controller
         }
         $next = $n + 1;
         return sprintf('%s-%d-%04d', $prefix, $year, $next);
+    }
+
+    /** @param array<string,mixed> $quote */
+    private function invoiceAmountFromQuote(array $quote): float
+    {
+        $isMercadoLibre = (int) ($quote['is_mercadolibre'] ?? 0) === 1;
+        if ($isMercadoLibre) {
+            return round((float) ($quote['ml_net_amount'] ?? 0), 2);
+        }
+
+        return round((float) ($quote['total'] ?? 0), 2);
     }
 
     private function parseNullableDecimal(mixed $value): ?float

@@ -51,6 +51,10 @@
                         <div class="text-center py-2 px-3 rounded-lg border border-gray-300 peer-checked:border-green-500 peer-checked:bg-green-50 peer-checked:text-green-700 text-sm font-medium transition-all">🏦 Transfer.</div>
                     </label>
                     <label class="flex-1 cursor-pointer">
+                        <input type="radio" name="payment_method" value="mercadopago" class="peer hidden">
+                        <div class="text-center py-2 px-3 rounded-lg border border-gray-300 peer-checked:border-green-500 peer-checked:bg-green-50 peer-checked:text-green-700 text-sm font-medium transition-all">💳 Mercado Pago</div>
+                    </label>
+                    <label class="flex-1 cursor-pointer">
                         <input type="radio" name="payment_method" value="otro" class="peer hidden">
                         <div class="text-center py-2 px-3 rounded-lg border border-gray-300 peer-checked:border-green-500 peer-checked:bg-green-50 peer-checked:text-green-700 text-sm font-medium transition-all">📋 Otro</div>
                     </label>
