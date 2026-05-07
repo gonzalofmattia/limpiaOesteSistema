@@ -15,6 +15,44 @@ use App\Models\Database;
  */
 final class ClientReceivableSummary
 {
+    /**
+     * @return array{status:string,label:string,color:string,balance:float,detail:?string}
+     */
+    public static function getClientDisplayStatus(float $balance, float $tolerance = 800.0): array
+    {
+        $tolerance = max(0.0, $tolerance);
+        if (abs($balance) <= $tolerance) {
+            return [
+                'status' => 'al_dia',
+                'label' => 'Al día',
+                'color' => 'green',
+                'balance' => $balance,
+                'detail' => $balance !== 0.0
+                    ? ($balance > 0
+                        ? 'Pendiente menor: $' . number_format(abs($balance), 2, ',', '.')
+                        : 'Menor a favor: $' . number_format(abs($balance), 2, ',', '.'))
+                    : null,
+            ];
+        }
+        if ($balance > 0) {
+            return [
+                'status' => 'con_deuda',
+                'label' => 'Debe',
+                'color' => 'red',
+                'balance' => $balance,
+                'detail' => null,
+            ];
+        }
+
+        return [
+            'status' => 'saldo_favor',
+            'label' => 'A favor',
+            'color' => 'blue',
+            'balance' => $balance,
+            'detail' => null,
+        ];
+    }
+
     /** Columnas: account_id, inv, pay, adj, net (= inv − pay + adj). */
     public static function sqlTxAggByClientSubquery(): string
     {
@@ -64,8 +102,9 @@ final class ClientReceivableSummary
         return (float) $db->fetchColumn($sql);
     }
 
-    public static function countClientsWithDebt(Database $db): int
+    public static function countClientsWithDebt(Database $db, float $tolerance = 0.0): int
     {
+        $tolerance = max(0.0, $tolerance);
         $tx = self::sqlTxAggByClientSubquery();
         $q = self::sqlQuotesAcceptedByClientSubquery();
         $case = self::sqlCaseHybridBalance();
@@ -74,9 +113,9 @@ final class ClientReceivableSummary
                     FROM clients c
                     LEFT JOIN ({$tx}) tx ON tx.account_id = c.id
                     LEFT JOIN ({$q}) q ON q.client_id = c.id
-                ) z WHERE z.bal > 0";
+                ) z WHERE z.bal > ?";
 
-        return (int) $db->fetchColumn($sql);
+        return (int) $db->fetchColumn($sql, [$tolerance]);
     }
 
     /** Misma regla híbrida que en listados (una consulta compacta por cliente). */

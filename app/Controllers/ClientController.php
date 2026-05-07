@@ -21,6 +21,14 @@ final class ClientController extends Controller
         $perPage = $perPage > 0 ? min($perPage, 100) : 20;
         $search = trim((string) $this->query('search', ''));
         $withDebtOnly = (string) $this->query('with_debt', '') === '1';
+        $withFavorOnly = (string) $this->query('with_favor', '') === '1';
+        if ($withDebtOnly && $withFavorOnly) {
+            $withFavorOnly = false;
+        }
+        $tolerance = (float) (setting('balance_tolerance', '800') ?? '800');
+        if ($tolerance < 0) {
+            $tolerance = 0.0;
+        }
         $where = [];
         $params = [];
         if ($search !== '') {
@@ -36,7 +44,7 @@ final class ClientController extends Controller
         } else {
             $listSelect .= ", 'mayorista' AS client_type, NULL AS default_markup, NULL AS segment_label, NULL AS segment_default_markup";
         }
-        $stats = ['total' => 0, 'with_debt' => 0, 'sum_balance' => 0.0];
+        $stats = ['total' => 0, 'with_debt' => 0, 'with_favor' => 0, 'sum_balance' => 0.0];
         $rows = [];
         $total = 0;
         $totalPages = 1;
@@ -57,17 +65,19 @@ final class ClientController extends Controller
                      {$whereSql}";
                 $statsRow = $db->fetch(
                     "SELECT COUNT(*) AS total,
-                            SUM(CASE WHEN t.eb > 0 THEN 1 ELSE 0 END) AS with_debt,
+                            SUM(CASE WHEN t.eb > :tol THEN 1 ELSE 0 END) AS with_debt,
+                            SUM(CASE WHEN t.eb < :neg_tol THEN 1 ELSE 0 END) AS with_favor,
                             COALESCE(SUM(t.eb), 0) AS sum_balance
                      FROM (
                          SELECT c.id, ROUND({$hybrid}, 2) AS eb
                          {$fromJoins}
                      ) t",
-                    $params
+                    $params + ['tol' => $tolerance, 'neg_tol' => -$tolerance]
                 );
                 if ($statsRow) {
                     $stats['total'] = (int) ($statsRow['total'] ?? 0);
                     $stats['with_debt'] = (int) ($statsRow['with_debt'] ?? 0);
+                    $stats['with_favor'] = (int) ($statsRow['with_favor'] ?? 0);
                     $stats['sum_balance'] = (float) ($statsRow['sum_balance'] ?? 0);
                 }
 
@@ -76,9 +86,18 @@ final class ClientController extends Controller
                         "SELECT COUNT(*) FROM (
                             SELECT c.id, ROUND({$hybrid}, 2) AS effective_balance
                             {$fromJoins}
-                            HAVING effective_balance > 0
+                            HAVING effective_balance > :tol
                         ) z",
-                        $params
+                        $params + ['tol' => $tolerance]
+                    );
+                } elseif ($withFavorOnly) {
+                    $total = (int) $db->fetchColumn(
+                        "SELECT COUNT(*) FROM (
+                            SELECT c.id, ROUND({$hybrid}, 2) AS effective_balance
+                            {$fromJoins}
+                            HAVING effective_balance < :neg_tol
+                        ) z",
+                        $params + ['neg_tol' => -$tolerance]
                     );
                 } else {
                     $total = (int) $db->fetchColumn("SELECT COUNT(*) FROM clients c {$whereSql}", $params);
@@ -92,10 +111,19 @@ final class ClientController extends Controller
                     $rows = $db->fetchAll(
                         "SELECT {$listSelect}, ROUND({$hybrid}, 2) AS effective_balance
                          {$fromJoins}
-                         HAVING effective_balance > 0
+                         HAVING effective_balance > :tol
                          ORDER BY c.name
                          LIMIT {$perPage} OFFSET {$offset}",
-                        $params
+                        $params + ['tol' => $tolerance]
+                    );
+                } elseif ($withFavorOnly) {
+                    $rows = $db->fetchAll(
+                        "SELECT {$listSelect}, ROUND({$hybrid}, 2) AS effective_balance
+                         {$fromJoins}
+                         HAVING effective_balance < :neg_tol
+                         ORDER BY c.name
+                         LIMIT {$perPage} OFFSET {$offset}",
+                        $params + ['neg_tol' => -$tolerance]
                     );
                 } else {
                     $rows = $db->fetchAll(
@@ -116,10 +144,20 @@ final class ClientController extends Controller
                 );
                 if ($statsRow) {
                     $stats['total'] = (int) ($statsRow['total'] ?? 0);
-                    $stats['with_debt'] = (int) ($statsRow['with_debt'] ?? 0);
+                    $stats['with_debt'] = (int) ($statsRow['with_debt'] ?? 0); // sin account_transactions: legacy
                     $stats['sum_balance'] = (float) ($statsRow['sum_balance'] ?? 0);
+                    $stats['with_favor'] = (int) $db->fetchColumn(
+                        "SELECT COUNT(*) FROM clients c " . ($whereSql === '' ? 'WHERE c.balance < :neg_tol' : ($whereSql . ' AND c.balance < :neg_tol')),
+                        $params + ['neg_tol' => -$tolerance]
+                    );
                 }
-                $debtClause = $withDebtOnly ? (($whereSql === '') ? 'WHERE c.balance > 0' : $whereSql . ' AND c.balance > 0') : $whereSql;
+                if ($withDebtOnly) {
+                    $debtClause = ($whereSql === '') ? 'WHERE c.balance > :tol' : $whereSql . ' AND c.balance > :tol';
+                } elseif ($withFavorOnly) {
+                    $debtClause = ($whereSql === '') ? 'WHERE c.balance < :neg_tol' : $whereSql . ' AND c.balance < :neg_tol';
+                } else {
+                    $debtClause = $whereSql;
+                }
                 $total = (int) $db->fetchColumn("SELECT COUNT(*) FROM clients c {$debtClause}", $params);
                 $totalPages = max(1, (int) ceil($total / $perPage));
                 if ($page > $totalPages) {
@@ -136,12 +174,18 @@ final class ClientController extends Controller
                      {$debtClause}
                      ORDER BY c.name
                      LIMIT {$perPage} OFFSET {$offset}",
-                    $params
+                    $params + ['tol' => $tolerance, 'neg_tol' => -$tolerance]
                 );
             }
         } catch (\Throwable) {
-            $debtClause = $withDebtOnly ? (($whereSql === '') ? 'WHERE c.balance > 0' : $whereSql . ' AND c.balance > 0') : $whereSql;
-            $total = (int) $db->fetchColumn("SELECT COUNT(*) FROM clients c {$debtClause}", $params);
+            if ($withDebtOnly) {
+                $debtClause = ($whereSql === '') ? 'WHERE c.balance > :tol' : $whereSql . ' AND c.balance > :tol';
+            } elseif ($withFavorOnly) {
+                $debtClause = ($whereSql === '') ? 'WHERE c.balance < :neg_tol' : $whereSql . ' AND c.balance < :neg_tol';
+            } else {
+                $debtClause = $whereSql;
+            }
+            $total = (int) $db->fetchColumn("SELECT COUNT(*) FROM clients c {$debtClause}", $params + ['tol' => $tolerance, 'neg_tol' => -$tolerance]);
             $totalPages = max(1, (int) ceil($total / $perPage));
             if ($page > $totalPages) {
                 $page = $totalPages;
@@ -157,18 +201,20 @@ final class ClientController extends Controller
                  {$debtClause}
                  ORDER BY c.name
                  LIMIT {$perPage} OFFSET {$offset}",
-                $params
+                $params + ['tol' => $tolerance, 'neg_tol' => -$tolerance]
             );
             $statsRow = $db->fetch(
                 "SELECT COUNT(*) AS total,
-                        SUM(CASE WHEN c.balance > 0 THEN 1 ELSE 0 END) AS with_debt,
+                        SUM(CASE WHEN c.balance > :tol THEN 1 ELSE 0 END) AS with_debt,
+                        SUM(CASE WHEN c.balance < :neg_tol THEN 1 ELSE 0 END) AS with_favor,
                         COALESCE(SUM(c.balance), 0) AS sum_balance
                  FROM clients c {$whereSql}",
-                $params
+                $params + ['tol' => $tolerance, 'neg_tol' => -$tolerance]
             );
             if ($statsRow) {
                 $stats['total'] = (int) ($statsRow['total'] ?? 0);
                 $stats['with_debt'] = (int) ($statsRow['with_debt'] ?? 0);
+                $stats['with_favor'] = (int) ($statsRow['with_favor'] ?? 0);
                 $stats['sum_balance'] = (float) ($statsRow['sum_balance'] ?? 0);
             }
         }
@@ -178,6 +224,8 @@ final class ClientController extends Controller
             'clients' => $rows,
             'search' => $search,
             'with_debt' => $withDebtOnly,
+            'with_favor' => $withFavorOnly,
+            'balance_tolerance' => $tolerance,
             'stats' => $stats,
             'page' => $page,
             'per_page' => $perPage,

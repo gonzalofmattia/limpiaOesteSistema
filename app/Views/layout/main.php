@@ -142,6 +142,7 @@
 </div>
 <div class="fixed inset-0 bg-black/40 z-30 lg:hidden" x-show="sidebarOpen" x-cloak x-transition:enter="transition-opacity duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100" x-transition:leave="transition-opacity duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" @click="sidebarOpen=false"></div>
 <?php require APP_PATH . '/Views/layout/delete_modal.php'; ?>
+<?php include APP_PATH . '/Views/components/modal-pago-rapido.php'; ?>
 <script src="<?= e(url('/assets/js/app.js')) ?>"></script>
 <script>
 if (window.rebuildLucideIcons) window.rebuildLucideIcons();

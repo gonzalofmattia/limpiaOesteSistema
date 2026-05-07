@@ -10,6 +10,11 @@
         </p>
     </div>
     <div class="flex flex-wrap gap-2">
+        <button type="button"
+                @click="window.dispatchEvent(new CustomEvent('abrir-pago', { detail: { clientId: <?= (int) $client['id'] ?>, clientName: <?= e((string) json_encode((string) ($client['name'] ?? 'Cliente'), JSON_UNESCAPED_UNICODE)) ?>, clientBalance: <?= e((string) json_encode((float) $balance)) ?> } }))"
+                class="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium">
+            💰 Registrar cobro
+        </button>
         <a href="<?= e(url('/cuenta-corriente/cliente/' . (int) $client['id'] . '/pdf')) ?>" class="px-3 py-1.5 rounded-lg border border-gray-300 text-sm">Descargar PDF</a>
     </div>
 </div>

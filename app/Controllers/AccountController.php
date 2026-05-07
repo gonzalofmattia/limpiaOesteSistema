@@ -349,6 +349,68 @@ final class AccountController extends Controller
         redirect('/cuenta-corriente/cliente/' . $clientId);
     }
 
+    public function quickPayment(): void
+    {
+        if (!verifyCsrf()) {
+            flash('error', 'Token inválido.');
+            redirect('/cuenta-corriente/clientes');
+            return;
+        }
+        $db = Database::getInstance();
+        if (!$this->ensureSchema($db)) {
+            return;
+        }
+
+        $clientId = (int) $this->input('client_id', 0);
+        $client = $db->fetch('SELECT id, name FROM clients WHERE id = ?', [$clientId]);
+        if (!$client) {
+            flash('error', 'Cliente inválido.');
+            redirect('/cuenta-corriente/clientes');
+            return;
+        }
+
+        $amountRaw = trim((string) $this->input('amount', '0'));
+        $amount = parseArgentineAmount($amountRaw);
+        $method = (string) $this->input('payment_method', 'efectivo');
+        if (!in_array($method, ['efectivo', 'transferencia', 'otro'], true)) {
+            $method = 'otro';
+        }
+        $reference = trim((string) $this->input('payment_reference', ''));
+        $notes = trim((string) $this->input('notes', ''));
+        $quoteId = (int) $this->input('quote_id', 0);
+        $transactionDate = (string) $this->input('transaction_date', date('Y-m-d'));
+        $returnTo = $this->sanitizeReturnTo((string) $this->input('return_to', '/cuenta-corriente/clientes'));
+
+        if ($amount <= 0) {
+            flash('error', 'El monto debe ser mayor a cero.');
+            redirect($returnTo);
+            return;
+        }
+
+        $description = 'Pago recibido';
+        if ($quoteId > 0) {
+            $quote = $db->fetch('SELECT quote_number FROM quotes WHERE id = ?', [$quoteId]);
+            $description = 'Pago recibido - Presup. ' . (string) ($quote['quote_number'] ?? $quoteId);
+        }
+
+        $db->insert('account_transactions', [
+            'account_type' => 'client',
+            'account_id' => $clientId,
+            'transaction_type' => 'payment',
+            'reference_type' => $quoteId > 0 ? 'quote' : 'manual',
+            'reference_id' => $quoteId > 0 ? $quoteId : null,
+            'amount' => $amount,
+            'payment_method' => $method,
+            'payment_reference' => $reference !== '' ? $reference : null,
+            'description' => $description,
+            'notes' => $notes !== '' ? $notes : null,
+            'transaction_date' => $transactionDate,
+        ]);
+        $this->recalculateClientBalance($clientId);
+        flash('success', 'Pago registrado por ' . formatPrice($amount));
+        redirect($returnTo);
+    }
+
     public function registerSupplierPayment(): void
     {
         if (!verifyCsrf()) {
@@ -733,6 +795,52 @@ final class AccountController extends Controller
             return;
         }
         redirect('/cuenta-corriente/proveedor/' . (int) $movement['account_id']);
+    }
+
+    private function sanitizeReturnTo(string $returnTo): string
+    {
+        $returnTo = trim($returnTo);
+        if ($returnTo === '') {
+            return '/cuenta-corriente/clientes';
+        }
+
+        // Si viene URL absoluta, quedarse con path + query.
+        if (preg_match('#^https?://#i', $returnTo)) {
+            $parsed = parse_url($returnTo);
+            if (!is_array($parsed)) {
+                return '/cuenta-corriente/clientes';
+            }
+            $path = (string) ($parsed['path'] ?? '');
+            $query = isset($parsed['query']) ? ('?' . $parsed['query']) : '';
+            $returnTo = $path . $query;
+        }
+
+        if (!str_starts_with($returnTo, '/')) {
+            return '/cuenta-corriente/clientes';
+        }
+
+        // Normalizar contra el prefijo base de la app para evitar duplicaciones:
+        // ej. /limpiaOesteSistema/public/limpiaOesteSistema/public/clientes -> /clientes
+        $base = '';
+        if (defined('BASE_URL_PATH')) {
+            $base = rtrim((string) BASE_URL_PATH, '/');
+        } elseif (defined('BASE_URL')) {
+            $base = rtrim((string) BASE_URL, '/');
+        }
+        if ($base !== '' && str_starts_with($returnTo, $base)) {
+            while (str_starts_with($returnTo, $base . '/')) {
+                $returnTo = substr($returnTo, strlen($base));
+            }
+            if ($returnTo === $base) {
+                $returnTo = '/';
+            }
+        }
+
+        if ($returnTo === '' || $returnTo[0] !== '/') {
+            return '/cuenta-corriente/clientes';
+        }
+
+        return $returnTo;
     }
 
     /** @param array<string,mixed> $entity @param list<array<string,mixed>> $transactions */

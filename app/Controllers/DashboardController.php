@@ -44,8 +44,12 @@ final class DashboardController extends Controller
         $receivable = 0.0;
         $clientsWithDebt = 0;
         if ($accountsTable) {
+            $tolerance = (float) (setting('balance_tolerance', '800') ?? '800');
+            if ($tolerance < 0) {
+                $tolerance = 0.0;
+            }
             $receivable = ClientReceivableSummary::totalReceivable($db);
-            $clientsWithDebt = ClientReceivableSummary::countClientsWithDebt($db);
+            $clientsWithDebt = ClientReceivableSummary::countClientsWithDebt($db, $tolerance);
         }
 
         $supplierDebts = $accountsTable ? $this->fetchSupplierDebtsSameAsAccount($db) : [];

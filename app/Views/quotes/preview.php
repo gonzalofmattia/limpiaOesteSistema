@@ -30,6 +30,7 @@ $subtotalFullLines = round($comboSubtotalExcluded + $baseDiscountableFromItems, 
 $waPhone = preg_replace('/\D/', '', (string) ($quote['phone'] ?? ''));
 $st = $quote['status'];
 $quoteEditable = in_array((string) $st, ['draft', 'sent', 'accepted'], true);
+$clientBalance = isset($clientBalance) ? (float) $clientBalance : 0.0;
 ?>
 <div class="max-w-4xl space-y-6">
     <div class="flex flex-wrap justify-between gap-4">
@@ -62,6 +63,13 @@ $quoteEditable = in_array((string) $st, ['draft', 'sent', 'accepted'], true);
             </button>
             <?php if ($quoteEditable): ?>
                 <a href="<?= e(url('/presupuestos/' . (int) $quote['id'] . '/editar')) ?>" class="px-3 py-1.5 rounded-lg border border-gray-300 text-sm">Editar</a>
+            <?php endif; ?>
+            <?php if (!empty($quote['client_id']) && in_array((string) ($quote['status'] ?? ''), ['accepted', 'partially_delivered', 'delivered'], true)): ?>
+                <button type="button"
+                        @click="window.dispatchEvent(new CustomEvent('abrir-pago-quote', { detail: { clientId: <?= (int) $quote['client_id'] ?>, clientName: <?= e((string) json_encode((string) ($quote['client_name'] ?? 'Cliente'), JSON_UNESCAPED_UNICODE)) ?>, clientBalance: <?= e((string) json_encode($clientBalance)) ?>, quoteId: <?= (int) $quote['id'] ?>, quoteTotal: <?= e((string) json_encode((float) ($quote['total'] ?? 0))) ?> } }))"
+                        class="inline-flex items-center gap-2 px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition text-sm font-medium">
+                    💰 Registrar pago
+                </button>
             <?php endif; ?>
             <a href="<?= e(url('/presupuestos')) ?>" class="px-3 py-1.5 rounded-lg border border-gray-300 text-sm">Volver</a>
         </div>
@@ -244,6 +252,11 @@ $quoteEditable = in_array((string) $st, ['draft', 'sent', 'accepted'], true);
         <?php if (!empty($quote['business_name'])): ?><p class="text-sm text-gray-600"><?= e($quote['business_name']) ?></p><?php endif; ?>
         <?php if (!empty($quote['phone'])): ?><p class="text-sm"><?= e($quote['phone']) ?></p><?php endif; ?>
         <?php if (!empty($quote['city'])): ?><p class="text-sm text-gray-600"><?= e($quote['city']) ?></p><?php endif; ?>
+        <?php if ($clientBalance < 0): ?>
+            <p class="mt-2 text-sm text-blue-700 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                Este cliente tiene <?= formatPrice(abs($clientBalance)) ?> a favor que se puede aplicar.
+            </p>
+        <?php endif; ?>
     </div>
 
     <?php if (empty($readonly)): ?>

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Controller;
+use App\Helpers\ClientReceivableSummary;
 use App\Helpers\PricingEngine;
 use App\Helpers\QuoteDeliveryStock;
 use App\Helpers\QuoteLinePricing;
@@ -241,6 +242,9 @@ final class QuoteController extends Controller
         $this->view('quotes/preview', [
             'title' => 'Presupuesto ' . $quote['quote_number'],
             'quote' => $quote,
+            'clientBalance' => (int) ($quote['client_id'] ?? 0) > 0
+                ? ClientReceivableSummary::hybridBalanceForClient($db, (int) $quote['client_id'])
+                : 0.0,
             'items' => $items,
             'comboComponents' => $comboComponents,
             'pendingItems' => $pendingItems,
@@ -504,9 +508,9 @@ final class QuoteController extends Controller
                      LIMIT 1",
                     [(int) $id]
                 );
+                $clientId = (int) ($quote['client_id'] ?? 0);
+                $amount = round((float) ($quote['total'] ?? 0), 2);
                 if (!$existing) {
-                    $clientId = (int) ($quote['client_id'] ?? 0);
-                    $amount = round((float) ($quote['total'] ?? 0), 2);
                     if ($clientId > 0 && $amount > 0) {
                         $db->insert('account_transactions', [
                             'account_type' => 'client',
@@ -519,6 +523,14 @@ final class QuoteController extends Controller
                             'transaction_date' => date('Y-m-d'),
                         ]);
                     }
+                } else {
+                    // Si ya existe factura de CC para el presupuesto, sincronizar monto/cliente.
+                    $db->update(
+                        'account_transactions',
+                        ['amount' => $amount, 'account_id' => $clientId],
+                        'id = :id',
+                        ['id' => (int) ($existing['id'] ?? 0)]
+                    );
                 }
                 $this->recalculateClientBalance((int) ($quote['client_id'] ?? 0));
             }
@@ -966,13 +978,51 @@ final class QuoteController extends Controller
                 'iva_amount' => round($ivaAmount, 2),
                 'total' => round($total, 2),
             ], 'id = :id', ['id' => $id]);
-            if ($existingQuote !== null && in_array((string) ($existingQuote['status'] ?? ''), ['accepted', 'partially_delivered'], true)) {
+            $existingStatus = strtolower(trim((string) ($existingQuote['status'] ?? '')));
+            if ($existingQuote !== null && in_array($existingStatus, ['accepted', 'partially_delivered', 'delivered'], true)) {
+                $hasAcc = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
+                if ($hasAcc) {
+                    $invoiceTx = $db->fetch(
+                        "SELECT id
+                         FROM account_transactions
+                         WHERE reference_type = 'quote'
+                           AND reference_id = ?
+                           AND transaction_type = 'invoice'
+                           AND account_type = 'client'
+                         LIMIT 1",
+                        [(int) $id]
+                    );
+                    if ($invoiceTx === null) {
+                        // Fallback para datos legados sin reference_type='quote'
+                        $invoiceTx = $db->fetch(
+                            "SELECT id
+                             FROM account_transactions
+                             WHERE reference_id = ?
+                               AND transaction_type = 'invoice'
+                               AND account_type = 'client'
+                             ORDER BY id DESC
+                             LIMIT 1",
+                            [(int) $id]
+                        );
+                    }
+                    if ($invoiceTx !== null) {
+                        $db->update(
+                            'account_transactions',
+                            ['amount' => round($total, 2), 'account_id' => $clientId],
+                            'id = :id',
+                            ['id' => (int) ($invoiceTx['id'] ?? 0)]
+                        );
+                        $this->recalculateClientBalance($clientId);
+                    }
+                }
+            }
+            if ($existingQuote !== null && in_array($existingStatus, ['accepted', 'partially_delivered'], true)) {
                 $this->removeQuoteFromDraftSupplierOrders($db, (int) $id);
             }
-            if ($existingQuote !== null && (string) ($existingQuote['status'] ?? '') === 'accepted') {
+            if ($existingQuote !== null && $existingStatus === 'accepted') {
                 QuoteDeliveryStock::commitStock($db, $id);
             }
-            if ($existingQuote !== null && (string) ($existingQuote['status'] ?? '') === 'delivered') {
+            if ($existingQuote !== null && $existingStatus === 'delivered') {
                 QuoteDeliveryStock::markDelivered($db, $id);
                 $db->update('quotes', ['delivery_stock_applied' => 1], 'id = :id', ['id' => $id]);
             }

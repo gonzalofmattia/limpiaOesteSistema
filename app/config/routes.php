@@ -118,6 +118,7 @@ return [
     ['GET', 'cuenta-corriente/cliente/{id}', 'AccountController@clientDetail', []],
     ['GET', 'cuenta-corriente/proveedor/{id}', 'AccountController@supplierDetail', []],
     ['POST', 'cuenta-corriente/cobro', 'AccountController@registerCollection', []],
+    ['POST', 'cuenta-corriente/pago-rapido', 'AccountController@quickPayment', []],
     ['POST', 'cuenta-corriente/pago-proveedor', 'AccountController@registerSupplierPayment', []],
     ['POST', 'cuenta-corriente/ajuste', 'AccountController@registerAdjustment', []],
     ['POST', 'cuenta-corriente/movimiento/{id}/eliminar', 'AccountController@deleteMovement', []],
