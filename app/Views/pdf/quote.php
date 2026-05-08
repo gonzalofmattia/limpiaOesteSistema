@@ -12,18 +12,11 @@ if ($logoPath && is_readable($logoPath)) {
 }
 $leyendaIvaPdf = priceIvaLegendLine(!empty($quote['include_iva']));
 $includeIvaPdf = !empty($quote['include_iva']);
-$comboSubtotalExcludedPdf = 0.0;
-$baseDiscountableFromItemsPdf = 0.0;
+$subtotalFullLinesPdf = 0.0;
 foreach ($items as $itPdf) {
-    $isComboPdf = (int) ($itPdf['combo_id'] ?? 0) > 0 || (string) ($itPdf['unit_type'] ?? '') === 'combo';
-    $subPdf = (float) ($itPdf['subtotal'] ?? 0);
-    if ($isComboPdf) {
-        $comboSubtotalExcludedPdf += $subPdf;
-    } else {
-        $baseDiscountableFromItemsPdf += $subPdf;
-    }
+    $subtotalFullLinesPdf += (float) ($itPdf['subtotal'] ?? 0);
 }
-$subtotalFullLinesPdf = round($comboSubtotalExcludedPdf + $baseDiscountableFromItemsPdf, 2);
+$subtotalFullLinesPdf = round($subtotalFullLinesPdf, 2);
 $creditAppliedPdf = (float) ($quote['credit_applied'] ?? 0);
 ?>
 <!DOCTYPE html>
@@ -96,10 +89,6 @@ $creditAppliedPdf = (float) ($quote['credit_applied'] ?? 0);
     <p class="right"><strong>Subtotal:</strong> $ <?= number_format($subtotalFullLinesPdf, 2, ',', '.') ?></p>
     <?php if ($includeIvaPdf && (float) ($quote['iva_amount'] ?? 0) > 0): ?>
         <p class="right" style="font-size:9px;color:#6B7280;">Neto $ <?= number_format((float) $quote['subtotal'], 2, ',', '.') ?> + IVA $ <?= number_format((float) $quote['iva_amount'], 2, ',', '.') ?></p>
-    <?php endif; ?>
-    <?php if ($comboSubtotalExcludedPdf > 0): ?>
-        <p class="right"><strong>Combos (sin descuento):</strong> $ <?= number_format($comboSubtotalExcludedPdf, 2, ',', '.') ?></p>
-        <p class="right"><strong>Base descontable:</strong> $ <?= number_format($baseDiscountableFromItemsPdf, 2, ',', '.') ?></p>
     <?php endif; ?>
     <?php if ((float) ($quote['discount_amount'] ?? 0) > 0): ?>
         <p class="right">

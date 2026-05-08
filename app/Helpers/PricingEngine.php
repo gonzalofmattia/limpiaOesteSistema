@@ -6,6 +6,87 @@ namespace App\Helpers;
 
 final class PricingEngine
 {
+    /** @return array{markup:float,locked:bool,source:string} */
+    private static function resolveEffectiveMarkup(array $product, ?float $overrideMarkup = null): array
+    {
+        $categoryLocked = (int) ($product['category_markup_locked'] ?? $product['markup_locked'] ?? 0) === 1;
+        $parentLocked = (int) ($product['parent_markup_locked'] ?? 0) === 1;
+        $locked = $categoryLocked || $parentLocked;
+        $minoristaLocked = $categoryLocked
+            ? ($product['category_markup_minorista'] ?? $product['markup_minorista'] ?? null)
+            : ($product['parent_markup_minorista'] ?? null);
+
+        if ($overrideMarkup !== null) {
+            if ($locked && $minoristaLocked !== null && $minoristaLocked !== '') {
+                return [
+                    'markup' => (float) $minoristaLocked,
+                    'locked' => true,
+                    'source' => 'locked_minorista',
+                ];
+            }
+            if (!$locked) {
+                return [
+                    'markup' => $overrideMarkup,
+                    'locked' => false,
+                    'source' => 'override',
+                ];
+            }
+            // locked sin markup_minorista: ignorar override runtime y seguir cascada normal.
+        }
+        if (array_key_exists('markup_override', $product)
+            && $product['markup_override'] !== null
+            && $product['markup_override'] !== '') {
+            return [
+                'markup' => (float) $product['markup_override'],
+                'locked' => $locked,
+                'source' => 'product_override',
+            ];
+        }
+        if (array_key_exists('category_markup_override', $product)
+            && $product['category_markup_override'] !== null
+            && $product['category_markup_override'] !== '') {
+            return [
+                'markup' => (float) $product['category_markup_override'],
+                'locked' => $locked,
+                'source' => 'category_override',
+            ];
+        }
+        if (array_key_exists('parent_markup_override', $product)
+            && $product['parent_markup_override'] !== null
+            && $product['parent_markup_override'] !== '') {
+            return [
+                'markup' => (float) $product['parent_markup_override'],
+                'locked' => $locked,
+                'source' => 'parent_override',
+            ];
+        }
+        if (array_key_exists('category_default_markup', $product)
+            && $product['category_default_markup'] !== null
+            && $product['category_default_markup'] !== '') {
+            return [
+                'markup' => (float) $product['category_default_markup'],
+                'locked' => $locked,
+                'source' => 'category_default',
+            ];
+        }
+        if (array_key_exists('parent_default_markup', $product)
+            && $product['parent_default_markup'] !== null
+            && $product['parent_default_markup'] !== '') {
+            return [
+                'markup' => (float) $product['parent_default_markup'],
+                'locked' => $locked,
+                'source' => 'parent_default',
+            ];
+        }
+        $g = setting('default_markup', '60');
+
+        return [
+            'markup' => (float) ($g ?? 60),
+            'locked' => $locked,
+            'source' => 'global_default',
+        ];
+    }
+
     public static function getEffectiveDiscount(array $product): float
     {
         if (array_key_exists('discount_override', $product)
@@ -27,36 +108,7 @@ final class PricingEngine
 
     public static function getEffectiveMarkup(array $product, ?float $overrideMarkup = null): float
     {
-        if ($overrideMarkup !== null) {
-            return $overrideMarkup;
-        }
-        if (array_key_exists('markup_override', $product)
-            && $product['markup_override'] !== null
-            && $product['markup_override'] !== '') {
-            return (float) $product['markup_override'];
-        }
-        if (array_key_exists('category_markup_override', $product)
-            && $product['category_markup_override'] !== null
-            && $product['category_markup_override'] !== '') {
-            return (float) $product['category_markup_override'];
-        }
-        if (array_key_exists('parent_markup_override', $product)
-            && $product['parent_markup_override'] !== null
-            && $product['parent_markup_override'] !== '') {
-            return (float) $product['parent_markup_override'];
-        }
-        if (array_key_exists('category_default_markup', $product)
-            && $product['category_default_markup'] !== null
-            && $product['category_default_markup'] !== '') {
-            return (float) $product['category_default_markup'];
-        }
-        if (array_key_exists('parent_default_markup', $product)
-            && $product['parent_default_markup'] !== null
-            && $product['parent_default_markup'] !== '') {
-            return (float) $product['parent_default_markup'];
-        }
-        $g = setting('default_markup', '60');
-        return (float) ($g ?? 60);
+        return self::resolveEffectiveMarkup($product, $overrideMarkup)['markup'];
     }
 
     /**
@@ -152,7 +204,8 @@ final class PricingEngine
     ): array {
         $discount = self::getEffectiveDiscount($product);
         $costo = self::calculateCost($precioListaSeiq, $discount);
-        $markup = self::getEffectiveMarkup($product, $overrideMarkup);
+        $markupResolved = self::resolveEffectiveMarkup($product, $overrideMarkup);
+        $markup = $markupResolved['markup'];
         $venta = self::calculateSalePrice($costo, $markup);
         $conIva = $includeIVA ? self::addIVA($venta) : null;
 
@@ -161,6 +214,8 @@ final class PricingEngine
             'discount_percent' => $discount,
             'costo' => $costo,
             'markup_percent' => $markup,
+            'markup_locked' => $markupResolved['locked'],
+            'markup_source' => $markupResolved['source'],
             'precio_venta' => $venta,
             'precio_con_iva' => $conIva,
             'margen_pesos' => round($venta - $costo, 2),

@@ -97,9 +97,13 @@ final class ApiController extends Controller
                     c.default_discount,
                     c.default_markup AS category_default_markup,
                     c.markup_override AS category_markup_override,
+                    c.markup_locked AS category_markup_locked,
+                    c.markup_minorista AS category_markup_minorista,
                     pc.default_discount AS parent_discount,
                     pc.default_markup AS parent_default_markup,
-                    pc.markup_override AS parent_markup_override
+                    pc.markup_override AS parent_markup_override,
+                    pc.markup_locked AS parent_markup_locked,
+                    pc.markup_minorista AS parent_markup_minorista
              FROM products p
              JOIN categories c ON c.id = p.category_id
              LEFT JOIN categories pc ON c.parent_id = pc.id
@@ -183,8 +187,12 @@ final class ApiController extends Controller
                 $c = $db->fetch(
                     'SELECT COALESCE(pc.slug, c.slug) AS slug, c.default_discount, c.default_markup,
                             c.markup_override AS category_markup_override,
+                            c.markup_locked AS category_markup_locked,
+                            c.markup_minorista AS category_markup_minorista,
                             pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup,
-                            pc.markup_override AS parent_markup_override
+                            pc.markup_override AS parent_markup_override,
+                            pc.markup_locked AS parent_markup_locked,
+                            pc.markup_minorista AS parent_markup_minorista
                      FROM categories c
                      LEFT JOIN categories pc ON c.parent_id = pc.id
                      WHERE c.id = ?',
@@ -195,9 +203,13 @@ final class ApiController extends Controller
                     $data['default_discount'] = $c['default_discount'];
                     $data['category_default_markup'] = $c['default_markup'];
                     $data['category_markup_override'] = $c['category_markup_override'];
+                    $data['category_markup_locked'] = $c['category_markup_locked'];
+                    $data['category_markup_minorista'] = $c['category_markup_minorista'];
                     $data['parent_discount'] = $c['parent_discount'];
                     $data['parent_default_markup'] = $c['parent_default_markup'];
                     $data['parent_markup_override'] = $c['parent_markup_override'];
+                    $data['parent_markup_locked'] = $c['parent_markup_locked'];
+                    $data['parent_markup_minorista'] = $c['parent_markup_minorista'];
                 }
             }
         } else {
@@ -205,8 +217,12 @@ final class ApiController extends Controller
             $c = $db->fetch(
                 'SELECT c.default_discount, c.default_markup,
                         c.markup_override AS category_markup_override,
+                        c.markup_locked AS category_markup_locked,
+                        c.markup_minorista AS category_markup_minorista,
                         pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup,
-                        pc.markup_override AS parent_markup_override
+                        pc.markup_override AS parent_markup_override,
+                        pc.markup_locked AS parent_markup_locked,
+                        pc.markup_minorista AS parent_markup_minorista
                  FROM categories c
                  LEFT JOIN categories pc ON c.parent_id = pc.id
                  WHERE c.slug = ?',
@@ -216,9 +232,13 @@ final class ApiController extends Controller
                 $data['default_discount'] = $data['default_discount'] ?? $c['default_discount'];
                 $data['category_default_markup'] = $data['category_default_markup'] ?? $c['default_markup'];
                 $data['category_markup_override'] = $data['category_markup_override'] ?? $c['category_markup_override'];
+                $data['category_markup_locked'] = $data['category_markup_locked'] ?? $c['category_markup_locked'];
+                $data['category_markup_minorista'] = $data['category_markup_minorista'] ?? $c['category_markup_minorista'];
                 $data['parent_discount'] = $data['parent_discount'] ?? $c['parent_discount'];
                 $data['parent_default_markup'] = $data['parent_default_markup'] ?? $c['parent_default_markup'];
                 $data['parent_markup_override'] = $data['parent_markup_override'] ?? $c['parent_markup_override'];
+                $data['parent_markup_locked'] = $data['parent_markup_locked'] ?? $c['parent_markup_locked'];
+                $data['parent_markup_minorista'] = $data['parent_markup_minorista'] ?? $c['parent_markup_minorista'];
             }
         }
         $field = (string) ($data['price_field'] ?? '');
@@ -242,6 +262,10 @@ final class ApiController extends Controller
             'parent_default_markup' => $data['parent_default_markup'] ?? null,
             'category_markup_override' => self::toFloat($data['category_markup_override'] ?? null),
             'parent_markup_override' => self::toFloat($data['parent_markup_override'] ?? null),
+            'category_markup_locked' => (int) ($data['category_markup_locked'] ?? 0),
+            'category_markup_minorista' => self::toFloat($data['category_markup_minorista'] ?? null),
+            'parent_markup_locked' => (int) ($data['parent_markup_locked'] ?? 0),
+            'parent_markup_minorista' => self::toFloat($data['parent_markup_minorista'] ?? null),
             'precio_lista_unitario' => self::toFloat($data['precio_lista_unitario'] ?? null),
             'precio_lista_caja' => self::toFloat($data['precio_lista_caja'] ?? null),
             'precio_lista_bidon' => self::toFloat($data['precio_lista_bidon'] ?? null),
@@ -364,9 +388,13 @@ final class ApiController extends Controller
                     c.default_discount,
                     c.default_markup AS category_default_markup,
                     c.markup_override AS category_markup_override,
+                    c.markup_locked AS category_markup_locked,
+                    c.markup_minorista AS category_markup_minorista,
                     pc.default_discount AS parent_discount,
                     pc.default_markup AS parent_default_markup,
                     pc.markup_override AS parent_markup_override,
+                    pc.markup_locked AS parent_markup_locked,
+                    pc.markup_minorista AS parent_markup_minorista,
                     cov.id AS cover_image_id,
                     cov.filename AS cover_filename,
                     cov.alt_text AS cover_alt_text
@@ -409,9 +437,13 @@ final class ApiController extends Controller
                     c.default_discount,
                     c.default_markup AS category_default_markup,
                     c.markup_override AS category_markup_override,
+                    c.markup_locked AS category_markup_locked,
+                    c.markup_minorista AS category_markup_minorista,
                     pc.default_discount AS parent_discount,
                     pc.default_markup AS parent_default_markup,
                     pc.markup_override AS parent_markup_override,
+                    pc.markup_locked AS parent_markup_locked,
+                    pc.markup_minorista AS parent_markup_minorista,
                     cov.id AS cover_image_id,
                     cov.filename AS cover_filename,
                     cov.alt_text AS cover_alt_text

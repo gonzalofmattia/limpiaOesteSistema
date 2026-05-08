@@ -79,9 +79,13 @@ final class ProductController extends Controller
                        c.default_discount,
                        c.default_markup AS category_default_markup,
                        c.markup_override AS category_markup_override,
+                       c.markup_locked AS category_markup_locked,
+                       c.markup_minorista AS category_markup_minorista,
                        pc.default_discount AS parent_discount,
                        pc.default_markup AS parent_default_markup,
                        pc.markup_override AS parent_markup_override,
+                       pc.markup_locked AS parent_markup_locked,
+                       pc.markup_minorista AS parent_markup_minorista,
                        COALESCE(c.supplier_id, pc.supplier_id) AS supplier_id,
                        s.name AS supplier_name,
                        s.slug AS supplier_slug
@@ -122,8 +126,12 @@ final class ProductController extends Controller
                         COALESCE(pc.slug, c.slug) AS category_slug, c.default_discount,
                         c.default_markup AS category_default_markup,
                         c.markup_override AS category_markup_override,
+                        c.markup_locked AS category_markup_locked,
+                        c.markup_minorista AS category_markup_minorista,
                         pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup,
-                        pc.markup_override AS parent_markup_override
+                        pc.markup_override AS parent_markup_override,
+                        pc.markup_locked AS parent_markup_locked,
+                        pc.markup_minorista AS parent_markup_minorista
                  FROM combo_products cp
                  JOIN products p ON p.id = cp.product_id
                  JOIN categories c ON c.id = p.category_id
@@ -217,9 +225,13 @@ final class ProductController extends Controller
             'SELECT p.*, COALESCE(pc.slug, c.slug) AS category_slug, c.slug AS category_leaf_slug,
                     c.default_markup AS category_default_markup,
                     c.markup_override AS category_markup_override,
+                    c.markup_locked AS category_markup_locked,
+                    c.markup_minorista AS category_markup_minorista,
                     c.default_discount,
                     pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup,
                     pc.markup_override AS parent_markup_override,
+                    pc.markup_locked AS parent_markup_locked,
+                    pc.markup_minorista AS parent_markup_minorista,
                     pc.slug AS parent_slug
              FROM products p
              JOIN categories c ON c.id = p.category_id

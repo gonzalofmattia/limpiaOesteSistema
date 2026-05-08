@@ -94,6 +94,8 @@ final class CategoryController extends Controller
             'description' => $data['description'] ?: null,
             'default_discount' => $data['default_discount'],
             'default_markup' => $data['default_markup'],
+            'markup_locked' => $data['markup_locked'],
+            'markup_minorista' => $data['markup_minorista'],
             'presentation_info' => $data['presentation_info'] ?: null,
             'sort_order' => $data['sort_order'],
             'is_active' => $data['is_active'],
@@ -155,6 +157,8 @@ final class CategoryController extends Controller
             'description' => $data['description'] ?: null,
             'default_discount' => $data['default_discount'],
             'default_markup' => $data['default_markup'],
+            'markup_locked' => $data['markup_locked'],
+            'markup_minorista' => $data['markup_minorista'],
             'presentation_info' => $data['presentation_info'] ?: null,
             'sort_order' => $data['sort_order'],
             'is_active' => $data['is_active'],
@@ -180,7 +184,7 @@ final class CategoryController extends Controller
         redirect('/categorias');
     }
 
-    /** @return array{errors: list<string>, name: string, description: string, default_discount: float, default_markup: ?float, presentation_info: string, sort_order: int, is_active: int, parent_id: ?int} */
+    /** @return array{errors: list<string>, name: string, description: string, default_discount: float, default_markup: ?float, markup_locked: int, markup_minorista: ?float, presentation_info: string, sort_order: int, is_active: int, parent_id: ?int} */
     private function validateCategoryInput(): array
     {
         $errors = [];
@@ -200,6 +204,20 @@ final class CategoryController extends Controller
         if ($markupRaw !== '' && $markup === null) {
             $errors[] = 'Markup inválido.';
         }
+        $markupLocked = $this->input('markup_locked') ? 1 : 0;
+        $minoristaRaw = trim((string) $this->input('markup_minorista', ''));
+        $markupMinorista = null;
+        if ($minoristaRaw !== '') {
+            $minoristaNorm = str_replace(',', '.', $minoristaRaw);
+            if (!is_numeric($minoristaNorm)) {
+                $errors[] = 'Markup minorista inválido.';
+            } else {
+                $markupMinorista = (float) $minoristaNorm;
+            }
+        }
+        if ($markupLocked === 0) {
+            $markupMinorista = null;
+        }
         $pres = trim((string) $this->input('presentation_info', ''));
         $sort = (int) $this->input('sort_order', 0);
         $active = $this->input('is_active') ? 1 : 0;
@@ -212,6 +230,8 @@ final class CategoryController extends Controller
             'description' => $desc,
             'default_discount' => $discF,
             'default_markup' => $markup,
+            'markup_locked' => $markupLocked,
+            'markup_minorista' => $markupMinorista,
             'presentation_info' => $pres,
             'sort_order' => $sort,
             'is_active' => $active,

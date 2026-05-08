@@ -28,6 +28,8 @@ foreach ($items as $it) {
         'stock_committed_units' => (int) ($it['stock_committed_units'] ?? 0),
         'stock_available_units' => (int) ($it['stock_units'] ?? 0) - (int) ($it['stock_committed_units'] ?? 0),
         'unit_price' => (float) ($it['unit_price'] ?? 0),
+        'markup_percent' => isset($it['markup_applied']) && $it['markup_applied'] !== null ? (float) $it['markup_applied'] : null,
+        'markup_locked' => 0,
     ];
 }
 $linesJson = json_encode($initialLines, JSON_UNESCAPED_UNICODE);
@@ -126,6 +128,11 @@ window.__quoteForm = {
                             <p class="text-xs text-gray-600 mt-1" x-show="line.product_id">
                                 <span class="block font-medium text-gray-800" x-text="line.name"></span>
                                 <span class="block text-gray-500 mt-0.5" x-show="line.category_context" x-text="line.category_context"></span>
+                                <span class="block text-gray-500 mt-0.5" x-show="line.markup_percent !== null">
+                                    Markup aplicado:
+                                    <span x-text="Number(line.markup_percent).toFixed(2) + '%'"></span>
+                                    <span x-show="line.markup_locked" title="Markup protegido por categoría">🔒</span>
+                                </span>
                             </p>
                         </div>
                         <div class="md:col-span-5" x-show="line.unit_type === 'combo'">
@@ -189,13 +196,12 @@ window.__quoteForm = {
                 <div class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
                     <p class="text-xs text-gray-500">Subtotal</p>
                     <p class="font-medium" x-text="formatCurrency(subtotal())"></p>
-                    <p class="text-xs text-gray-500 mt-1">Base descontable</p>
-                    <p class="font-medium" x-text="formatCurrency(subtotalDiscountable())"></p>
+                    <p class="text-xs text-gray-500 mt-1" x-show="safeDiscountAmount() > 0">Descuento</p>
+                    <p class="font-medium text-red-700" x-show="safeDiscountAmount() > 0" x-text="'- ' + formatCurrency(safeDiscountAmount())"></p>
                     <p class="text-xs text-gray-500 mt-1">Total final</p>
                     <p class="text-lg font-semibold text-[#1a6b3c]" x-text="formatCurrency(finalTotal())"></p>
                 </div>
             </div>
-            <p class="text-xs text-gray-500">El descuento no aplica a combos (<span x-text="formatCurrency(subtotalNonDiscountable())"></span>).</p>
             <input type="hidden" name="discount_percentage" :value="normalizedDiscountPercentage()">
             <input type="hidden" name="discount_amount" :value="normalizedDiscountAmount()">
         </div>
@@ -284,6 +290,8 @@ function quoteForm() {
                 pack_label: l.pack_label || 'Caja',
                 sale_unit_default: l.sale_unit_default || 'caja',
                 unit_price: Number(l.unit_price || 0),
+                markup_percent: l.markup_percent === null || l.markup_percent === undefined ? null : Number(l.markup_percent),
+                markup_locked: Number(l.markup_locked || 0),
                 units_per_box: Number(l.units_per_box || 1),
                 stock_units: Number(l.stock_units || 0),
                 stock_committed_units: Number(l.stock_committed_units || 0),
@@ -401,14 +409,14 @@ function quoteForm() {
         addLine() {
             this.lines.push({
                 combo_id: 0, product_id: 0, code: '', name: '', category_context: '', quantity: 1, unit_type: 'caja',
-                pack_label: 'Caja', sale_unit_default: 'caja', unit_price: 0, units_per_box: 1, stock_units: 0, stock_committed_units: 0,
+                pack_label: 'Caja', sale_unit_default: 'caja', unit_price: 0, markup_percent: null, markup_locked: 0, units_per_box: 1, stock_units: 0, stock_committed_units: 0,
                 stock_available_units: 0, combo_products: [], stock_warnings: [], query: '', results: []
             });
         },
         addComboLine() {
             this.lines.push({
                 combo_id: 0, product_id: 0, code: '', name: '', category_context: '', quantity: 1, unit_type: 'combo',
-                pack_label: 'Combo', sale_unit_default: 'caja', unit_price: 0, units_per_box: 1, stock_units: 0, stock_committed_units: 0,
+                pack_label: 'Combo', sale_unit_default: 'caja', unit_price: 0, markup_percent: null, markup_locked: 0, units_per_box: 1, stock_units: 0, stock_committed_units: 0,
                 stock_available_units: 0, combo_products: [], stock_warnings: [], query: '', results: []
             });
         },
@@ -435,6 +443,8 @@ function quoteForm() {
             line.product_id = 0;
             line.name = combo.name || '';
             line.unit_price = Number(combo.final_price || 0);
+                line.markup_percent = null;
+                line.markup_locked = 0;
             line.pack_label = 'Combo';
             try {
                 const res = await fetch(window.appUrl('/api/combos/' + line.combo_id));
@@ -469,6 +479,8 @@ function quoteForm() {
             line.pack_label = (r.sale_unit_label && String(r.sale_unit_label).trim()) ? r.sale_unit_label.trim() : 'Caja';
             line.sale_unit_default = (r.sale_unit_type === 'unidad') ? 'unidad' : 'caja';
             line.unit_type = line.sale_unit_default;
+            line.markup_percent = null;
+            line.markup_locked = 0;
             line.units_per_box = Number(r.units_per_box || 1);
             line.stock_units = Number(r.stock_units || 0);
             line.stock_committed_units = Number(r.stock_committed_units || 0);
@@ -485,7 +497,11 @@ function quoteForm() {
                 return;
             }
             if (!line || !line.product_id) {
-                if (line) line.unit_price = 0;
+                if (line) {
+                    line.unit_price = 0;
+                    line.markup_percent = null;
+                    line.markup_locked = 0;
+                }
                 this.recalculateDiscountIfAuto();
                 return;
             }
@@ -501,6 +517,8 @@ function quoteForm() {
                 const j = await res.json();
                 if (j && j.calc) {
                     line.unit_price = Number(this.includeIva && j.calc.precio_con_iva !== null ? j.calc.precio_con_iva : j.calc.precio_venta) || 0;
+                    line.markup_percent = Number.isFinite(Number(j.calc.markup_percent)) ? Number(j.calc.markup_percent) : null;
+                    line.markup_locked = j.calc.markup_locked ? 1 : 0;
                 }
             } catch (e) {
                 // Sin precio remoto: mantiene valor actual.

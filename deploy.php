@@ -14,6 +14,7 @@ declare(strict_types=1);
  *   php deploy.php --only=app      → Solo carpeta app/
  *   php deploy.php --only=public   → Solo carpeta public/
  *   php deploy.php --force-root    → Permite subir a /public_html (bloqueado por seguridad por defecto)
+ *   php deploy.php --no-vendor --changed-only    → No sube vendor/ y solo sube archivos distintos al remoto (size/mtime)
  *
  * Subdominio (sistema.limpiaoeste.com.ar): FTP_PATH = carpeta remota de ESE subdominio
  * (la que muestra el FTP/cPanel al abrir el sitio, no siempre es la misma que el dominio principal).

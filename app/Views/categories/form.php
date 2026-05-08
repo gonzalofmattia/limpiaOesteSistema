@@ -3,7 +3,7 @@ $isEdit = $category !== null;
 $action = url($isEdit ? '/categorias/' . (int) $category['id'] : '/categorias');
 $c = $category ?? [];
 ?>
-<div class="max-w-2xl">
+<div class="max-w-2xl" x-data="{ markupLocked: <?= !empty($c['markup_locked']) ? 'true' : 'false' ?> }">
     <form method="post" action="<?= e($action) ?>" class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-6">
         <?= csrfField() ?>
         <div>
@@ -36,6 +36,20 @@ $c = $category ?? [];
                 <input type="text" name="default_markup" placeholder="Vacío = global <?= e(setting('default_markup', '60')) ?>%"
                        value="<?= $c['default_markup'] !== null && $c['default_markup'] !== '' ? e((string) $c['default_markup']) : '' ?>"
                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#1a6b3c]">
+            </div>
+        </div>
+        <div class="space-y-3 rounded-lg border border-gray-200 p-4">
+            <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+                <input type="checkbox" name="markup_locked" value="1" x-model="markupLocked">
+                Markup protegido (no se sobreescribe en presupuestos)
+            </label>
+            <div x-show="markupLocked" x-cloak>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Markup minorista (%)</label>
+                <input type="text" name="markup_minorista"
+                       value="<?= $c['markup_minorista'] !== null && $c['markup_minorista'] !== '' ? e((string) $c['markup_minorista']) : '' ?>"
+                       placeholder="Ej: 55"
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#1a6b3c]">
+                <p class="text-xs text-gray-500 mt-1">Se usa cuando el presupuesto tiene override de markup.</p>
             </div>
         </div>
         <div>

@@ -169,8 +169,12 @@ final class QuoteController extends Controller
                     COALESCE(pc.slug, c.slug) AS category_slug, c.default_discount,
                     c.default_markup AS category_default_markup,
                     c.markup_override AS category_markup_override,
+                    c.markup_locked AS category_markup_locked,
+                    c.markup_minorista AS category_markup_minorista,
                     pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup,
-                    pc.markup_override AS parent_markup_override
+                    pc.markup_override AS parent_markup_override,
+                    pc.markup_locked AS parent_markup_locked,
+                    pc.markup_minorista AS parent_markup_minorista
              FROM quote_items qi
              LEFT JOIN products p ON p.id = qi.product_id
              LEFT JOIN categories c ON c.id = p.category_id
@@ -418,8 +422,12 @@ final class QuoteController extends Controller
                     COALESCE(pc.slug, c.slug) AS category_slug, c.default_discount,
                     c.default_markup AS category_default_markup,
                     c.markup_override AS category_markup_override,
+                    c.markup_locked AS category_markup_locked,
+                    c.markup_minorista AS category_markup_minorista,
                     pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup,
-                    pc.markup_override AS parent_markup_override
+                    pc.markup_override AS parent_markup_override,
+                    pc.markup_locked AS parent_markup_locked,
+                    pc.markup_minorista AS parent_markup_minorista
              FROM quote_items qi
              LEFT JOIN products p ON p.id = qi.product_id
              LEFT JOIN categories c ON c.id = p.category_id
@@ -1060,8 +1068,12 @@ final class QuoteController extends Controller
                                 COALESCE(pc.slug, c.slug) AS category_slug,
                                 c.default_discount, c.default_markup AS category_default_markup,
                                 c.markup_override AS category_markup_override,
+                                c.markup_locked AS category_markup_locked,
+                                c.markup_minorista AS category_markup_minorista,
                                 pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup,
-                                pc.markup_override AS parent_markup_override
+                                pc.markup_override AS parent_markup_override,
+                                pc.markup_locked AS parent_markup_locked,
+                                pc.markup_minorista AS parent_markup_minorista
                          FROM combo_products cp
                          JOIN products p ON p.id = cp.product_id
                          JOIN categories c ON c.id = p.category_id
@@ -1129,8 +1141,12 @@ final class QuoteController extends Controller
                     'SELECT p.*, COALESCE(pc.slug, c.slug) AS category_slug, c.default_discount,
                             c.default_markup AS category_default_markup,
                             c.markup_override AS category_markup_override,
+                            c.markup_locked AS category_markup_locked,
+                            c.markup_minorista AS category_markup_minorista,
                             pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup,
-                            pc.markup_override AS parent_markup_override
+                            pc.markup_override AS parent_markup_override,
+                            pc.markup_locked AS parent_markup_locked,
+                            pc.markup_minorista AS parent_markup_minorista
                      FROM products p
                      JOIN categories c ON c.id = p.category_id
                      LEFT JOIN categories pc ON c.parent_id = pc.id

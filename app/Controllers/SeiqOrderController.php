@@ -833,8 +833,12 @@ final class SeiqOrderController extends Controller
                     p.discount_override, p.markup_override,
                     c.default_discount, c.default_markup AS category_default_markup,
                     c.markup_override AS category_markup_override,
+                    c.markup_locked AS category_markup_locked,
+                    c.markup_minorista AS category_markup_minorista,
                     pc.default_discount AS parent_discount, pc.default_markup AS parent_default_markup,
                     pc.markup_override AS parent_markup_override,
+                    pc.markup_locked AS parent_markup_locked,
+                    pc.markup_minorista AS parent_markup_minorista,
                     c.slug AS category_slug, pc.slug AS parent_category_slug
              FROM seiq_order_items soi
              JOIN products p ON soi.product_id = p.id
