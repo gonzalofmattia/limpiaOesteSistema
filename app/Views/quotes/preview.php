@@ -31,6 +31,11 @@ $waPhone = preg_replace('/\D/', '', (string) ($quote['phone'] ?? ''));
 $st = $quote['status'];
 $quoteEditable = in_array((string) $st, ['draft', 'sent', 'accepted'], true);
 $clientBalance = isset($clientBalance) ? (float) $clientBalance : 0.0;
+$creditApplied = (float) ($quote['credit_applied'] ?? 0);
+$quoteBaseBeforeCredit = max(0.0, (float) ($quote['total'] ?? 0) + $creditApplied);
+$creditAvailable = $clientBalance < 0 ? abs($clientBalance) : 0.0;
+$creditMaxByQuote = min($creditAvailable, $quoteBaseBeforeCredit);
+$canModifyCredit = empty($readonly) && in_array((string) $st, ['draft', 'sent'], true);
 ?>
 <div class="max-w-4xl space-y-6">
     <div class="flex flex-wrap justify-between gap-4">
@@ -254,8 +259,58 @@ $clientBalance = isset($clientBalance) ? (float) $clientBalance : 0.0;
         <?php if (!empty($quote['city'])): ?><p class="text-sm text-gray-600"><?= e($quote['city']) ?></p><?php endif; ?>
         <?php if ($clientBalance < 0): ?>
             <p class="mt-2 text-sm text-blue-700 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
-                Este cliente tiene <?= formatPrice(abs($clientBalance)) ?> a favor que se puede aplicar.
+                Este cliente tiene <?= formatPrice(abs($clientBalance)) ?> a favor.
             </p>
+            <?php if ($canModifyCredit && $creditApplied <= 0 && $creditMaxByQuote > 0): ?>
+                <form method="post"
+                      action="<?= e(url('/presupuestos/' . (int) $quote['id'] . '/apply-credit')) ?>"
+                      class="mt-3 space-y-2"
+                      x-data="{
+                          maxAvailable: <?= e((string) json_encode(round($creditMaxByQuote, 2))) ?>,
+                          amount: <?= e((string) json_encode(round($creditMaxByQuote, 2))) ?>,
+                          formatAmount(v){ return Number(v || 0).toFixed(2); },
+                          clamp(){
+                              const n = Number(this.amount || 0);
+                              if (!Number.isFinite(n) || n <= 0) { this.amount = ''; return; }
+                              this.amount = this.formatAmount(Math.min(this.maxAvailable, n));
+                          },
+                          isValid(){
+                              const n = Number(this.amount || 0);
+                              return Number.isFinite(n) && n > 0 && n <= this.maxAvailable;
+                          }
+                      }">
+                    <?= csrfField() ?>
+                    <label class="block text-xs text-gray-600">Monto a aplicar</label>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <input type="number" step="0.01" min="0.01" name="credit_amount" x-model="amount" @input="clamp()"
+                               class="w-44 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                               :max="maxAvailable.toFixed(2)" required>
+                        <button type="button"
+                                @click="amount = formatAmount(maxAvailable)"
+                                class="px-3 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-xs">
+                            Usar máximo
+                        </button>
+                        <button type="submit"
+                                class="px-3 py-2 rounded-lg bg-green-600 text-white text-sm font-medium disabled:opacity-60"
+                                :disabled="!isValid()">
+                            Aplicar saldo a favor
+                        </button>
+                    </div>
+                </form>
+            <?php endif; ?>
+        <?php endif; ?>
+        <?php if ($creditApplied > 0): ?>
+            <div class="mt-3 text-sm border border-emerald-100 bg-emerald-50 text-emerald-800 rounded-lg px-3 py-2 flex flex-wrap items-center gap-3">
+                <span>Saldo a favor aplicado: <strong><?= formatPrice($creditApplied) ?></strong></span>
+                <?php if ($canModifyCredit): ?>
+                    <form method="post" action="<?= e(url('/presupuestos/' . (int) $quote['id'] . '/remove-credit')) ?>">
+                        <?= csrfField() ?>
+                        <button type="submit" class="px-3 py-1.5 rounded-lg border border-red-200 bg-red-50 text-red-700 text-xs font-medium">
+                            Quitar crédito aplicado
+                        </button>
+                    </form>
+                <?php endif; ?>
+            </div>
         <?php endif; ?>
     </div>
 
@@ -434,6 +489,12 @@ $clientBalance = isset($clientBalance) ? (float) $clientBalance : 0.0;
                 <p>
                     Descuento<?= ($quote['discount_percentage'] ?? null) !== null ? ' (' . number_format((float) $quote['discount_percentage'], 2, ',', '.') . '%)' : '' ?>:
                     <span class="font-medium text-red-700"><?= formatPrice(-1 * (float) $quote['discount_amount']) ?></span>
+                </p>
+            <?php endif; ?>
+            <?php if ($creditApplied > 0): ?>
+                <p>
+                    Saldo a favor aplicado:
+                    <span class="font-medium text-red-700"><?= formatPrice(-1 * $creditApplied) ?></span>
                 </p>
             <?php endif; ?>
             <p class="text-lg font-semibold text-[#1a6b3c]">Total: <?= formatPrice((float) $quote['total']) ?></p>

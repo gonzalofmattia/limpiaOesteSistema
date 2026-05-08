@@ -67,6 +67,8 @@ return [
     ['GET', 'presupuestos/{id}/pdf', 'QuoteController@downloadPdf', []],
     ['POST', 'presupuestos/{id}/eliminar', 'QuoteController@delete', []],
     ['POST', 'presupuestos/{id}/status', 'QuoteController@changeStatus', []],
+    ['POST', 'presupuestos/{id}/apply-credit', 'QuoteController@applyCredit', []],
+    ['POST', 'presupuestos/{id}/remove-credit', 'QuoteController@removeCredit', []],
     ['POST', 'presupuestos/{id}/partial-delivery', 'QuoteController@partialDelivery', []],
     ['GET', 'presupuestos/{id}/enviar-mail', 'MailController@sendForm', []],
     ['POST', 'presupuestos/{id}/enviar-mail', 'MailController@send', []],

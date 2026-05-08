@@ -494,6 +494,12 @@ final class QuoteController extends Controller
                 $extra['delivery_stock_applied'] = 1;
             }
 
+            if (in_array($status, ['rejected', 'expired'], true)) {
+                $this->revertQuoteCredit($db, $quote);
+                $this->recalculateClientBalance((int) ($quote['client_id'] ?? 0));
+                $quote = $db->fetch('SELECT * FROM quotes WHERE id = ?', [(int) $id]) ?: $quote;
+            }
+
             $db->update('quotes', array_merge(['status' => $status], $extra), 'id = :id', ['id' => (int) $id]);
 
             $hasAccountTable = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
@@ -555,6 +561,114 @@ final class QuoteController extends Controller
         }
 
         flash('success', 'Estado actualizado.');
+        redirect('/presupuestos/' . $id);
+    }
+
+    public function applyCredit(string $id): void
+    {
+        if (!verifyCsrf()) {
+            flash('error', 'Token inválido.');
+            redirect('/presupuestos/' . $id);
+            return;
+        }
+        $db = Database::getInstance();
+        $quoteId = (int) $id;
+        $quote = $db->fetch('SELECT * FROM quotes WHERE id = ?', [$quoteId]);
+        if (!$quote) {
+            flash('error', 'Presupuesto no encontrado.');
+            redirect('/presupuestos');
+            return;
+        }
+        $status = (string) ($quote['status'] ?? 'draft');
+        if (!in_array($status, ['draft', 'sent'], true)) {
+            flash('error', 'Solo podés aplicar crédito en presupuestos en borrador o enviados.');
+            redirect('/presupuestos/' . $id);
+            return;
+        }
+        $clientId = (int) ($quote['client_id'] ?? 0);
+        if ($clientId <= 0) {
+            flash('error', 'El presupuesto no tiene cliente asignado.');
+            redirect('/presupuestos/' . $id);
+            return;
+        }
+        if ((float) ($quote['credit_applied'] ?? 0) > 0) {
+            flash('error', 'Este presupuesto ya tiene crédito aplicado. Quitalo primero para volver a aplicar.');
+            redirect('/presupuestos/' . $id);
+            return;
+        }
+        $requested = parseArgentineAmount((string) $this->input('credit_amount', '0'));
+        if ($requested <= 0) {
+            flash('error', 'Ingresá un monto de crédito válido.');
+            redirect('/presupuestos/' . $id);
+            return;
+        }
+        $balance = $this->clientBalanceFromTransactions($db, $clientId);
+        if ($balance >= 0) {
+            flash('error', 'El cliente no tiene saldo a favor disponible.');
+            redirect('/presupuestos/' . $id);
+            return;
+        }
+        $available = abs($balance);
+        $maxByQuote = max(0.0, $this->quoteTotalBeforeCredit($quote));
+        $maxApplicable = min($available, $maxByQuote);
+        $applyAmount = min($requested, $maxApplicable);
+        if ($applyAmount <= 0) {
+            flash('error', 'No hay saldo aplicable para este presupuesto.');
+            redirect('/presupuestos/' . $id);
+            return;
+        }
+
+        $db->getPdo()->beginTransaction();
+        try {
+            $this->upsertQuoteCredit($db, $quote, $applyAmount);
+            $this->recalculateClientBalance($clientId);
+            $db->getPdo()->commit();
+        } catch (\Throwable $e) {
+            $db->getPdo()->rollBack();
+            flash('error', 'No se pudo aplicar saldo a favor: ' . $e->getMessage());
+            redirect('/presupuestos/' . $id);
+            return;
+        }
+
+        flash('success', 'Saldo a favor aplicado: ' . formatPrice($applyAmount));
+        redirect('/presupuestos/' . $id);
+    }
+
+    public function removeCredit(string $id): void
+    {
+        if (!verifyCsrf()) {
+            flash('error', 'Token inválido.');
+            redirect('/presupuestos/' . $id);
+            return;
+        }
+        $db = Database::getInstance();
+        $quoteId = (int) $id;
+        $quote = $db->fetch('SELECT * FROM quotes WHERE id = ?', [$quoteId]);
+        if (!$quote) {
+            flash('error', 'Presupuesto no encontrado.');
+            redirect('/presupuestos');
+            return;
+        }
+        $status = (string) ($quote['status'] ?? 'draft');
+        if (!in_array($status, ['draft', 'sent'], true)) {
+            flash('error', 'Solo podés quitar crédito en presupuestos en borrador o enviados.');
+            redirect('/presupuestos/' . $id);
+            return;
+        }
+
+        $db->getPdo()->beginTransaction();
+        try {
+            $this->revertQuoteCredit($db, $quote);
+            $this->recalculateClientBalance((int) ($quote['client_id'] ?? 0));
+            $db->getPdo()->commit();
+        } catch (\Throwable $e) {
+            $db->getPdo()->rollBack();
+            flash('error', 'No se pudo quitar el crédito aplicado: ' . $e->getMessage());
+            redirect('/presupuestos/' . $id);
+            return;
+        }
+
+        flash('success', 'Crédito aplicado quitado.');
         redirect('/presupuestos/' . $id);
     }
 
@@ -710,6 +824,137 @@ final class QuoteController extends Controller
         $db->query('UPDATE clients SET balance = ? WHERE id = ?', [round($balance, 2), $clientId]);
     }
 
+    private function clientBalanceFromTransactions(Database $db, int $clientId): float
+    {
+        if ($clientId <= 0) {
+            return 0.0;
+        }
+        $invoices = (float) $db->fetchColumn(
+            "SELECT COALESCE(SUM(amount), 0) FROM account_transactions
+             WHERE account_type = 'client' AND account_id = ? AND transaction_type = 'invoice'",
+            [$clientId]
+        );
+        $payments = (float) $db->fetchColumn(
+            "SELECT COALESCE(SUM(amount), 0) FROM account_transactions
+             WHERE account_type = 'client' AND account_id = ? AND transaction_type = 'payment'",
+            [$clientId]
+        );
+        $adjustments = (float) $db->fetchColumn(
+            "SELECT COALESCE(SUM(amount), 0) FROM account_transactions
+             WHERE account_type = 'client' AND account_id = ? AND transaction_type = 'adjustment'",
+            [$clientId]
+        );
+
+        return round($invoices - $payments + $adjustments, 2);
+    }
+
+    /** @param array<string,mixed> $quote */
+    private function quoteTotalBeforeCredit(array $quote): float
+    {
+        $subtotal = (float) ($quote['subtotal'] ?? 0);
+        $discount = (float) ($quote['discount_amount'] ?? 0);
+        $creditApplied = (float) ($quote['credit_applied'] ?? 0);
+        $iva = (float) ($quote['iva_amount'] ?? 0);
+        $base = $subtotal - $discount + $iva;
+
+        // Si por datos legados no coincide exacto, usar el total actual + crédito aplicado.
+        if ($base <= 0 && (float) ($quote['total'] ?? 0) > 0) {
+            $base = (float) ($quote['total'] ?? 0) + $creditApplied;
+        }
+
+        return max(0.0, round($base, 2));
+    }
+
+    /** @param array<string,mixed> $quote */
+    private function upsertQuoteCredit(Database $db, array $quote, float $creditAmount): void
+    {
+        $quoteId = (int) ($quote['id'] ?? 0);
+        $clientId = (int) ($quote['client_id'] ?? 0);
+        if ($quoteId <= 0 || $clientId <= 0) {
+            throw new \RuntimeException('Presupuesto inválido para aplicar crédito.');
+        }
+        $creditAmount = round(max(0.0, $creditAmount), 2);
+        $baseBeforeCredit = $this->quoteTotalBeforeCredit($quote);
+        $newTotal = max(0.0, round($baseBeforeCredit - $creditAmount, 2));
+        $txId = (int) ($quote['credit_transaction_id'] ?? 0);
+        $description = 'Saldo a favor aplicado a presupuesto ' . (string) ($quote['quote_number'] ?? ('#' . $quoteId));
+
+        if ($txId > 0) {
+            $db->update(
+                'account_transactions',
+                [
+                    'account_type' => 'client',
+                    'account_id' => $clientId,
+                    'transaction_type' => 'adjustment',
+                    'reference_type' => 'quote_credit',
+                    'reference_id' => $quoteId,
+                    'amount' => $creditAmount,
+                    'description' => $description,
+                    'transaction_date' => date('Y-m-d'),
+                ],
+                'id = :id',
+                ['id' => $txId]
+            );
+        } else {
+            $txId = (int) $db->insert('account_transactions', [
+                'account_type' => 'client',
+                'account_id' => $clientId,
+                'transaction_type' => 'adjustment',
+                'reference_type' => 'quote_credit',
+                'reference_id' => $quoteId,
+                'amount' => $creditAmount,
+                'description' => $description,
+                'transaction_date' => date('Y-m-d'),
+            ]);
+        }
+
+        $db->update(
+            'quotes',
+            [
+                'credit_applied' => $creditAmount,
+                'credit_transaction_id' => $txId > 0 ? $txId : null,
+                'total' => $newTotal,
+            ],
+            'id = :id',
+            ['id' => $quoteId]
+        );
+    }
+
+    /** @param array<string,mixed> $quote */
+    private function revertQuoteCredit(Database $db, array $quote): void
+    {
+        $quoteId = (int) ($quote['id'] ?? 0);
+        $creditApplied = round((float) ($quote['credit_applied'] ?? 0), 2);
+        $creditTxId = (int) ($quote['credit_transaction_id'] ?? 0);
+        if ($quoteId <= 0 || $creditApplied <= 0) {
+            return;
+        }
+        if ($creditTxId > 0) {
+            $db->delete('account_transactions', 'id = :id', ['id' => $creditTxId]);
+        } else {
+            $db->query(
+                "DELETE FROM account_transactions
+                 WHERE account_type = 'client'
+                   AND transaction_type = 'adjustment'
+                   AND reference_type = 'quote_credit'
+                   AND reference_id = ?",
+                [$quoteId]
+            );
+        }
+
+        $baseBeforeCredit = $this->quoteTotalBeforeCredit($quote);
+        $db->update(
+            'quotes',
+            [
+                'credit_applied' => 0,
+                'credit_transaction_id' => null,
+                'total' => round($baseBeforeCredit, 2),
+            ],
+            'id = :id',
+            ['id' => $quoteId]
+        );
+    }
+
     /** @return array{id?:int,error:?string} */
     private function persistQuote(?int $id): array
     {
@@ -758,7 +1003,7 @@ final class QuoteController extends Controller
                     'status' => 'draft',
                 ]);
             } else {
-                $existingQuote = $db->fetch('SELECT id, status, client_id, delivery_stock_applied FROM quotes WHERE id = ?', [$id]);
+                $existingQuote = $db->fetch('SELECT id, status, client_id, quote_number, delivery_stock_applied, credit_applied, credit_transaction_id FROM quotes WHERE id = ?', [$id]);
                 if (!$existingQuote) {
                     $db->getPdo()->rollBack();
                     return ['error' => 'No encontrado.'];
@@ -970,14 +1215,28 @@ final class QuoteController extends Controller
                 $discountPercentage = null;
             }
 
-            $total = max(0.0, round($baseTotal - (float) ($discountAmount ?? 0.0), 2));
+            $baseAfterDiscount = max(0.0, round($baseTotal - (float) ($discountAmount ?? 0.0), 2));
+            $existingCreditApplied = (float) ($existingQuote['credit_applied'] ?? 0);
+            $creditApplied = max(0.0, min($existingCreditApplied, $baseAfterDiscount));
+            $total = max(0.0, round($baseAfterDiscount - $creditApplied, 2));
             $db->update('quotes', [
                 'subtotal' => round($subtotalNet, 2),
                 'discount_percentage' => $discountPercentage,
                 'discount_amount' => $discountAmount,
+                'credit_applied' => round($creditApplied, 2),
                 'iva_amount' => round($ivaAmount, 2),
                 'total' => round($total, 2),
             ], 'id = :id', ['id' => $id]);
+            if ($existingQuote !== null && (float) ($existingQuote['credit_applied'] ?? 0) > 0) {
+                $refreshedQuote = $db->fetch('SELECT * FROM quotes WHERE id = ?', [(int) $id]);
+                if ($refreshedQuote !== null) {
+                    if ($creditApplied > 0) {
+                        $this->upsertQuoteCredit($db, $refreshedQuote, $creditApplied);
+                    } else {
+                        $this->revertQuoteCredit($db, $refreshedQuote);
+                    }
+                }
+            }
             $existingStatus = strtolower(trim((string) ($existingQuote['status'] ?? '')));
             if ($existingQuote !== null && in_array($existingStatus, ['accepted', 'partially_delivered', 'delivered'], true)) {
                 $hasAcc = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
@@ -1034,6 +1293,9 @@ final class QuoteController extends Controller
             if ($existingQuote !== null && $prevClientId !== null && $prevClientId > 0 && $prevClientId !== $clientId) {
                 $hasAcc = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
                 if ($hasAcc) {
+                    if ((float) ($existingQuote['credit_applied'] ?? 0) > 0) {
+                        $this->revertQuoteCredit($db, $existingQuote);
+                    }
                     $db->query(
                         "UPDATE account_transactions SET account_id = ?
                          WHERE account_type = 'client' AND transaction_type = 'invoice'

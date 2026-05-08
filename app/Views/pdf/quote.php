@@ -24,6 +24,7 @@ foreach ($items as $itPdf) {
     }
 }
 $subtotalFullLinesPdf = round($comboSubtotalExcludedPdf + $baseDiscountableFromItemsPdf, 2);
+$creditAppliedPdf = (float) ($quote['credit_applied'] ?? 0);
 ?>
 <!DOCTYPE html>
 <html>
@@ -104,6 +105,12 @@ $subtotalFullLinesPdf = round($comboSubtotalExcludedPdf + $baseDiscountableFromI
         <p class="right">
             <strong>Descuento<?= ($quote['discount_percentage'] ?? null) !== null ? ' (' . number_format((float) $quote['discount_percentage'], 2, ',', '.') . '%)' : '' ?>:</strong>
             - $ <?= number_format((float) $quote['discount_amount'], 2, ',', '.') ?>
+        </p>
+    <?php endif; ?>
+    <?php if ($creditAppliedPdf > 0): ?>
+        <p class="right">
+            <strong>Saldo a favor aplicado:</strong>
+            - $ <?= number_format($creditAppliedPdf, 2, ',', '.') ?>
         </p>
     <?php endif; ?>
     <p class="right" style="font-size:13px;color:#1a6b3c;"><strong>Total:</strong> $ <?= number_format((float) $quote['total'], 2, ',', '.') ?></p>
