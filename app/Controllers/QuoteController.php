@@ -493,11 +493,13 @@ final class QuoteController extends Controller
             if ($status === 'accepted' && $oldStatus !== 'accepted') {
                 QuoteDeliveryStock::commitStock($db, (int) $id);
             }
-            if ($status === 'delivered' && $oldStatus !== 'delivered' && !$deliveryApplied) {
-                if ($oldStatus === 'partially_delivered') {
-                    QuoteDeliveryStock::markRemainingDeliveredFromPartial($db, (int) $id);
-                } else {
-                    QuoteDeliveryStock::markDelivered($db, (int) $id);
+            if ($status === 'delivered' && $oldStatus !== 'delivered') {
+                if (!$deliveryApplied) {
+                    if ($oldStatus === 'partially_delivered') {
+                        QuoteDeliveryStock::markRemainingDeliveredFromPartial($db, (int) $id);
+                    } else {
+                        QuoteDeliveryStock::markDelivered($db, (int) $id);
+                    }
                 }
                 $extra['delivery_stock_applied'] = 1;
             }

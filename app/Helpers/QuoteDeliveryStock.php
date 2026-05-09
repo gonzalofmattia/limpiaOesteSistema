@@ -11,10 +11,10 @@ use App\Models\Database;
  *
  * DIAGNOSTICO DE STOCK (2026-04-30)
  * Stock se modifica en:
- * - app/Helpers/QuoteDeliveryStock.php:92 — baja stock_units al aplicar delivered — se ejecuta al pasar un presupuesto a delivered.
- * - app/Helpers/QuoteDeliveryStock.php:102 — repone stock_units al revertir delivered — se ejecuta al salir de delivered.
- * - app/Helpers/QuoteDeliveryStock.php:112 — suma stock_committed_units — se ejecuta al pasar a accepted.
- * - app/Helpers/QuoteDeliveryStock.php:122 — libera stock_committed_units — se ejecuta al salir de accepted o antes de entregar.
+ * - applyDelivery / markDelivered — baja stock_units al entregar (accepted→delivered o cierre desde parcial).
+ * - reverseDelivery / revertDeliveredStock — repone stock_units al revertir delivered.
+ * - commitStock — suma stock_committed_units al aceptar presupuesto.
+ * - releaseCommittedStock — libera comprometido al salir de accepted o antes de descontar físico al entregar.
  * - app/Controllers/StockController.php:129 — setea stock_units manualmente — se ejecuta en ajuste manual de Stock Actual.
  * - app/Controllers/SeiqOrderController.php:810 — suma/resta stock_units por recepción/reversión de pedido a proveedor — se ejecuta al cambiar estado received.
  * - app/Controllers/QuoteController.php:297/300/304/307 — orquesta liberar/comprometer/aplicar/revertir stock por transición de estado.
@@ -231,6 +231,10 @@ final class QuoteDeliveryStock
      */
     public static function markDelivered(Database $db, int $quoteId): void
     {
+        $row = $db->fetch('SELECT delivery_stock_applied FROM quotes WHERE id = ?', [$quoteId]);
+        if ($row !== null && (int) ($row['delivery_stock_applied'] ?? 0) === 1) {
+            return;
+        }
         self::releaseCommittedStock($db, $quoteId);
         self::applyDelivery($db, $quoteId);
         $db->query('UPDATE quote_items SET qty_delivered = quantity WHERE quote_id = ?', [$quoteId]);

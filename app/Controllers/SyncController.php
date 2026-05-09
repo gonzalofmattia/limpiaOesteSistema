@@ -6,6 +6,7 @@ namespace App\Controllers;
 
 use App\Core\Controller;
 use App\Helpers\DatabaseSynchronizer;
+use App\Helpers\MysqlSqlFullImport;
 use mysqli;
 use RuntimeException;
 
@@ -215,42 +216,22 @@ final class SyncController extends Controller
         mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
         $mysqli = new mysqli($cfg['host'], $cfg['username'], $cfg['password']);
         $mysqli->set_charset($cfg['charset'] ?: 'utf8mb4');
-        $dbSafe = str_replace('`', '``', $cfg['database']);
-        $mysqli->query("CREATE DATABASE IF NOT EXISTS `{$dbSafe}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-        $mysqli->select_db($cfg['database']);
-        $this->truncateSchema($mysqli);
 
-        $sql = file_get_contents($sqlFile);
-        if ($sql === false || trim($sql) === '') {
+        $database = $cfg['database'];
+        MysqlSqlFullImport::assertSafeImportDatabaseName($database);
+        MysqlSqlFullImport::recreateEmptyDatabase($mysqli, $database);
+
+        $sqlRaw = file_get_contents($sqlFile);
+        if ($sqlRaw === false || trim($sqlRaw) === '') {
             throw new RuntimeException('Archivo SQL vacío o ilegible.');
         }
+
+        $sql = MysqlSqlFullImport::rewriteDumpSqlForTargetDatabase($sqlRaw, $database);
 
         if (!$mysqli->multi_query($sql)) {
             throw new RuntimeException($mysqli->error);
         }
-        do {
-            if ($result = $mysqli->store_result()) {
-                $result->free();
-            }
-        } while ($mysqli->more_results() && $mysqli->next_result());
-    }
-
-    private function truncateSchema(mysqli $mysqli): void
-    {
-        $mysqli->query('SET FOREIGN_KEY_CHECKS=0');
-        $res = $mysqli->query('SHOW FULL TABLES WHERE Table_type = "BASE TABLE"');
-        if ($res instanceof \mysqli_result) {
-            while ($row = $res->fetch_row()) {
-                $table = (string) ($row[0] ?? '');
-                if ($table === '') {
-                    continue;
-                }
-                $safe = str_replace('`', '``', $table);
-                $mysqli->query("DROP TABLE IF EXISTS `{$safe}`");
-            }
-            $res->free();
-        }
-        $mysqli->query('SET FOREIGN_KEY_CHECKS=1');
+        MysqlSqlFullImport::drainMultiQueryResults($mysqli);
     }
 }
 

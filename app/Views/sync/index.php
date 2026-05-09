@@ -1,6 +1,11 @@
 <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-900 mb-5">
     Esta operación sobrescribe completamente la base de destino (estructura y datos).
     Usar solo en entorno controlado.
+    <p class="mt-2 text-amber-950/90">
+        Al importar un <code>.sql</code>, los datos se cargan siempre en la base indicada en tu <code>.env</code> como <code>DB_NAME</code>
+        (la misma que muestra esta pantalla), aunque el archivo traiga <code>USE</code> o <code>CREATE DATABASE</code> de producción.
+        Antes se recrea esa base vacía para no dejar tablas, vistas ni rutinas viejas mezcladas con el dump.
+    </p>
 </div>
 
 <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5 mb-5">

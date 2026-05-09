@@ -74,7 +74,17 @@
                             ?>
                             <tr class="hover:bg-gray-50/80">
                                 <td class="px-2 py-2 align-top font-mono text-xs whitespace-nowrap"><?= e($r['code']) ?></td>
-                                <td class="px-2 py-2 align-top"><span class="block truncate max-w-[220px]" title="<?= e($r['name']) ?>"><?= e($r['name']) ?></span></td>
+                                <td class="px-2 py-2 align-top">
+                                    <span class="block truncate max-w-[220px]" title="<?= e($r['name']) ?>"><?= e($r['name']) ?></span>
+                                    <?php
+                                    $presLine = trim((string) ($r['presentation'] ?? ''));
+                                    $descLine = trim((string) ($r['sale_unit_description'] ?? ''));
+                                    $extraLine = $presLine !== '' ? $presLine : $descLine;
+                                    ?>
+                                    <?php if ($extraLine !== ''): ?>
+                                        <span class="block text-[11px] text-gray-500 truncate max-w-[220px]" title="<?= e($extraLine) ?>"><?= e($extraLine) ?></span>
+                                    <?php endif; ?>
+                                </td>
                                 <td class="px-2 py-2 align-top text-gray-800 whitespace-nowrap">
                                     <div><?= e($vendidoBody) ?></div>
                                     <div class="text-[11px] text-gray-500">= <?= (int) $r['total_units_needed'] ?></div>

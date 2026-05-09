@@ -3,8 +3,11 @@
 
 declare(strict_types=1);
 
+use App\Helpers\MysqlSqlFullImport;
+
 /**
- * Importar base de datos desde archivo SQL (ejecutar en producción o local)
+ * Importar un dump SQL completo: borra y recrea por completo la base DB_NAME del .env,
+ * luego importa el archivo (ignora USE/CREATE DATABASE del dump para no cargar en otra base).
  *
  * Uso: php db_import.php database/export_2026-04-12_120000.sql
  */
@@ -65,6 +68,13 @@ function red(string $msg): string
     return dbImportColor($msg, 'red');
 }
 
+$autoload = __DIR__ . '/vendor/autoload.php';
+if (!is_file($autoload)) {
+    fwrite(STDERR, "Falta vendor/autoload.php. Ejecutá composer install en la raíz del proyecto.\n");
+    exit(1);
+}
+require_once $autoload;
+
 $sqlFile = $argv[1] ?? null;
 if ($sqlFile === null || $sqlFile === '') {
     echo "Uso: php db_import.php <archivo.sql>\n";
@@ -94,24 +104,20 @@ try {
     $mysqli = new mysqli($host, $user, $pass);
     $mysqli->set_charset('utf8mb4');
 
-    $mysqli->query(
-        'CREATE DATABASE IF NOT EXISTS `' . str_replace('`', '``', $name) . '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'
-    );
-    $mysqli->select_db($name);
+    MysqlSqlFullImport::assertSafeImportDatabaseName($name);
+    MysqlSqlFullImport::recreateEmptyDatabase($mysqli, $name);
 
-    $sql = file_get_contents($sqlFile);
-    if ($sql === false || $sql === '') {
+    $sqlRaw = file_get_contents($sqlFile);
+    if ($sqlRaw === false || trim($sqlRaw) === '') {
         throw new RuntimeException('No se pudo leer el SQL o está vacío.');
     }
+
+    $sql = MysqlSqlFullImport::rewriteDumpSqlForTargetDatabase($sqlRaw, $name);
 
     if (!$mysqli->multi_query($sql)) {
         throw new RuntimeException($mysqli->error);
     }
-    do {
-        if ($result = $mysqli->store_result()) {
-            $result->free();
-        }
-    } while ($mysqli->more_results() && $mysqli->next_result());
+    MysqlSqlFullImport::drainMultiQueryResults($mysqli);
 
     $tablesRes = $mysqli->query('SHOW TABLES');
     $tableCount = 0;
