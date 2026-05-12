@@ -157,6 +157,36 @@ final class ClientReceivableSummary
         return round($net, 2);
     }
 
+    /**
+     * Recalcula el balance de un cliente a partir de account_transactions
+     * (invoices − payments + adjustments) y persiste en clients.balance.
+     */
+    public static function recalculateBalance(Database $db, int $clientId): float
+    {
+        if ($clientId <= 0) {
+            return 0.0;
+        }
+        $invoices = (float) $db->fetchColumn(
+            "SELECT COALESCE(SUM(amount), 0) FROM account_transactions
+             WHERE account_type = 'client' AND account_id = ? AND transaction_type = 'invoice'",
+            [$clientId]
+        );
+        $payments = (float) $db->fetchColumn(
+            "SELECT COALESCE(SUM(amount), 0) FROM account_transactions
+             WHERE account_type = 'client' AND account_id = ? AND transaction_type = 'payment'",
+            [$clientId]
+        );
+        $adjustments = (float) $db->fetchColumn(
+            "SELECT COALESCE(SUM(amount), 0) FROM account_transactions
+             WHERE account_type = 'client' AND account_id = ? AND transaction_type = 'adjustment'",
+            [$clientId]
+        );
+        $balance = round($invoices - $payments + $adjustments, 2);
+        $db->query('UPDATE clients SET balance = ? WHERE id = ?', [$balance, $clientId]);
+
+        return $balance;
+    }
+
     public static function openingBalanceForClient(Database $db, int $clientId): float
     {
         $inv = (float) $db->fetchColumn(

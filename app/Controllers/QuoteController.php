@@ -532,7 +532,7 @@ final class QuoteController extends Controller
 
             if (in_array($status, ['rejected', 'expired'], true)) {
                 $this->revertQuoteCredit($db, $quote);
-                $this->recalculateClientBalance((int) ($quote['client_id'] ?? 0));
+                ClientReceivableSummary::recalculateBalance($db, (int) ($quote['client_id'] ?? 0));
                 $quote = $db->fetch('SELECT * FROM quotes WHERE id = ?', [(int) $id]) ?: $quote;
             }
 
@@ -574,7 +574,7 @@ final class QuoteController extends Controller
                         ['id' => (int) ($existing['id'] ?? 0)]
                     );
                 }
-                $this->recalculateClientBalance((int) ($quote['client_id'] ?? 0));
+                ClientReceivableSummary::recalculateBalance($db, (int) ($quote['client_id'] ?? 0));
             }
 
             if ($hasAccountTable
@@ -585,7 +585,7 @@ final class QuoteController extends Controller
                      WHERE reference_type = 'quote' AND reference_id = ? AND transaction_type = 'invoice'",
                     [(int) $id]
                 );
-                $this->recalculateClientBalance((int) ($quote['client_id'] ?? 0));
+                ClientReceivableSummary::recalculateBalance($db, (int) ($quote['client_id'] ?? 0));
             }
 
             $pdo->commit();
@@ -657,7 +657,7 @@ final class QuoteController extends Controller
         $db->getPdo()->beginTransaction();
         try {
             $this->upsertQuoteCredit($db, $quote, $applyAmount);
-            $this->recalculateClientBalance($clientId);
+            ClientReceivableSummary::recalculateBalance($db, $clientId);
             $db->getPdo()->commit();
         } catch (\Throwable $e) {
             $db->getPdo()->rollBack();
@@ -695,7 +695,7 @@ final class QuoteController extends Controller
         $db->getPdo()->beginTransaction();
         try {
             $this->revertQuoteCredit($db, $quote);
-            $this->recalculateClientBalance((int) ($quote['client_id'] ?? 0));
+            ClientReceivableSummary::recalculateBalance($db, (int) ($quote['client_id'] ?? 0));
             $db->getPdo()->commit();
         } catch (\Throwable $e) {
             $db->getPdo()->rollBack();
@@ -835,30 +835,6 @@ final class QuoteController extends Controller
         redirect('/presupuestos');
     }
 
-    private function recalculateClientBalance(int $clientId): void
-    {
-        if ($clientId <= 0) {
-            return;
-        }
-        $db = Database::getInstance();
-        $invoices = (float) $db->fetchColumn(
-            "SELECT COALESCE(SUM(amount), 0) FROM account_transactions
-             WHERE account_type = 'client' AND account_id = ? AND transaction_type = 'invoice'",
-            [$clientId]
-        );
-        $payments = (float) $db->fetchColumn(
-            "SELECT COALESCE(SUM(amount), 0) FROM account_transactions
-             WHERE account_type = 'client' AND account_id = ? AND transaction_type = 'payment'",
-            [$clientId]
-        );
-        $adjustments = (float) $db->fetchColumn(
-            "SELECT COALESCE(SUM(amount), 0) FROM account_transactions
-             WHERE account_type = 'client' AND account_id = ? AND transaction_type = 'adjustment'",
-            [$clientId]
-        );
-        $balance = $invoices - $payments + $adjustments;
-        $db->query('UPDATE clients SET balance = ? WHERE id = ?', [round($balance, 2), $clientId]);
-    }
 
     private function clientBalanceFromTransactions(Database $db, int $clientId): float
     {
@@ -1358,7 +1334,7 @@ final class QuoteController extends Controller
                             'id = :id',
                             ['id' => (int) ($invoiceTx['id'] ?? 0)]
                         );
-                        $this->recalculateClientBalance($clientId);
+                        ClientReceivableSummary::recalculateBalance($db, $clientId);
                     }
                 }
             }
@@ -1385,8 +1361,8 @@ final class QuoteController extends Controller
                            AND reference_type = 'quote' AND reference_id = ?",
                         [$clientId, $id]
                     );
-                    $this->recalculateClientBalance($prevClientId);
-                    $this->recalculateClientBalance($clientId);
+                    ClientReceivableSummary::recalculateBalance($db, $prevClientId);
+                    ClientReceivableSummary::recalculateBalance($db, $clientId);
                 }
             }
 

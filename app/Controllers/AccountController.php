@@ -349,7 +349,7 @@ final class AccountController extends Controller
             'notes' => $notes !== '' ? $notes : null,
             'transaction_date' => $date,
         ]);
-        $this->recalculateClientBalance($clientId);
+        ClientReceivableSummary::recalculateBalance($db, $clientId);
         flash('success', 'Cobro registrado por ' . formatPrice($amount));
         redirect('/cuenta-corriente/cliente/' . $clientId);
     }
@@ -408,7 +408,7 @@ final class AccountController extends Controller
             'notes' => $notes !== '' ? $notes : null,
             'transaction_date' => $transactionDate,
         ]);
-        $this->recalculateClientBalance($clientId);
+        ClientReceivableSummary::recalculateBalance($db, $clientId);
         flash('success', 'Pago registrado por ' . formatPrice($amount));
         redirect($returnTo);
     }
@@ -516,7 +516,7 @@ final class AccountController extends Controller
         ]);
 
         if ($accountType === 'client') {
-            $this->recalculateClientBalance($accountId);
+            ClientReceivableSummary::recalculateBalance($db, $accountId);
             redirect('/cuenta-corriente/cliente/' . $accountId);
             return;
         }
@@ -548,7 +548,7 @@ final class AccountController extends Controller
 
         $db->delete('account_transactions', 'id = :id', ['id' => (int) $id]);
         if ($movement['account_type'] === 'client') {
-            $this->recalculateClientBalance((int) $movement['account_id']);
+            ClientReceivableSummary::recalculateBalance($db, (int) $movement['account_id']);
         }
         flash('success', 'Movimiento eliminado.');
         $this->redirectByMovement($movement);
@@ -666,7 +666,7 @@ final class AccountController extends Controller
         }
 
         if (($movement['account_type'] ?? '') === 'client') {
-            $this->recalculateClientBalance((int) $movement['account_id']);
+            ClientReceivableSummary::recalculateBalance($db, (int) $movement['account_id']);
         }
         flash('success', 'Movimiento actualizado.');
         $this->redirectByMovement($movement);
@@ -753,27 +753,6 @@ final class AccountController extends Controller
         );
     }
 
-    private function recalculateClientBalance(int $clientId): void
-    {
-        $db = Database::getInstance();
-        $invoices = (float) $db->fetchColumn(
-            "SELECT COALESCE(SUM(amount), 0) FROM account_transactions
-             WHERE account_type = 'client' AND account_id = ? AND transaction_type = 'invoice'",
-            [$clientId]
-        );
-        $payments = (float) $db->fetchColumn(
-            "SELECT COALESCE(SUM(amount), 0) FROM account_transactions
-             WHERE account_type = 'client' AND account_id = ? AND transaction_type = 'payment'",
-            [$clientId]
-        );
-        $adjustments = (float) $db->fetchColumn(
-            "SELECT COALESCE(SUM(amount), 0) FROM account_transactions
-             WHERE account_type = 'client' AND account_id = ? AND transaction_type = 'adjustment'",
-            [$clientId]
-        );
-        $balance = $invoices - $payments + $adjustments;
-        $db->query('UPDATE clients SET balance = ? WHERE id = ?', [round($balance, 2), $clientId]);
-    }
 
     /** @param array<string,mixed> $transaction */
     private function transactionImpact(array $transaction): float
