@@ -31,12 +31,29 @@ final class AuthController extends Controller
             flash('error', 'Completá usuario y contraseña.');
             redirect('/login');
         }
+
         $db = Database::getInstance();
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+
+        $db->query('DELETE FROM login_attempts WHERE attempted_at < DATE_SUB(NOW(), INTERVAL 1 HOUR)');
+
+        $attempts = (int) $db->fetchColumn(
+            'SELECT COUNT(*) FROM login_attempts WHERE ip_address = ? AND attempted_at > DATE_SUB(NOW(), INTERVAL 15 MINUTE)',
+            [$ip]
+        );
+        if ($attempts >= 5) {
+            flash('error', 'Demasiados intentos. Esperá 15 minutos.');
+            redirect('/login');
+        }
+
         $row = $db->fetch('SELECT id, password_hash FROM admin_users WHERE username = ?', [$user]);
         if (!$row || !password_verify($pass, $row['password_hash'])) {
+            $db->query('INSERT INTO login_attempts (ip_address) VALUES (?)', [$ip]);
             flash('error', 'Credenciales incorrectas.');
             redirect('/login');
         }
+
+        $db->query('DELETE FROM login_attempts WHERE ip_address = ?', [$ip]);
         session_regenerate_id(true);
         $_SESSION['admin_user_id'] = (int) $row['id'];
         $_SESSION['admin_username'] = $user;
