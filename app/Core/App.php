@@ -14,6 +14,11 @@ final class App
         $config = require APP_PATH . '/config/app.php';
         date_default_timezone_set($config['timezone'] ?? 'America/Argentina/Buenos_Aires');
         session_name($config['session_name'] ?? 'limpia_oeste_session');
+        session_set_cookie_params([
+            'httponly' => true,
+            'secure'   => true,
+            'samesite' => 'Lax',
+        ]);
         if (session_status() !== PHP_SESSION_ACTIVE) {
             session_start();
         }

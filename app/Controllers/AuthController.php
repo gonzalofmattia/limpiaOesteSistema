@@ -37,6 +37,7 @@ final class AuthController extends Controller
             flash('error', 'Credenciales incorrectas.');
             redirect('/login');
         }
+        session_regenerate_id(true);
         $_SESSION['admin_user_id'] = (int) $row['id'];
         $_SESSION['admin_username'] = $user;
         $db->query('UPDATE admin_users SET last_login = NOW() WHERE id = ?', [(int) $row['id']]);
