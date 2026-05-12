@@ -51,6 +51,26 @@ final class QuoteDeliveryStock
             'UPDATE products SET stock_units = :stock, stock_committed_units = :committed WHERE id = :pid',
             ['stock' => $nextStock, 'committed' => $nextCommitted, 'pid' => $productId]
         );
+        if ($stockDelta !== 0) {
+            try {
+                $hasTable = (bool) $db->fetchColumn("SHOW TABLES LIKE 'stock_adjustments'");
+                if ($hasTable) {
+                    $db->query(
+                        "INSERT INTO stock_adjustments (product_id, previous_stock, new_stock, difference, notes, created_by)
+                         VALUES (:pid, :prev, :next, :diff, :notes, :by)",
+                        [
+                            'pid' => $productId,
+                            'prev' => $currentStock,
+                            'next' => $nextStock,
+                            'diff' => $nextStock - $currentStock,
+                            'notes' => 'Auto: stock_delta=' . $stockDelta . ' committed_delta=' . $committedDelta,
+                            'by' => 'system',
+                        ]
+                    );
+                }
+            } catch (\Throwable) {
+            }
+        }
     }
 
     /**
@@ -214,6 +234,11 @@ final class QuoteDeliveryStock
 
     public static function commitStock(Database $db, int $quoteId): void
     {
+        $quote = $db->fetch('SELECT status FROM quotes WHERE id = ?', [$quoteId]);
+        $status = (string) ($quote['status'] ?? '');
+        if (!in_array($status, ['accepted', 'partially_delivered', 'draft', 'sent'], true)) {
+            return;
+        }
         foreach (self::unitsByProductForQuote($quoteId) as $pid => $units) {
             self::applyProductDelta($db, (int) $pid, 0, (int) $units);
         }
@@ -492,11 +517,16 @@ final class QuoteDeliveryStock
             if ($line === null) {
                 continue;
             }
+            $maxAdd = max(0.0, (float) ($line['quantity'] ?? 0) - (float) ($line['qty_delivered'] ?? 0));
+            $addQty = min($addQty, $maxAdd);
+            if ($addQty <= 0) {
+                continue;
+            }
             foreach (self::unitsByProductForLineQty($db, $line, $addQty) as $pid => $u) {
                 $productDeltas[$pid] = ($productDeltas[$pid] ?? 0) + $u;
             }
             $db->query(
-                'UPDATE quote_items SET qty_delivered = qty_delivered + :addq WHERE id = :iid AND quote_id = :qid',
+                'UPDATE quote_items SET qty_delivered = LEAST(quantity, qty_delivered + :addq) WHERE id = :iid AND quote_id = :qid',
                 ['addq' => $addQty, 'iid' => $itemId, 'qid' => $quoteId]
             );
         }

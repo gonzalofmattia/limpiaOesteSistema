@@ -4,7 +4,8 @@ use App\Helpers\QuoteLinePricing;
 
 $isEdit = $quote !== null;
 $quoteStatus = (string) ($quote['status'] ?? 'draft');
-$quoteEditable = !$isEdit || in_array($quoteStatus, ['draft', 'sent', 'accepted'], true);
+$quoteEditable = !$isEdit || in_array($quoteStatus, ['draft', 'sent', 'accepted', 'partially_delivered'], true);
+$isPartiallyDelivered = $isEdit && $quoteStatus === 'partially_delivered';
 $action = url($isEdit ? '/presupuestos/' . (int) $quote['id'] : '/presupuestos');
 $q = $quote ?? [];
 $initialLines = [];
@@ -57,6 +58,12 @@ window.__quoteForm = {
     <?php endif; ?>
     <form method="post" action="<?= e($action) ?>" id="quote-form" class="space-y-6">
         <?= csrfField() ?>
+        <?php if ($isPartiallyDelivered): ?>
+        <div class="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm">
+            <p class="font-semibold">Este presupuesto tiene entregas parciales registradas.</p>
+            <p>No se pueden eliminar ni reducir cantidades por debajo de lo ya entregado en productos con entregas.</p>
+        </div>
+        <?php endif; ?>
         <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 grid sm:grid-cols-2 gap-4">
             <div class="sm:col-span-2">
                 <label class="block text-sm font-medium text-gray-700 mb-1">Cliente</label>

@@ -43,6 +43,14 @@ $remainderRows = array_values(array_filter($items, static fn ($it) => (int) ($it
     </form>
     <p class="text-xs text-gray-600 -mt-2 mb-2">Al pasar el pedido a <strong>received</strong>, se suma al <strong>stock</strong> de cada producto la cantidad recibida (cajas/packs pedidos × unidades por caja). Si volvés a <strong>draft</strong> o <strong>sent</strong>, se revierte esa suma.</p>
 
+    <?php if ((string) ($order['status'] ?? '') === 'draft'): ?>
+    <form method="post" action="<?= e(url('/pedidos-proveedor/' . (int) $order['id'] . '/delete')) ?>"
+          onsubmit="return confirm('¿Eliminar este pedido? Los presupuestos asociados volverán a estar disponibles para nuevos pedidos.')">
+        <?= csrfField() ?>
+        <button type="submit" class="px-3 py-1 rounded-lg text-xs border border-red-300 text-red-700 hover:bg-red-50">Eliminar pedido</button>
+    </form>
+    <?php endif; ?>
+
     <?php if (!empty($includedQuotes)): ?>
         <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
             <h3 class="text-sm font-semibold text-gray-800 mb-2">Presupuestos incluidos</h3>

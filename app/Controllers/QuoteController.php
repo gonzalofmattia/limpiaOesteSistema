@@ -15,7 +15,20 @@ use Dompdf\Options;
 
 final class QuoteController extends Controller
 {
-    private const EDITABLE_STATUSES = ['draft', 'sent', 'accepted', 'delivered'];
+    private const EDITABLE_STATUSES = ['draft', 'sent', 'accepted', 'partially_delivered'];
+
+    /**
+     * Transiciones de estado permitidas: oldStatus => [newStatuses].
+     */
+    private const ALLOWED_TRANSITIONS = [
+        'draft'                 => ['sent', 'accepted', 'rejected', 'expired'],
+        'sent'                  => ['draft', 'accepted', 'rejected', 'expired'],
+        'accepted'              => ['draft', 'sent', 'delivered', 'partially_delivered', 'rejected', 'expired'],
+        'partially_delivered'   => ['delivered', 'rejected'],
+        'delivered'             => [],
+        'rejected'              => ['draft'],
+        'expired'               => ['draft'],
+    ];
 
     public function index(): void
     {
@@ -351,7 +364,7 @@ final class QuoteController extends Controller
             redirect('/presupuestos');
         }
         if (!$this->quoteIsEditable($quote)) {
-            flash('error', "No se puede editar un presupuesto en estado '{$quote['status']}'. Si necesitás hacer cambios, primero cambiá el estado a 'Aceptado' y luego editá.");
+            flash('error', "No se puede editar un presupuesto en estado '{$quote['status']}'.");
             redirect('/presupuestos/' . (int) $id);
             return;
         }
@@ -390,7 +403,7 @@ final class QuoteController extends Controller
             return;
         }
         if (!$this->quoteIsEditable($quote)) {
-            flash('error', "No se puede editar un presupuesto en estado '{$quote['status']}'. Si necesitás hacer cambios, primero cambiá el estado a 'Aceptado' y luego editá.");
+            flash('error', "No se puede editar un presupuesto en estado '{$quote['status']}'.");
             redirect('/presupuestos/' . $id);
             return;
         }
@@ -465,6 +478,19 @@ final class QuoteController extends Controller
             return;
         }
         $oldStatus = (string) ($quote['status'] ?? 'draft');
+
+        $allowedTargets = self::ALLOWED_TRANSITIONS[$oldStatus] ?? [];
+        if ($oldStatus === $status) {
+            flash('info', 'El presupuesto ya está en ese estado.');
+            redirect('/presupuestos/' . $id);
+            return;
+        }
+        if (!in_array($status, $allowedTargets, true)) {
+            flash('error', "No se puede cambiar de '{$oldStatus}' a '{$status}'.");
+            redirect('/presupuestos/' . $id);
+            return;
+        }
+
         $deliveryApplied = (int) ($quote['delivery_stock_applied'] ?? 0) === 1;
         $extra = [];
         if ($status === 'sent') {
@@ -994,6 +1020,7 @@ final class QuoteController extends Controller
         try {
             $existingQuote = null;
             $prevClientId = null;
+            $existingStatus = '';
             if ($id === null) {
                 $number = $this->nextQuoteNumber();
                 $id = $db->insert('quotes', [
@@ -1019,22 +1046,27 @@ final class QuoteController extends Controller
                     return ['error' => 'No encontrado.'];
                 }
                 $prevClientId = (int) ($existingQuote['client_id'] ?? 0);
+                $existingStatus = (string) ($existingQuote['status'] ?? '');
                 if (!$this->quoteIsEditable($existingQuote)) {
                     $db->getPdo()->rollBack();
                     return ['error' => 'No se puede editar un presupuesto en este estado.'];
                 }
-                if ((string) ($existingQuote['status'] ?? '') === 'delivered'
-                    && (int) ($existingQuote['delivery_stock_applied'] ?? 0) === 1) {
-                    $revert = QuoteDeliveryStock::revertDeliveredStock($id, $db);
-                    if (!$revert['success']) {
+
+                if ($existingStatus === 'partially_delivered') {
+                    $validationError = $this->validatePartiallyDeliveredEdit($db, $id, $lines);
+                    if ($validationError !== null) {
                         $db->getPdo()->rollBack();
-                        return ['error' => 'No se pudo revertir stock entregado: ' . implode(' | ', $revert['errors'])];
+                        return ['error' => $validationError];
                     }
+                    QuoteDeliveryStock::releaseRemainingCommittedStock($db, $id);
+                    $this->deleteNonDeliveredItems($db, $id);
+                } else {
+                    if ($existingStatus === 'accepted') {
+                        QuoteDeliveryStock::releaseCommittedStock($db, $id);
+                    }
+                    $db->delete('quote_items', 'quote_id = :qid', ['qid' => $id]);
                 }
-                if ((string) ($existingQuote['status'] ?? '') === 'accepted') {
-                    QuoteDeliveryStock::releaseCommittedStock($db, $id);
-                }
-                $db->delete('quote_items', 'quote_id = :qid', ['qid' => $id]);
+
                 $db->update('quotes', [
                     'client_id' => $clientId,
                     'title' => $title ?: null,
@@ -1045,6 +1077,26 @@ final class QuoteController extends Controller
                     'discount_percentage' => null,
                     'discount_amount' => null,
                 ], 'id = :id', ['id' => $id]);
+            }
+
+            $keptItemsByProduct = [];
+            $keptItemsByCombo = [];
+            if ($existingQuote !== null && $existingStatus === 'partially_delivered') {
+                $keptItems = $db->fetchAll(
+                    'SELECT id, product_id, combo_id, quantity, qty_delivered FROM quote_items WHERE quote_id = ? AND qty_delivered > 0',
+                    [$id]
+                );
+                foreach ($keptItems as $ki) {
+                    $cid = (int) ($ki['combo_id'] ?? 0);
+                    if ($cid > 0) {
+                        $keptItemsByCombo[$cid] = $ki;
+                    } else {
+                        $pid = (int) ($ki['product_id'] ?? 0);
+                        if ($pid > 0) {
+                            $keptItemsByProduct[$pid] = $ki;
+                        }
+                    }
+                }
             }
 
             $subtotalNet = 0.0;
@@ -1112,10 +1164,7 @@ final class QuoteController extends Controller
                     $lineCostSub = round($lineCostUnit * $qty, 2);
                     $subtotalNetNoDiscount += $lineSub;
                     $totalWithIvaNoDiscount += $lineSub;
-                    $db->insert('quote_items', [
-                        'quote_id' => $id,
-                        'product_id' => null,
-                        'combo_id' => $comboId,
+                    $comboItemData = [
                         'quantity' => $qty,
                         'unit_type' => 'combo',
                         'unit_label' => 'Combo',
@@ -1128,9 +1177,19 @@ final class QuoteController extends Controller
                         'markup_applied' => (float) $combo['markup_percentage'],
                         'cost_unit_snapshot' => $lineCostUnit,
                         'cost_subtotal_snapshot' => $lineCostSub,
-                        'notes' => null,
                         'sort_order' => $sort++,
-                    ]);
+                    ];
+                    if (isset($keptItemsByCombo[$comboId])) {
+                        $db->update('quote_items', $comboItemData, 'id = :id', ['id' => (int) $keptItemsByCombo[$comboId]['id']]);
+                        unset($keptItemsByCombo[$comboId]);
+                    } else {
+                        $db->insert('quote_items', array_merge([
+                            'quote_id' => $id,
+                            'product_id' => null,
+                            'combo_id' => $comboId,
+                            'notes' => null,
+                        ], $comboItemData));
+                    }
                     continue;
                 }
                 $pid = (int) ($row['product_id'] ?? 0);
@@ -1177,9 +1236,7 @@ final class QuoteController extends Controller
                 $lineSubNet = round($calcNet['precio_venta'] * $qty, 2);
                 $subtotalNetDiscountable += $lineSubNet;
                 $totalWithIvaDiscountable += $lineSub;
-                $db->insert('quote_items', [
-                    'quote_id' => $id,
-                    'product_id' => $pid,
+                $productItemData = [
                     'quantity' => $qty,
                     'unit_type' => $unitMode,
                     'unit_label' => $snap['unit_label'],
@@ -1192,9 +1249,18 @@ final class QuoteController extends Controller
                     'markup_applied' => $calcNet['markup_percent'],
                     'cost_unit_snapshot' => $lineCostUnit,
                     'cost_subtotal_snapshot' => $lineCostSub,
-                    'notes' => null,
                     'sort_order' => $sort++,
-                ]);
+                ];
+                if (isset($keptItemsByProduct[$pid])) {
+                    $db->update('quote_items', $productItemData, 'id = :id', ['id' => (int) $keptItemsByProduct[$pid]['id']]);
+                    unset($keptItemsByProduct[$pid]);
+                } else {
+                    $db->insert('quote_items', array_merge([
+                        'quote_id' => $id,
+                        'product_id' => $pid,
+                        'notes' => null,
+                    ], $productItemData));
+                }
             }
 
             if ($sort === 0) {
@@ -1255,7 +1321,6 @@ final class QuoteController extends Controller
                     }
                 }
             }
-            $existingStatus = strtolower(trim((string) ($existingQuote['status'] ?? '')));
             if ($existingQuote !== null && in_array($existingStatus, ['accepted', 'partially_delivered', 'delivered'], true)) {
                 $hasAcc = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
                 if ($hasAcc) {
@@ -1303,9 +1368,9 @@ final class QuoteController extends Controller
             if ($existingQuote !== null && $existingStatus === 'accepted') {
                 QuoteDeliveryStock::commitStock($db, $id);
             }
-            if ($existingQuote !== null && $existingStatus === 'delivered') {
-                QuoteDeliveryStock::markDelivered($db, $id);
-                $db->update('quotes', ['delivery_stock_applied' => 1], 'id = :id', ['id' => $id]);
+            if ($existingQuote !== null && $existingStatus === 'partially_delivered') {
+                QuoteDeliveryStock::commitStock($db, $id);
+                $this->releaseCommittedForDeliveredItems($db, $id);
             }
 
             if ($existingQuote !== null && $prevClientId !== null && $prevClientId > 0 && $prevClientId !== $clientId) {
@@ -1590,6 +1655,121 @@ final class QuoteController extends Controller
         }
 
         return $out;
+    }
+
+    /**
+     * Valida que la edición de un presupuesto partially_delivered sea segura.
+     * No se pueden eliminar ni bajar qty por debajo de qty_delivered en líneas con entregas.
+     *
+     * @param list<array<string,mixed>> $newLines POST items
+     */
+    private function validatePartiallyDeliveredEdit(Database $db, int $quoteId, array $newLines): ?string
+    {
+        $existingItems = $db->fetchAll(
+            'SELECT id, product_id, combo_id, quantity, qty_delivered FROM quote_items WHERE quote_id = ?',
+            [$quoteId]
+        );
+        $newProductIds = [];
+        $newComboIds = [];
+        foreach ($newLines as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $comboId = (int) ($row['combo_id'] ?? 0);
+            if ($comboId > 0) {
+                $newComboIds[$comboId] = max(1, (int) ($row['quantity'] ?? 1));
+                continue;
+            }
+            $pid = (int) ($row['product_id'] ?? 0);
+            if ($pid > 0) {
+                $newProductIds[$pid] = ($newProductIds[$pid] ?? 0) + max(1, (int) ($row['quantity'] ?? 1));
+            }
+        }
+
+        foreach ($existingItems as $item) {
+            $qtyDelivered = (float) ($item['qty_delivered'] ?? 0);
+            if ($qtyDelivered <= 0) {
+                continue;
+            }
+            $comboId = (int) ($item['combo_id'] ?? 0);
+            if ($comboId > 0) {
+                if (!isset($newComboIds[$comboId])) {
+                    return 'No se puede eliminar el combo (ID ' . $comboId . ') porque ya tiene entregas parciales registradas.';
+                }
+                if ($newComboIds[$comboId] < $qtyDelivered) {
+                    return 'No se puede bajar la cantidad del combo por debajo de lo ya entregado (' . $qtyDelivered . ').';
+                }
+                continue;
+            }
+            $pid = (int) ($item['product_id'] ?? 0);
+            if ($pid > 0) {
+                if (!isset($newProductIds[$pid])) {
+                    return 'No se puede eliminar el producto (ID ' . $pid . ') porque ya tiene entregas parciales registradas.';
+                }
+                if ($newProductIds[$pid] < $qtyDelivered) {
+                    return 'No se puede bajar la cantidad del producto por debajo de lo ya entregado (' . $qtyDelivered . ').';
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Elimina solo las líneas de quote_items que NO tienen entregas (qty_delivered = 0).
+     * Las líneas con entregas parciales se mantienen para preservar su qty_delivered.
+     */
+    private function deleteNonDeliveredItems(Database $db, int $quoteId): void
+    {
+        $db->query(
+            'DELETE FROM quote_items WHERE quote_id = ? AND (qty_delivered IS NULL OR qty_delivered <= 0)',
+            [$quoteId]
+        );
+    }
+
+    /**
+     * Después de re-commitear todo el presupuesto, libera el committed de las unidades
+     * que ya fueron entregadas (porque esas ya no están comprometidas, ya salieron del depósito).
+     */
+    private function releaseCommittedForDeliveredItems(Database $db, int $quoteId): void
+    {
+        $lines = $db->fetchAll('SELECT * FROM quote_items WHERE quote_id = ?', [$quoteId]);
+        $productDeltas = [];
+        foreach ($lines as $line) {
+            $qd = (float) ($line['qty_delivered'] ?? 0);
+            if ($qd <= 0) {
+                continue;
+            }
+            foreach (QuoteDeliveryStock::unitsByProductForQuote($quoteId) as $pid => $totalUnits) {
+                break;
+            }
+            $comboId = (int) ($line['combo_id'] ?? 0);
+            if ($comboId > 0) {
+                $cps = $db->fetchAll('SELECT product_id, quantity FROM combo_products WHERE combo_id = ?', [$comboId]);
+                foreach ($cps as $cp) {
+                    $pid = (int) ($cp['product_id'] ?? 0);
+                    $perCombo = max(1, (int) ($cp['quantity'] ?? 1));
+                    $deliveredUnits = (int) round($qd * $perCombo);
+                    if ($pid > 0 && $deliveredUnits > 0) {
+                        $productDeltas[$pid] = ($productDeltas[$pid] ?? 0) + $deliveredUnits;
+                    }
+                }
+            } else {
+                $pid = (int) ($line['product_id'] ?? 0);
+                if ($pid > 0) {
+                    $p = $db->fetch('SELECT units_per_box FROM products WHERE id = ?', [$pid]);
+                    $unitsPerBox = max(1, (int) ($p['units_per_box'] ?? 1) ?: 1);
+                    $mode = \App\Helpers\QuoteLinePricing::normalizeUnitType((string) ($line['unit_type'] ?? 'caja'));
+                    $deliveredUnits = $mode === 'unidad' ? (int) round($qd) : (int) round($qd * $unitsPerBox);
+                    if ($deliveredUnits > 0) {
+                        $productDeltas[$pid] = ($productDeltas[$pid] ?? 0) + $deliveredUnits;
+                    }
+                }
+            }
+        }
+        if ($productDeltas !== []) {
+            QuoteDeliveryStock::releaseCommittedUnitsForProducts($db, $productDeltas);
+        }
     }
 
     /** @param array<string,mixed> $quote @param list<array<string,mixed>> $items */

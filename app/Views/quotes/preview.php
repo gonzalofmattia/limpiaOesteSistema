@@ -29,7 +29,7 @@ foreach ($items as $it) {
 $subtotalFullLines = round($comboSubtotalExcluded + $baseDiscountableFromItems, 2);
 $waPhone = preg_replace('/\D/', '', (string) ($quote['phone'] ?? ''));
 $st = $quote['status'];
-$quoteEditable = in_array((string) $st, ['draft', 'sent', 'accepted'], true);
+$quoteEditable = in_array((string) $st, ['draft', 'sent', 'accepted', 'partially_delivered'], true);
 $clientBalance = isset($clientBalance) ? (float) $clientBalance : 0.0;
 $creditApplied = (float) ($quote['credit_applied'] ?? 0);
 $quoteBaseBeforeCredit = max(0.0, (float) ($quote['total'] ?? 0) + $creditApplied);
@@ -151,7 +151,19 @@ $canModifyCredit = empty($readonly) && in_array((string) $st, ['draft', 'sent'],
             <form method="post" action="<?= e(url('/presupuestos/' . (int) $quote['id'] . '/status')) ?>" class="flex flex-wrap gap-2 items-center">
                 <?= csrfField() ?>
                 <span class="text-sm text-gray-600">Cambiar estado:</span>
-                <?php foreach (['draft', 'sent', 'accepted', 'rejected', 'expired', 'delivered'] as $s): ?>
+                <?php
+                $allowedTransitions = [
+                    'draft'                 => ['sent', 'accepted', 'rejected', 'expired'],
+                    'sent'                  => ['draft', 'accepted', 'rejected', 'expired'],
+                    'accepted'              => ['draft', 'sent', 'delivered', 'rejected', 'expired'],
+                    'partially_delivered'   => ['delivered', 'rejected'],
+                    'delivered'             => [],
+                    'rejected'              => ['draft'],
+                    'expired'               => ['draft'],
+                ];
+                $availableTargets = $allowedTransitions[(string) $st] ?? [];
+                ?>
+                <?php foreach ($availableTargets as $s): ?>
                     <button type="submit" name="status" value="<?= e($s) ?>" class="px-3 py-1 rounded-lg text-xs border border-gray-200 hover:bg-gray-50"><?= e(statusLabel($s)) ?></button>
                 <?php endforeach; ?>
             </form>

@@ -579,13 +579,21 @@ final class SeiqOrderController extends Controller
                 if (!$q) {
                     continue;
                 }
-                if ((string) ($q['status'] ?? '') === 'delivered') {
+                $qStatus = (string) ($q['status'] ?? '');
+                if ($qStatus === 'delivered') {
                     continue;
                 }
                 if ((int) ($q['delivery_stock_applied'] ?? 0) === 1) {
                     continue;
                 }
-                QuoteDeliveryStock::markDelivered($db, $qid);
+                if (!in_array($qStatus, ['accepted', 'partially_delivered'], true)) {
+                    continue;
+                }
+                if ($qStatus === 'partially_delivered') {
+                    QuoteDeliveryStock::markRemainingDeliveredFromPartial($db, $qid);
+                } else {
+                    QuoteDeliveryStock::markDelivered($db, $qid);
+                }
                 $db->update(
                     'quotes',
                     ['status' => 'delivered', 'delivery_stock_applied' => 1],
@@ -603,6 +611,66 @@ final class SeiqOrderController extends Controller
 
         flash('success', 'Presupuestos marcados como entregados (stock descontado).');
         redirect('/pedidos-proveedor/' . $id);
+    }
+
+    public function delete(string $id): void
+    {
+        if (!verifyCsrf()) {
+            flash('error', 'Token inválido.');
+            redirect('/pedidos-proveedor');
+            return;
+        }
+        $db = Database::getInstance();
+        if (!$this->ensureSeiqSchema($db)) {
+            return;
+        }
+        $orderId = (int) $id;
+        $order = $db->fetch('SELECT * FROM seiq_orders WHERE id = ?', [$orderId]);
+        if (!$order) {
+            flash('error', 'Pedido no encontrado.');
+            redirect('/pedidos-proveedor');
+            return;
+        }
+        if ((string) ($order['status'] ?? '') !== 'draft') {
+            flash('error', 'Solo se pueden eliminar pedidos en estado borrador.');
+            redirect('/pedidos-proveedor/' . $id);
+            return;
+        }
+        $pdo = $db->getPdo();
+        $pdo->beginTransaction();
+        try {
+            $db->query('DELETE FROM seiq_order_items WHERE seiq_order_id = ?', [$orderId]);
+
+            $pdfPath = trim((string) ($order['pdf_path'] ?? ''));
+            if ($pdfPath !== '') {
+                $full = STORAGE_PATH . '/pdfs/' . basename($pdfPath);
+                if (is_file($full)) {
+                    @unlink($full);
+                }
+            }
+
+            try {
+                $hasAccount = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
+                if ($hasAccount) {
+                    $db->query(
+                        "DELETE FROM account_transactions WHERE reference_type = 'seiq_order' AND reference_id = ?",
+                        [$orderId]
+                    );
+                }
+            } catch (\Throwable) {
+            }
+
+            $db->query('DELETE FROM seiq_orders WHERE id = ?', [$orderId]);
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            flash('error', 'No se pudo eliminar el pedido: ' . $e->getMessage());
+            redirect('/pedidos-proveedor/' . $id);
+            return;
+        }
+
+        flash('success', 'Pedido eliminado. Los presupuestos asociados vuelven a estar disponibles para nuevos pedidos.');
+        redirect('/pedidos-proveedor');
     }
 
     private function nextOrderNumber(Database $db, string $supplierSlug = ''): string
