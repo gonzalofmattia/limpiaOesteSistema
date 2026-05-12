@@ -56,7 +56,8 @@ window.__quoteForm = {
         </div>
         <script>window.location.href = <?= json_encode(url('/presupuestos/' . (int) ($quote['id'] ?? 0)), JSON_UNESCAPED_SLASHES) ?>;</script>
     <?php endif; ?>
-    <form method="post" action="<?= e($action) ?>" id="quote-form" class="space-y-6">
+    <form method="post" action="<?= e($action) ?>" id="quote-form" class="space-y-6"
+          @submit="if (!formValid()) { $event.preventDefault(); }">
         <?= csrfField() ?>
         <?php if ($isPartiallyDelivered): ?>
         <div class="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm">
@@ -67,16 +68,23 @@ window.__quoteForm = {
         <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 grid sm:grid-cols-2 gap-4">
             <div class="sm:col-span-2">
                 <label class="block text-sm font-medium text-gray-700 mb-1">Cliente</label>
-                <div class="flex items-center gap-2">
-                    <select name="client_id" required x-model.number="selectedClientId" @change="onClientChanged()" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm">
-                        <option value="">Seleccionar…</option>
-                        <template x-for="client in clients" :key="client.id">
-                            <option :value="client.id" x-text="client.name"></option>
-                        </template>
-                    </select>
+                <div class="flex flex-col sm:flex-row sm:items-start gap-2">
+                    <div class="flex-1 min-w-0">
+                        <select name="client_id" required x-model.number="selectedClientId" @change="onClientChanged()"
+                                class="w-full sm:flex-1 rounded-lg px-3 py-2 text-sm border transition-colors"
+                                :class="clientFieldInvalid() ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-300'">
+                            <option value="">Seleccionar…</option>
+                            <template x-for="client in clients" :key="client.id">
+                                <option :value="client.id" x-text="client.name"></option>
+                            </template>
+                        </select>
+                        <div x-show="clientFieldInvalid()" x-transition.opacity.duration.200ms class="mt-1.5">
+                            <p class="text-sm text-red-600">Seleccioná un cliente</p>
+                        </div>
+                    </div>
                     <button type="button"
                             @click="openQuickClientModal()"
-                            class="shrink-0 px-3 py-2 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50">
+                            class="shrink-0 px-3 py-2 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 self-start">
                         + Nuevo
                     </button>
                 </div>
@@ -154,7 +162,12 @@ window.__quoteForm = {
                         </div>
                         <div class="md:col-span-2">
                             <label class="block text-xs text-gray-500 mb-1">Cantidad</label>
-                            <input type="number" min="1" x-model.number="line.quantity" @input="recalculateDiscountIfAuto()" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
+                            <input type="number" min="1" step="1" x-model.number="line.quantity" @input="recalculateDiscountIfAuto()"
+                                   class="w-full rounded-lg px-2 py-1.5 text-sm border transition-colors"
+                                   :class="lineQuantityInvalid(line) ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-300'">
+                            <div x-show="lineQuantityInvalid(line)" x-transition.opacity.duration.200ms class="mt-1">
+                                <p class="text-xs text-red-600">La cantidad debe ser al menos 1</p>
+                            </div>
                         </div>
                         <div class="md:col-span-3" x-show="line.unit_type !== 'combo'">
                             <label class="block text-xs text-gray-500 mb-1">Presentación</label>
@@ -184,7 +197,10 @@ window.__quoteForm = {
                     </div>
                 </template>
             </div>
-            <p class="text-xs text-gray-500" x-show="lines.length === 0">Agregá al menos un producto.</p>
+            <div x-show="itemsFieldInvalid()" x-transition.opacity.duration.200ms class="rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+                <p class="text-sm text-red-600 font-medium">Agregá al menos un producto</p>
+                <p class="text-xs text-red-600/90 mt-0.5">Elegí un producto o un combo en al menos una línea.</p>
+            </div>
         </div>
         <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-4">
             <h2 class="text-sm font-semibold text-gray-800">Descuento</h2>
@@ -213,9 +229,14 @@ window.__quoteForm = {
             <input type="hidden" name="discount_amount" :value="normalizedDiscountAmount()">
         </div>
 
-        <div class="flex gap-3">
-            <button type="submit" class="px-5 py-2.5 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium">Guardar presupuesto</button>
-            <a href="<?= e(url('/presupuestos')) ?>" class="px-5 py-2.5 rounded-lg border border-gray-300 text-sm">Cancelar</a>
+        <div class="flex flex-col sm:flex-row sm:items-center gap-3">
+            <button type="submit"
+                    :disabled="!formValid()"
+                    :class="formValid() ? '' : 'opacity-50 cursor-not-allowed pointer-events-none'"
+                    class="px-5 py-2.5 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium">
+                Guardar presupuesto
+            </button>
+            <a href="<?= e(url('/presupuestos')) ?>" class="px-5 py-2.5 rounded-lg border border-gray-300 text-sm text-center sm:text-left">Cancelar</a>
         </div>
     </form>
 
@@ -332,6 +353,35 @@ function quoteForm() {
                 return;
             }
             await this.applyClientMarkup(clientId);
+        },
+        hasSelectedClient() {
+            const id = Number(this.selectedClientId);
+            return Number.isFinite(id) && id > 0;
+        },
+        clientFieldInvalid() {
+            return !this.hasSelectedClient();
+        },
+        lineHasProductOrCombo(line) {
+            if (String(line.unit_type || '') === 'combo') {
+                return Number(line.combo_id || 0) > 0;
+            }
+            return Number(line.product_id || 0) > 0;
+        },
+        hasAtLeastOneItem() {
+            return this.lines.some((line) => this.lineHasProductOrCombo(line));
+        },
+        itemsFieldInvalid() {
+            return !this.hasAtLeastOneItem();
+        },
+        lineQuantityInvalid(line) {
+            const q = Number(line.quantity);
+            return !Number.isFinite(q) || q < 1;
+        },
+        allLinesHaveValidQuantity() {
+            return this.lines.every((line) => !this.lineQuantityInvalid(line));
+        },
+        formValid() {
+            return this.hasSelectedClient() && this.hasAtLeastOneItem() && this.allLinesHaveValidQuantity();
         },
         async applyClientMarkup(clientId) {
             try {

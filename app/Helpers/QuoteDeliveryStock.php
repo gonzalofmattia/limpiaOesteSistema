@@ -746,4 +746,39 @@ final class QuoteDeliveryStock
 
         return $out;
     }
+
+    /**
+     * Compromiso pendiente (unidades) por producto según presupuestos accepted / partially_delivered.
+     * Usa la misma lógica que releaseRemainingCommittedStock (quantity − qty_delivered + explosión de combos).
+     *
+     * @return array<int, int> product_id => unidades comprometidas pendientes
+     */
+    public static function calculatePendingCommittedUnitsByProduct(Database $db): array
+    {
+        $lines = $db->fetchAll(
+            "SELECT qi.*
+             FROM quote_items qi
+             INNER JOIN quotes q ON q.id = qi.quote_id
+             WHERE q.status IN ('accepted', 'partially_delivered')"
+        );
+        $totals = [];
+        foreach ($lines as $line) {
+            $q = (float) ($line['quantity'] ?? 0);
+            $qd = (float) ($line['qty_delivered'] ?? 0);
+            $pend = max(0.0, $q - $qd);
+            if ($pend <= 0) {
+                continue;
+            }
+            foreach (self::unitsByProductForLineQty($db, $line, $pend) as $pid => $u) {
+                $pid = (int) $pid;
+                $u = (int) $u;
+                if ($pid <= 0 || $u <= 0) {
+                    continue;
+                }
+                $totals[$pid] = ($totals[$pid] ?? 0) + $u;
+            }
+        }
+
+        return $totals;
+    }
 }

@@ -54,6 +54,26 @@ $currentMonthIndex = count($labels) > 0 ? count($labels) - 1 : 0;
         </section>
     <?php endif; ?>
 
+    <?php $lowStock = (int) ($lowStockCount ?? 0); ?>
+    <?php if ($lowStock > 0): ?>
+    <section class="rounded-2xl border <?= $lowStock > 0 ? 'border-red-200 border-l-4 border-l-red-500 bg-red-50' : 'border-gray-200 bg-gray-50' ?> p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-3">
+                <span class="h-10 w-10 rounded-full bg-red-100 grid place-items-center">
+                    <i data-lucide="alert-triangle" class="h-5 w-5 text-red-600"></i>
+                </span>
+                <div>
+                    <h3 class="text-sm font-semibold text-red-800">Stock bajo</h3>
+                    <p class="text-xs text-red-700"><?= $lowStock ?> producto<?= $lowStock !== 1 ? 's' : '' ?> por debajo del mínimo configurado</p>
+                </div>
+            </div>
+            <a href="<?= e(url('/stock-actual?stock_filter=bajo')) ?>" class="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-800 hover:bg-red-50">
+                Ver productos <i data-lucide="arrow-right" class="h-3 w-3"></i>
+            </a>
+        </div>
+    </section>
+    <?php endif; ?>
+
     <section class="space-y-3">
         <div class="flex items-center justify-between gap-3">
             <h3 class="text-sm font-semibold text-slate-700">Resumen comercial</h3>

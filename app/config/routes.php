@@ -41,6 +41,7 @@ return [
     ['POST', 'combos/{id}/eliminar', 'ComboController@destroy', []],
     ['POST', 'combos/{id}/toggle', 'ComboController@toggle', []],
     ['GET', 'stock-actual', 'StockController@index', []],
+    ['GET', 'stock-actual/reposicion', 'StockController@reposicion', []],
     ['POST', 'stock-actual/ajustar', 'StockController@adjust', []],
 
     ['GET', 'listas', 'PriceListController@index', []],
@@ -103,6 +104,8 @@ return [
     ['POST', 'settings', 'SettingsController@update', []],
     ['GET', 'fix-stock', 'ToolsController@fixStock', []],
     ['POST', 'fix-stock/apply', 'ToolsController@fixStockApply', []],
+    ['GET', 'tools/reconciliar-stock', 'ToolsController@reconcileStock', []],
+    ['POST', 'tools/reconciliar-stock/aplicar', 'ToolsController@applyReconciliation', []],
     ['GET', 'sincronizacion', 'SyncController@index', []],
     ['POST', 'sincronizacion', 'SyncController@run', []],
     ['POST', 'sincronizacion/export-local', 'SyncController@exportLocalSql', []],

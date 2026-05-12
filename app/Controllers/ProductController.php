@@ -1508,6 +1508,9 @@ final class ProductController extends Controller
             'content_volume' => $this->truncateNullable($this->input('content_volume', ''), 50),
             'units_per_box' => max(1, (int) $this->input('units_per_box', 1)),
             'stock_units' => max(0, (int) $this->input('stock_units', 0)),
+            'stock_minimum' => trim((string) $this->input('stock_minimum', '')) !== ''
+                ? max(0, (int) $this->input('stock_minimum', 0))
+                : null,
             'unit_volume' => $this->emptyToNull($this->input('unit_volume', '')),
             'equivalence' => $this->emptyToNull($this->input('equivalence', '')),
             'ean13' => $this->emptyToNull($this->input('ean13', '')),

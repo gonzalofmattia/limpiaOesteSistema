@@ -138,6 +138,13 @@ window.__productFormCfg = {
                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
                 </div>
                 <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Stock mínimo</label>
+                    <input type="number" name="stock_minimum" min="0"
+                           value="<?= isset($p['stock_minimum']) && $p['stock_minimum'] !== null ? e((string) $p['stock_minimum']) : '' ?>"
+                           placeholder="Dejar vacío para no alertar"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                </div>
+                <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Volumen unitario</label>
                     <input type="text" name="unit_volume" value="<?= e($p['unit_volume'] ?? '') ?>"
                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">

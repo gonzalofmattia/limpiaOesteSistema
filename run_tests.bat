@@ -1,16 +1,19 @@
 @echo off
 echo ============================================
-echo  TESTS QA - FASE 1 SEGURIDAD
-echo  Sistema Limpia Oeste
+echo  TESTS QA - SISTEMA LIMPIA OESTE
 echo ============================================
 echo.
 
-echo [1/2] Tests de seguridad (codigo)...
+echo [1/4] Tests de seguridad (Fase 1)...
 php vendor/bin/phpunit --testsuite Security --colors=always
 echo.
 
-echo [2/2] Tests de smoke (requiere Laragon corriendo)...
-php vendor/bin/phpunit --testsuite Smoke --colors=always
+echo [2/4] Tests de operaciones (Fase 2)...
+php vendor/bin/phpunit --testsuite Operations --colors=always
+echo.
+
+echo [3/4] Tests de smoke - Fase 1 (requiere Laragon)...
+php vendor/bin/phpunit --testsuite Smoke --testdox --colors=always
 echo.
 
 echo ============================================

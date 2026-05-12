@@ -205,6 +205,14 @@ final class DashboardController extends Controller
              LIMIT 5"
         );
 
+        $lowStockCount = 0;
+        try {
+            $lowStockCount = (int) $db->fetchColumn(
+                'SELECT COUNT(*) FROM products WHERE stock_minimum IS NOT NULL AND stock_units < stock_minimum AND is_active = 1'
+            );
+        } catch (\Throwable) {
+        }
+
         $this->view('dashboard/index', [
             'title' => 'Dashboard',
             'accountsEnabled' => $accountsTable,
@@ -242,6 +250,7 @@ final class DashboardController extends Controller
             'topProductsAll' => $topProductsAll,
             'topClientsAll' => $topClientsAll,
             'recentQuotes' => $recentQuotes,
+            'lowStockCount' => $lowStockCount,
         ]);
     }
 

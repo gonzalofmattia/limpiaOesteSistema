@@ -11,6 +11,9 @@
         <testsuite name="Smoke">
             <directory>tests/Smoke</directory>
         </testsuite>
+        <testsuite name="Operations">
+            <directory>tests/Operations</directory>
+        </testsuite>
     </testsuites>
     <php>
         <env name="APP_ENV" value="testing"/>

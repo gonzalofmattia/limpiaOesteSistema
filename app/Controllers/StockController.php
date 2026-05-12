@@ -20,6 +20,7 @@ final class StockController extends Controller
         if ($q === '') {
             $q = trim((string) $this->query('q', ''));
         }
+        $stockFilter = trim((string) $this->query('stock_filter', ''));
         $where = ['1=1'];
         $params = [];
 
@@ -37,8 +38,11 @@ final class StockController extends Controller
                 GROUP BY soi.product_id
              ) t ON t.product_id = p.id';
 
-        // Mostrar productos con stock físico o con unidades en camino
-        $where[] = '(COALESCE(p.stock_units, 0) > 0 OR COALESCE(t.in_transit_units, 0) > 0)';
+        if ($stockFilter === 'bajo') {
+            $where[] = 'p.stock_minimum IS NOT NULL AND p.stock_units < p.stock_minimum';
+        } else {
+            $where[] = '(COALESCE(p.stock_units, 0) > 0 OR COALESCE(t.in_transit_units, 0) > 0)';
+        }
 
         $total = (int) $db->fetchColumn(
             'SELECT COUNT(*)
@@ -54,7 +58,8 @@ final class StockController extends Controller
         }
         $offset = ($page - 1) * $perPage;
         $rows = $db->fetchAll(
-            'SELECT p.id, p.code, p.name, p.is_active, p.stock_units, COALESCE(p.stock_committed_units, 0) AS stock_committed_units, p.units_per_box,
+            'SELECT p.id, p.code, p.name, p.is_active, p.stock_units, COALESCE(p.stock_committed_units, 0) AS stock_committed_units,
+                    p.units_per_box, p.stock_minimum,
                     c.name AS category_name, COALESCE(t.in_transit_units, 0) AS in_transit_units
              FROM products p
              JOIN categories c ON c.id = p.category_id
@@ -63,6 +68,10 @@ final class StockController extends Controller
              ORDER BY p.stock_units DESC, p.name ASC
              LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
             $params
+        );
+
+        $lowStockCount = (int) $db->fetchColumn(
+            'SELECT COUNT(*) FROM products WHERE stock_minimum IS NOT NULL AND stock_units < stock_minimum AND is_active = 1'
         );
 
         $adjustments = [];
@@ -86,6 +95,8 @@ final class StockController extends Controller
             'total_pages' => $totalPages,
             'adjustments' => $adjustments,
             'hasAdjustmentsTable' => $hasAdjustmentsTable,
+            'stockFilter' => $stockFilter,
+            'lowStockCount' => $lowStockCount,
         ]);
     }
 
@@ -158,6 +169,62 @@ final class StockController extends Controller
 
         flash('success', 'Stock actualizado para ' . (string) $product['code'] . '.');
         redirect('/stock-actual');
+    }
+
+    public function reposicion(): void
+    {
+        $db = Database::getInstance();
+
+        $rows = $db->fetchAll(
+            "SELECT p.id, p.code, p.name, p.stock_units, p.stock_minimum, p.units_per_box,
+                    COALESCE(p.stock_committed_units, 0) AS stock_committed_units,
+                    COALESCE(ventas.total_vendido, 0) AS vendido_90d,
+                    ROUND(COALESCE(ventas.total_vendido, 0) / 90, 1) AS promedio_diario
+             FROM products p
+             LEFT JOIN (
+                 SELECT base.product_id, SUM(base.units_sold) AS total_vendido
+                 FROM (
+                     SELECT qi.product_id, SUM(
+                         CASE WHEN qi.unit_type = 'caja'
+                              THEN qi.quantity * COALESCE(p2.units_per_box, 1)
+                              ELSE qi.quantity
+                         END
+                     ) AS units_sold
+                     FROM quote_items qi
+                     JOIN quotes q ON q.id = qi.quote_id
+                     JOIN products p2 ON p2.id = qi.product_id
+                     WHERE q.status IN ('accepted','delivered','partially_delivered')
+                       AND q.created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+                       AND qi.product_id IS NOT NULL
+                     GROUP BY qi.product_id
+
+                     UNION ALL
+
+                     SELECT cp.product_id, SUM(
+                         qi.quantity * cp.quantity
+                     ) AS units_sold
+                     FROM quote_items qi
+                     JOIN quotes q ON q.id = qi.quote_id
+                     JOIN combo_products cp ON cp.combo_id = qi.combo_id
+                     WHERE q.status IN ('accepted','delivered','partially_delivered')
+                       AND q.created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+                       AND qi.combo_id IS NOT NULL
+                     GROUP BY cp.product_id
+                 ) base
+                 GROUP BY base.product_id
+             ) ventas ON ventas.product_id = p.id
+             WHERE p.is_active = 1
+               AND p.stock_minimum IS NOT NULL
+             ORDER BY
+                 (p.stock_units < p.stock_minimum) DESC,
+                 COALESCE(ventas.total_vendido, 0) / 90 DESC"
+        );
+
+        $this->view('stock/reposicion', [
+            'title' => 'Sugerencia de reposición',
+            'subtitle' => 'Productos con stock mínimo configurado',
+            'rows' => $rows,
+        ]);
     }
 
     private function hasAdjustmentsTable(Database $db): bool
