@@ -6,3 +6,5 @@
 .DS_Store
 Thumbs.db
 *.swp
+.phpunit.cache/
+lo_test_cookies.txt
