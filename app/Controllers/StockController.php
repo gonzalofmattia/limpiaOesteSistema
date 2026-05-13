@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Controller;
+use App\Helpers\PricingEngine;
 use App\Models\Database;
 
 final class StockController extends Controller
@@ -224,6 +225,145 @@ final class StockController extends Controller
             'title' => 'Sugerencia de reposición',
             'subtitle' => 'Productos con stock mínimo configurado',
             'rows' => $rows,
+        ]);
+    }
+
+    public function projection(): void
+    {
+        $db = Database::getInstance();
+
+        $daysHistory = null;
+        try {
+            $raw = $db->fetchColumn(
+                "SELECT MIN(q.created_at)
+                 FROM quotes q
+                 WHERE q.status IN ('accepted','delivered','partially_delivered')"
+            );
+            if ($raw !== null && $raw !== false && $raw !== '') {
+                $oldest = new \DateTimeImmutable((string) $raw);
+                $daysHistory = (int) $oldest->diff(new \DateTimeImmutable('now'))->days;
+            }
+        } catch (\Throwable) {
+        }
+        $insufficientHistory = $daysHistory === null || $daysHistory < 30;
+
+        $sql = "SELECT p.id, p.code, p.name, p.stock_units, p.units_per_box, p.precio_lista_caja,
+                       p.discount_override,
+                       COALESCE(pc.slug, c.slug) AS category_slug,
+                       pc.slug AS parent_slug,
+                       c.default_discount,
+                       pc.default_discount AS parent_discount,
+                       s.name AS supplier_name,
+                       s.slug AS supplier_slug,
+                       COALESCE(v.v30, 0) AS vendido_30d,
+                       COALESCE(v.v60, 0) AS vendido_60d,
+                       COALESCE(v.v90, 0) AS vendido_90d
+                FROM products p
+                JOIN categories c ON c.id = p.category_id
+                LEFT JOIN categories pc ON c.parent_id = pc.id
+                LEFT JOIN suppliers s ON s.id = COALESCE(c.supplier_id, pc.supplier_id)
+                LEFT JOIN (
+                    SELECT x.product_id,
+                           SUM(CASE WHEN x.sale_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN x.units_sold ELSE 0 END) AS v30,
+                           SUM(CASE WHEN x.sale_at >= DATE_SUB(NOW(), INTERVAL 60 DAY) THEN x.units_sold ELSE 0 END) AS v60,
+                           SUM(x.units_sold) AS v90
+                    FROM (
+                        SELECT qi.product_id AS product_id,
+                               CASE WHEN qi.unit_type = 'caja'
+                                    THEN qi.quantity * COALESCE(p2.units_per_box, 1)
+                                    ELSE qi.quantity
+                               END AS units_sold,
+                               q.created_at AS sale_at
+                        FROM quote_items qi
+                        JOIN quotes q ON q.id = qi.quote_id
+                        JOIN products p2 ON p2.id = qi.product_id
+                        WHERE q.status IN ('accepted','delivered','partially_delivered')
+                          AND q.created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+                          AND qi.product_id IS NOT NULL
+
+                        UNION ALL
+
+                        SELECT cp.product_id AS product_id,
+                               (qi.quantity * cp.quantity) AS units_sold,
+                               q.created_at AS sale_at
+                        FROM quote_items qi
+                        JOIN quotes q ON q.id = qi.quote_id
+                        JOIN combo_products cp ON cp.combo_id = qi.combo_id
+                        WHERE q.status IN ('accepted','delivered','partially_delivered')
+                          AND q.created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+                          AND qi.combo_id IS NOT NULL
+                    ) x
+                    GROUP BY x.product_id
+                ) v ON v.product_id = p.id
+                WHERE p.is_active = 1
+                ORDER BY
+                    (CASE WHEN COALESCE(v.v90, 0) = 0 THEN 1 ELSE 0 END) ASC,
+                    (CASE WHEN COALESCE(v.v90, 0) > 0 THEN (p.stock_units * 90.0 / v.v90) ELSE 999999 END) ASC,
+                    p.name ASC";
+
+        $rawRows = $db->fetchAll($sql);
+
+        $totalCompra30d = 0.0;
+        $bySupplier = ['seiq' => 0.0, 'higienik' => 0.0, 'otros' => 0.0];
+        $rows = [];
+
+        foreach ($rawRows as $r) {
+            $v90 = (float) ($r['vendido_90d'] ?? 0);
+            $promedioDiario = $v90 > 0 ? $v90 / 90.0 : 0.0;
+            $stock = (int) ($r['stock_units'] ?? 0);
+            $upb = (int) ($r['units_per_box'] ?? 0);
+            $listaCaja = $r['precio_lista_caja'];
+            $listaCajaF = ($listaCaja !== null && $listaCaja !== '') ? (float) $listaCaja : 0.0;
+
+            $discount = PricingEngine::getEffectiveDiscount($r);
+            $costoCaja = $listaCajaF > 0 ? PricingEngine::calculateCost($listaCajaF, $discount) : 0.0;
+
+            $sinActividad = $v90 <= 0;
+            $necesidad30 = $promedioDiario > 0 ? $promedioDiario * 30.0 : 0.0;
+            $cajas = 0;
+            if ($promedioDiario > 0 && $upb > 0) {
+                $cajas = (int) ceil($necesidad30 / $upb);
+            }
+            $costoEstimado = ($sinActividad || $cajas <= 0 || $costoCaja <= 0) ? 0.0 : round($cajas * $costoCaja, 2);
+
+            $diasRestantes = null;
+            if ($promedioDiario > 0) {
+                $diasRestantes = $stock / $promedioDiario;
+            }
+
+            $slug = (string) ($r['supplier_slug'] ?? '');
+            if (!$sinActividad && $costoEstimado > 0) {
+                $totalCompra30d += $costoEstimado;
+                if ($slug === 'seiq') {
+                    $bySupplier['seiq'] += $costoEstimado;
+                } elseif ($slug === 'higienik') {
+                    $bySupplier['higienik'] += $costoEstimado;
+                } else {
+                    $bySupplier['otros'] += $costoEstimado;
+                }
+            }
+
+            $rows[] = $r + [
+                'promedio_diario' => $promedioDiario,
+                'dias_restantes' => $diasRestantes,
+                'necesidad_30d_unidades' => $necesidad30,
+                'cajas_a_pedir' => $cajas,
+                'costo_caja' => $costoCaja,
+                'costo_estimado' => $costoEstimado,
+                'sin_actividad' => $sinActividad,
+                'tiene_precio_caja' => $listaCajaF > 0,
+                'discount_percent' => $discount,
+            ];
+        }
+
+        $this->view('stock/projection', [
+            'title' => 'Proyección de compra',
+            'subtitle' => 'Estimación informativa próximos 30 días según ventas (90 días)',
+            'rows' => $rows,
+            'totalCompra30d' => $totalCompra30d,
+            'bySupplier' => $bySupplier,
+            'insufficientHistory' => $insufficientHistory,
+            'daysHistory' => $daysHistory,
         ]);
     }
 

@@ -69,6 +69,10 @@ $loFilterStockActive = trim((string) ($q ?? '')) !== '' || $currentFilter === 'b
        class="px-3 h-8 rounded-full border border-emerald-200 text-emerald-700 hover:bg-emerald-50 inline-flex items-center text-xs font-semibold">
         📊 Sugerencia de reposición
     </a>
+    <a href="<?= e(url('/stock/proyeccion')) ?>"
+       class="px-3 h-8 rounded-full border border-sky-200 text-sky-800 hover:bg-sky-50 inline-flex items-center text-xs font-semibold">
+        Proyección compra
+    </a>
 </div>
 
 <div class="lo-card p-6">

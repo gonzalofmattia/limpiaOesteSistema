@@ -41,6 +41,7 @@ return [
     ['POST', 'combos/{id}/eliminar', 'ComboController@destroy', []],
     ['POST', 'combos/{id}/toggle', 'ComboController@toggle', []],
     ['GET', 'stock-actual', 'StockController@index', []],
+    ['GET', 'stock/proyeccion', 'StockController@projection', []],
     ['GET', 'stock-actual/reposicion', 'StockController@reposicion', []],
     ['POST', 'stock-actual/ajustar', 'StockController@adjust', []],
 
