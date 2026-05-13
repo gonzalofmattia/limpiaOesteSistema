@@ -71,7 +71,7 @@ final class SearchController extends Controller
             ['q' => $like]
         );
         foreach ($clients as &$c) {
-            $c['url'] = url('/clientes/' . (int) ($c['id'] ?? 0) . '/editar');
+            $c['url'] = url('/clientes/' . (int) ($c['id'] ?? 0));
         }
         unset($c);
 

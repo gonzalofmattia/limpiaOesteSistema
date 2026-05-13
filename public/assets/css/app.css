@@ -25,4 +25,25 @@ body { font-family: 'Poppins', sans-serif; }
 
 @media (max-width: 767px) {
     .lo-btn-primary { width: 100%; }
+
+    /* Touch: evita zoom en inputs en iOS Safari (16px mín.) */
+    input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="range"]),
+    select,
+    textarea {
+        min-height: 44px;
+        font-size: 16px !important;
+    }
+
+    .lo-mobile-card-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .lo-mobile-card {
+        border-radius: 0.75rem;
+        border: 1px solid #e2e8f0;
+        background: #fff;
+        padding: 1rem;
+    }
 }

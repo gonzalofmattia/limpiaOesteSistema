@@ -9,6 +9,7 @@ $currentMonthIndex = count($labels) > 0 ? count($labels) - 1 : 0;
         <h2 class="mt-2 text-2xl font-semibold">¡Buen día, <?= e((string) ($_SESSION['admin_username'] ?? 'admin')) ?>! 👋</h2>
         <p class="mt-2 text-sm text-white/80">Hoy llevás <span class="font-semibold"><?= formatPrice((float) ($salesTodayAmount ?? 0)) ?></span> en ventas. La semana acumula <span class="font-semibold"><?= formatPrice((float) ($salesWeekAmount ?? 0)) ?></span>.</p>
         <div class="mt-5 flex flex-wrap gap-2">
+            <a href="<?= e(url('/presupuestos/rapido')) ?>" class="inline-flex items-center gap-2 rounded-xl bg-amber-400 px-4 py-2 text-sm font-semibold text-slate-900 shadow-sm">➕ Presupuesto rápido</a>
             <a href="<?= e(url('/presupuestos/crear')) ?>" class="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-900"><i data-lucide="plus" class="h-4 w-4"></i>Nuevo presupuesto</a>
             <a href="<?= e(url('/productos/crear')) ?>" class="inline-flex items-center gap-2 rounded-xl border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold text-white"><i data-lucide="package" class="h-4 w-4"></i>Nuevo producto</a>
         </div>
@@ -33,9 +34,13 @@ $currentMonthIndex = count($labels) > 0 ? count($labels) - 1 : 0;
                     <div class="rounded-xl border border-orange-100 bg-white/80 p-3">
                         <div class="flex flex-wrap items-start justify-between gap-2">
                             <div class="min-w-0">
-                                <a href="<?= e(url('/presupuestos/' . (int) ($pd['id'] ?? 0))) ?>" class="text-sm font-semibold text-[#1565C0] hover:underline">
-                                    <?= e((string) ($pd['quote_number'] ?? '')) ?>
-                                </a>
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <a href="<?= e(url('/presupuestos/' . (int) ($pd['id'] ?? 0))) ?>" class="text-sm font-semibold text-[#1565C0] hover:underline">
+                                        <?= e((string) ($pd['quote_number'] ?? '')) ?>
+                                    </a>
+                                    <?php $status = 'partially_delivered'; ?>
+                                    <?php include APP_PATH . '/Views/components/status_badge.php'; ?>
+                                </div>
                                 <p class="text-xs text-slate-700"><?= e((string) ($pd['client_name'] ?? '—')) ?></p>
                                 <p class="mt-1 text-[11px] text-slate-500"><?= e($detalle !== '' ? $detalle : 'Sin detalle de pendientes') ?></p>
                             </div>
@@ -213,12 +218,16 @@ $currentMonthIndex = count($labels) > 0 ? count($labels) - 1 : 0;
             </div>
             <div class="divide-y divide-gray-100">
                 <?php foreach (($recentQuotes ?? []) as $q): ?>
-                    <a href="<?= e(url('/presupuestos/' . (int) ($q['id'] ?? 0))) ?>" class="flex items-start justify-between py-2">
-                        <span class="min-w-0 pr-3">
+                    <a href="<?= e(url('/presupuestos/' . (int) ($q['id'] ?? 0))) ?>" class="flex items-start justify-between gap-3 py-2">
+                        <span class="min-w-0 flex-1 pr-2">
                             <span class="block text-sm font-medium text-gray-900"><?= e((string) ($q['quote_number'] ?? '')) ?></span>
                             <span class="block text-xs text-gray-500 truncate"><?= e((string) ($q['client_name'] ?? '—')) ?></span>
+                            <span class="mt-1 inline-block">
+                                <?php $status = (string) ($q['status'] ?? ''); ?>
+                                <?php include APP_PATH . '/Views/components/status_badge.php'; ?>
+                            </span>
                         </span>
-                        <span class="text-sm font-medium text-gray-900 whitespace-nowrap"><?= formatPrice((float) ($q['total'] ?? 0)) ?></span>
+                        <span class="shrink-0 text-sm font-medium text-gray-900 whitespace-nowrap"><?= formatPrice((float) ($q['total'] ?? 0)) ?></span>
                     </a>
                 <?php endforeach; ?>
                 <?php if (($recentQuotes ?? []) === []): ?><p class="text-sm text-gray-500 py-2">Sin presupuestos aún</p><?php endif; ?>
@@ -231,6 +240,8 @@ $currentMonthIndex = count($labels) > 0 ? count($labels) - 1 : 0;
         </article>
     </section>
 </div>
+
+<a href="<?= e(url('/presupuestos/rapido')) ?>" class="fixed bottom-5 right-5 z-50 md:hidden inline-flex h-14 w-14 items-center justify-center rounded-full bg-amber-400 text-2xl font-bold text-slate-900 shadow-lg ring-2 ring-white/80 touch-manipulation min-h-[56px] min-w-[56px]" title="Presupuesto rápido" aria-label="Presupuesto rápido">➕</a>
 
 <script>
 (() => {

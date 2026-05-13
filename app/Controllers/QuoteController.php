@@ -81,6 +81,23 @@ final class QuoteController extends Controller
             }
             $statusCounts[$key] = (int) ($row['qty'] ?? 0);
         }
+        $rawPipeline = $db->fetchAll(
+            "SELECT status, COUNT(*) AS cantidad, COALESCE(SUM(total), 0) AS monto_total
+             FROM quotes
+             WHERE status NOT IN ('rejected', 'expired')
+             GROUP BY status"
+        );
+        $pipeline = [];
+        foreach ($rawPipeline as $row) {
+            $key = (string) ($row['status'] ?? '');
+            if ($key === '') {
+                continue;
+            }
+            $pipeline[$key] = [
+                'cantidad' => (int) ($row['cantidad'] ?? 0),
+                'monto_total' => (float) ($row['monto_total'] ?? 0),
+            ];
+        }
         $hasAttach = false;
         try {
             $hasAttach = (bool) $db->fetchColumn("SHOW TABLES LIKE 'quote_attachments'");
@@ -126,6 +143,7 @@ final class QuoteController extends Controller
             'quotes' => $rows,
             'search' => $search,
             'status' => $status,
+            'pipeline' => $pipeline,
             'status_counts' => $statusCounts,
             'sort' => $sort,
             'dir' => strtolower($dir),
@@ -161,6 +179,112 @@ final class QuoteController extends Controller
         }
         flash('success', 'Presupuesto creado.');
         redirect('/presupuestos/' . $res['id']);
+    }
+
+    public function quickCreate(): void
+    {
+        $validity = (int) (setting('quote_validity_days', '7') ?? 7);
+        $this->viewRaw('quotes/quick', [
+            'title' => 'Presupuesto rápido',
+            'quote_validity_days' => max(1, $validity),
+        ]);
+    }
+
+    public function quickStore(): void
+    {
+        header('Content-Type: application/json; charset=utf-8');
+        $raw = (string) file_get_contents('php://input');
+        $data = [];
+        if ($raw !== '' && str_starts_with(trim($raw), '{')) {
+            try {
+                $data = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+            } catch (\Throwable) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => 'JSON inválido.'], JSON_UNESCAPED_UNICODE);
+                return;
+            }
+        }
+        if (!is_array($data)) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Solicitud inválida.'], JSON_UNESCAPED_UNICODE);
+            return;
+        }
+        $token = $data['_csrf'] ?? '';
+        if (!is_string($token) || $token === '' || empty($_SESSION['_csrf']) || !hash_equals($_SESSION['_csrf'], $token)) {
+            http_response_code(419);
+            echo json_encode(['success' => false, 'error' => 'Sesión expirada o token inválido. Recargá la página.'], JSON_UNESCAPED_UNICODE);
+            return;
+        }
+        $clientId = (int) ($data['client_id'] ?? 0);
+        $itemsRaw = $data['items'] ?? null;
+        if ($clientId <= 0 || !is_array($itemsRaw) || $itemsRaw === []) {
+            http_response_code(422);
+            echo json_encode(['success' => false, 'error' => 'Cliente e ítems son obligatorios.'], JSON_UNESCAPED_UNICODE);
+            return;
+        }
+        $postItems = [];
+        foreach ($itemsRaw as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $pid = (int) ($row['product_id'] ?? 0);
+            if ($pid <= 0) {
+                continue;
+            }
+            $qty = (int) ($row['quantity'] ?? 1);
+            if ($qty < 1) {
+                $qty = 1;
+            }
+            $unitRaw = (string) ($row['unit_type'] ?? 'unidad');
+            $unitMode = QuoteLinePricing::normalizeUnitType($unitRaw);
+            $postItems[] = [
+                'product_id' => $pid,
+                'combo_id' => 0,
+                'quantity' => $qty,
+                'unit_type' => $unitMode,
+            ];
+        }
+        if ($postItems === []) {
+            http_response_code(422);
+            echo json_encode(['success' => false, 'error' => 'No hay líneas de producto válidas.'], JSON_UNESCAPED_UNICODE);
+            return;
+        }
+        $markRaw = trim((string) ($data['custom_markup'] ?? ''));
+        $includeIva = !empty($data['include_iva']) && (bool) $data['include_iva'];
+        $validity = (int) ($data['validity_days'] ?? (int) (setting('quote_validity_days', '7') ?? 7));
+        $validity = max(1, $validity);
+
+        $saved = $_POST;
+        $res = ['id' => null, 'error' => 'No se pudo guardar.'];
+        try {
+            $_POST = [
+                'client_id' => (string) $clientId,
+                'title' => '',
+                'notes' => '',
+                'validity_days' => (string) $validity,
+                'custom_markup' => $markRaw,
+                'discount_percentage' => '',
+                'discount_amount' => '',
+                'items' => $postItems,
+            ];
+            if ($includeIva) {
+                $_POST['include_iva'] = '1';
+            }
+            $res = $this->persistQuote(null);
+        } finally {
+            $_POST = $saved;
+        }
+        if ($res['error'] !== null) {
+            http_response_code(422);
+            echo json_encode(['success' => false, 'error' => $res['error']], JSON_UNESCAPED_UNICODE);
+            return;
+        }
+        $id = (int) ($res['id'] ?? 0);
+        echo json_encode([
+            'success' => true,
+            'id' => $id,
+            'redirect' => url('/presupuestos/' . $id),
+        ], JSON_UNESCAPED_UNICODE);
     }
 
     public function show(string $id): void

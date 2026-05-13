@@ -124,8 +124,10 @@ class CriticalFlowsTest extends TestCase
         $protectedRoutes = [
             '/',
             '/presupuestos',
+            '/presupuestos/rapido',
             '/productos',
             '/clientes',
+            '/clientes/1',
             '/stock-actual',
             '/pedidos-proveedor',
             '/cuenta-corriente',

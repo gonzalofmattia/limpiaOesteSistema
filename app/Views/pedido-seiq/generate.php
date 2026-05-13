@@ -10,13 +10,12 @@
             <ul class="mt-2 space-y-1 text-sm text-gray-700 list-disc list-inside">
                 <?php foreach ($acceptedQuotes as $q): ?>
                     <?php $qst = (string) ($q['status'] ?? ''); ?>
-                    <li>
+                    <li class="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <span class="font-mono"><?= e($q['quote_number']) ?></span>
-                        — <?= e($q['client_name'] ?? '—') ?>
-                        (<span class="whitespace-nowrap"><?= formatPrice((float) $q['total']) ?></span>)
-                        <?php if ($qst === 'partially_delivered'): ?>
-                            <span class="ml-1 inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium bg-sky-100 text-sky-900">Entrega parcial</span>
-                        <?php endif; ?>
+                        <span>— <?= e($q['client_name'] ?? '—') ?></span>
+                        <span class="whitespace-nowrap">(<?= formatPrice((float) $q['total']) ?>)</span>
+                        <?php $status = $qst; ?>
+                        <?php include APP_PATH . '/Views/components/status_badge.php'; ?>
                     </li>
                 <?php endforeach; ?>
             </ul>

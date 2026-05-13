@@ -211,4 +211,90 @@ final class ClientReceivableSummary
 
         return round($quotes, 2);
     }
+
+    /** Estados de venta para historial y ranking (incluye entrega parcial). */
+    public static function quoteStatusesForPurchaseHistory(): array
+    {
+        return ['accepted', 'delivered', 'partially_delivered'];
+    }
+
+    /**
+     * Total facturado histórico para mostrar en ficha: si hay cargos tipo invoice en CC, su suma;
+     * si no, suma de presupuestos cerrados (ML net o total) con los mismos estados que el historial.
+     */
+    public static function totalBilledForClient(Database $db, int $clientId): float
+    {
+        if ($clientId <= 0) {
+            return 0.0;
+        }
+        $hasTx = false;
+        try {
+            $hasTx = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
+        } catch (\Throwable) {
+            $hasTx = false;
+        }
+        $inv = 0.0;
+        if ($hasTx) {
+            $inv = (float) $db->fetchColumn(
+                "SELECT COALESCE(SUM(amount), 0) FROM account_transactions
+                 WHERE account_type = 'client' AND account_id = ? AND transaction_type = 'invoice'",
+                [$clientId]
+            );
+        }
+        if ($inv > 0.0) {
+            return round($inv, 2);
+        }
+        $statuses = self::quoteStatusesForPurchaseHistory();
+        $ph = implode(',', array_fill(0, count($statuses), '?'));
+
+        return round(
+            (float) $db->fetchColumn(
+                "SELECT COALESCE(SUM(
+                    CASE
+                        WHEN COALESCE(is_mercadolibre, 0) = 1 THEN COALESCE(ml_net_amount, 0)
+                        ELSE COALESCE(total, 0)
+                    END
+                ), 0) FROM quotes
+                 WHERE client_id = ? AND status IN ({$ph})",
+                array_merge([$clientId], $statuses)
+            ),
+            2
+        );
+    }
+
+    /**
+     * Último cobro registrado en cuenta corriente (monto almacenado positivo).
+     *
+     * @return array{transaction_date:string,amount:float}|null
+     */
+    public static function lastPaymentForClient(Database $db, int $clientId): ?array
+    {
+        if ($clientId <= 0) {
+            return null;
+        }
+        try {
+            $hasTx = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
+            if (!$hasTx) {
+                return null;
+            }
+        } catch (\Throwable) {
+            return null;
+        }
+        $row = $db->fetch(
+            "SELECT transaction_date, amount
+             FROM account_transactions
+             WHERE account_type = 'client' AND account_id = ? AND transaction_type = 'payment'
+             ORDER BY transaction_date DESC, id DESC
+             LIMIT 1",
+            [$clientId]
+        );
+        if (!$row) {
+            return null;
+        }
+
+        return [
+            'transaction_date' => (string) ($row['transaction_date'] ?? ''),
+            'amount' => round((float) ($row['amount'] ?? 0), 2),
+        ];
+    }
 }

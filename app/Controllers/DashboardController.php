@@ -198,7 +198,7 @@ final class DashboardController extends Controller
              LIMIT 5"
         );
         $recentQuotes = $db->fetchAll(
-            "SELECT q.id, q.quote_number, q.total, c.name AS client_name
+            "SELECT q.id, q.quote_number, q.total, q.status, c.name AS client_name
              FROM quotes q
              LEFT JOIN clients c ON c.id = q.client_id
              ORDER BY q.created_at DESC

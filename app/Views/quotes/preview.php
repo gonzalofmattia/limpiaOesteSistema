@@ -54,7 +54,8 @@ $canModifyCredit = empty($readonly) && in_array((string) $st, ['draft', 'sent'],
             <?php endif; ?>
         </div>
         <div class="flex flex-wrap gap-2 items-start">
-            <span class="inline-flex px-2 py-1 rounded-full text-xs font-medium <?= e(statusBadgeClass((string) $st)) ?>"><?= e(statusLabel((string) $st)) ?></span>
+            <?php $status = (string) $st; ?>
+            <?php include APP_PATH . '/Views/components/status_badge.php'; ?>
             <a href="<?= e(url('/presupuestos/' . (int) $quote['id'] . '/pdf')) ?>" class="px-3 py-1.5 rounded-lg bg-[#1a6b3c] text-white text-sm">PDF</a>
             <?php if (empty($readonly)): ?>
                 <a href="#documentos-adjuntos" class="px-3 py-1.5 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50" title="Subir remito o factura">📎 Adjuntos</a>

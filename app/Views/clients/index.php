@@ -34,8 +34,16 @@ $clientsTabUrl = static function (string $tab): string {
 
     return $s !== '' ? $base . '?' . $s : $base;
 };
+$loClientsListPath = parse_url(url('/clientes'), PHP_URL_PATH) ?: '/clientes';
+$loFilterClientsActive = $withDebt || $withFavor || trim((string) ($search ?? '')) !== ''
+    || (int) ($per_page ?? 20) !== 20;
 ?>
-<div class="space-y-5">
+<div class="space-y-5"
+     data-lo-filter-persist
+     data-lo-filter-page="clientes"
+     data-lo-filter-keys="search,with_debt,with_favor,per_page"
+     data-lo-filter-list-path="<?= e($loClientsListPath) ?>"
+     data-lo-filter-clear-url="<?= e(url('/clientes')) ?>">
     <div class="flex justify-end items-center">
         <?php $uiBtnHref = url('/clientes/crear'); $uiBtnLabel = 'Nuevo cliente'; require APP_PATH . '/Views/layout/partials/ui-btn-primary.php'; ?>
     </div>
@@ -44,22 +52,27 @@ $clientsTabUrl = static function (string $tab): string {
         <div class="lo-card p-4"><p class="text-xs text-slate-500">Con saldo</p><p class="text-2xl font-semibold"><?= (int) ($stats['with_debt'] ?? 0) ?></p></div>
         <div class="lo-card p-4"><p class="text-xs text-slate-500">Saldo total</p><p class="text-xl font-semibold"><?= formatPrice((float) ($stats['sum_balance'] ?? 0)) ?></p></div>
     </div>
-    <form method="get" class="flex items-center gap-2">
+    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:flex-wrap">
+    <form method="get" class="flex items-center gap-2 flex-1 min-w-0">
         <input type="hidden" name="per_page" value="<?= (int) ($per_page ?? 20) ?>">
         <?php if ($withDebt): ?>
             <input type="hidden" name="with_debt" value="1">
         <?php elseif ($withFavor): ?>
             <input type="hidden" name="with_favor" value="1">
         <?php endif; ?>
-        <div class="flex-1 h-11 rounded-xl border border-lo-border bg-white px-3 flex items-center gap-2"><i data-lucide="search" class="h-4 w-4 text-slate-400"></i><input type="text" name="search" value="<?= e((string) ($search ?? '')) ?>" placeholder="Buscar por nombre, email o teléfono..." class="w-full bg-transparent outline-none text-sm"></div>
+        <div class="flex-1 min-h-11 rounded-xl border border-lo-border bg-white px-3 flex items-center gap-2"><i data-lucide="search" class="h-4 w-4 text-slate-400 shrink-0"></i><input type="text" name="search" value="<?= e((string) ($search ?? '')) ?>" placeholder="Buscar por nombre, email o teléfono..." class="w-full min-h-11 bg-transparent outline-none text-base md:text-sm"></div>
         <?php require APP_PATH . '/Views/layout/partials/ui-btn-filter.php'; ?>
     </form>
+    <?php if ($loFilterClientsActive): ?>
+        <button type="button" data-lo-filter-clear class="shrink-0 inline-flex min-h-11 items-center justify-center px-4 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50">Limpiar filtros</button>
+    <?php endif; ?>
+    </div>
     <div class="flex gap-2 overflow-x-auto pb-1">
         <a href="<?= e($clientsTabUrl('all')) ?>" class="px-3 h-8 rounded-full inline-flex items-center text-xs font-semibold <?= (!$withDebt && !$withFavor) ? 'bg-slate-900 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-50' ?>">Todos <span class="ml-1 text-[10px] <?= (!$withDebt && !$withFavor) ? 'opacity-80' : '' ?>"><?= (int) ($stats['total'] ?? 0) ?></span></a>
         <a href="<?= e($clientsTabUrl('debt')) ?>" class="px-3 h-8 rounded-full inline-flex items-center text-xs font-semibold <?= $withDebt ? 'bg-slate-900 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-50' ?>">Con deuda <span class="ml-1 text-[10px] <?= $withDebt ? 'opacity-80' : '' ?>"><?= (int) ($stats['with_debt'] ?? 0) ?></span></a>
         <a href="<?= e($clientsTabUrl('favor')) ?>" class="px-3 h-8 rounded-full inline-flex items-center text-xs font-semibold <?= $withFavor ? 'bg-slate-900 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-50' ?>">A favor <span class="ml-1 text-[10px] <?= $withFavor ? 'opacity-80' : '' ?>"><?= (int) ($stats['with_favor'] ?? 0) ?></span></a>
     </div>
-    <div class="lo-table-wrap">
+    <div class="lo-table-wrap hidden md:block">
     <table class="min-w-full text-sm lo-table">
         <thead class="bg-gray-50 border-b border-gray-200 text-gray-600">
             <tr>
@@ -97,7 +110,9 @@ $clientsTabUrl = static function (string $tab): string {
                         <div class="flex items-center gap-3">
                             <span class="h-9 w-9 rounded-full bg-emerald-500 text-white text-xs font-semibold grid place-items-center"><?= e($initials !== '' ? $initials : 'CL') ?></span>
                             <div>
-                                <p class="font-medium truncate max-w-[220px]" title="<?= e((string) ($c['name'] ?? '—')) ?>"><?= e((string) ($c['name'] ?? '—')) ?></p>
+                                <p class="font-medium truncate max-w-[220px]">
+                                    <a href="<?= e(url('/clientes/' . (int) ($c['id'] ?? 0))) ?>" class="text-slate-900 hover:text-lo-blue hover:underline" title="<?= e((string) ($c['name'] ?? '—')) ?>"><?= e((string) ($c['name'] ?? '—')) ?></a>
+                                </p>
                                 <p class="text-xs text-slate-500"><?= e((string) ($c['email'] ?? '—')) ?></p>
                             </div>
                         </div>
@@ -152,6 +167,74 @@ $clientsTabUrl = static function (string $tab): string {
             <?php endforeach; ?>
         </tbody>
     </table>
+</div>
+<div class="md:hidden lo-mobile-card-list">
+    <?php if (($clients ?? []) === []): ?>
+        <p class="text-center text-slate-500 py-10 text-sm">No hay clientes en este listado.</p>
+    <?php endif; ?>
+    <?php foreach ($clients as $c): ?>
+        <?php
+        $balance = isset($c['effective_balance']) ? (float) $c['effective_balance'] : (float) ($c['balance'] ?? 0);
+        $display = ClientReceivableSummary::getClientDisplayStatus($balance, $tolerance);
+        $ultimaRaw = $c['last_quote_at'] ?? null;
+        $ultimaTxt = $fmtUltimaCompra($ultimaRaw);
+        $segmentKey = (string) ($c['client_type'] ?? 'mayorista');
+        $segmentLabel = (string) ($c['segment_label'] ?? ucfirst(str_replace('_', ' ', $segmentKey)));
+        $segmentMarkup = ($c['default_markup'] ?? null) !== null && $c['default_markup'] !== ''
+            ? (float) $c['default_markup']
+            : (float) ($c['segment_default_markup'] ?? 60);
+        $segmentBadge = match ($segmentKey) {
+            'mayorista' => 'bg-blue-100 text-blue-800',
+            'minorista' => 'bg-gray-100 text-gray-800',
+            'barrio_cerrado' => 'bg-green-100 text-green-800',
+            'gastronomico' => 'bg-orange-100 text-orange-800',
+            'mercadolibre' => 'bg-yellow-100 text-yellow-800',
+            default => 'bg-slate-100 text-slate-700',
+        };
+        $initials = strtoupper(substr((string) ($c['name'] ?? ''), 0, 1) . substr((string) ($c['business_name'] ?? ''), 0, 1));
+        ?>
+        <article class="lo-mobile-card shadow-sm">
+            <div class="flex items-start gap-3 mb-2">
+                <span class="h-11 w-11 shrink-0 rounded-full bg-emerald-500 text-white text-sm font-semibold grid place-items-center"><?= e($initials !== '' ? $initials : 'CL') ?></span>
+                <div class="min-w-0 flex-1">
+                    <a href="<?= e(url('/clientes/' . (int) ($c['id'] ?? 0))) ?>" class="text-base font-semibold text-slate-900 hover:text-lo-blue"><?= e((string) ($c['name'] ?? '—')) ?></a>
+                    <p class="text-sm text-slate-500 truncate"><?= e((string) ($c['email'] ?? '—')) ?></p>
+                </div>
+            </div>
+            <div class="flex flex-wrap gap-2 mb-2">
+                <span class="inline-flex px-2 py-1 rounded-full text-xs <?= e($segmentBadge) ?>"><?= e($segmentLabel) ?> (<?= e(number_format($segmentMarkup, 2, ',', '.')) ?>%)</span>
+                <?php if (($display['status'] ?? '') === 'al_dia'): ?>
+                    <span class="inline-flex px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">Al día</span>
+                <?php elseif (($display['status'] ?? '') === 'con_deuda'): ?>
+                    <span class="inline-flex px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700">Deuda <?= formatPrice($balance) ?></span>
+                <?php else: ?>
+                    <span class="inline-flex px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">A favor <?= formatPrice($balance) ?></span>
+                <?php endif; ?>
+            </div>
+            <p class="text-xs text-slate-500 mb-3"><?= $ultimaTxt !== '' ? ('Última compra: ' . e($ultimaTxt)) : 'Sin compras recientes' ?></p>
+            <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+                <a href="<?= e(url('/cuenta-corriente/cliente/' . (int) $c['id'])) ?>" class="min-h-11 min-w-11 inline-flex items-center justify-center rounded-lg border border-slate-200 text-blue-600" title="Cuenta corriente">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-2m0-6h3m0 0l-2-2m2 2l-2 2" /></svg>
+                </a>
+                <button type="button"
+                        @click="window.dispatchEvent(new CustomEvent('abrir-pago', { detail: { clientId: <?= (int) $c['id'] ?>, clientName: <?= e((string) json_encode((string) ($c['name'] ?? 'Cliente'), JSON_UNESCAPED_UNICODE)) ?>, clientBalance: <?= e((string) json_encode((float) $balance)) ?> } }))"
+                        class="min-h-11 min-w-11 inline-flex items-center justify-center rounded-lg border border-slate-200 text-green-600"
+                        title="Registrar pago">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                </button>
+                <a href="<?= e(url('/clientes/' . (int) $c['id'] . '/editar')) ?>" class="min-h-11 min-w-11 inline-flex items-center justify-center rounded-lg border border-slate-200 text-blue-600" title="Editar">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                </a>
+                <?php $deleteFormId = 'delete-client-m-' . (int) $c['id']; ?>
+                <form id="<?= e($deleteFormId) ?>" method="post" action="<?= e(url('/clientes/' . (int) $c['id'] . '/eliminar')) ?>" class="inline ml-auto">
+                    <?= csrfField() ?>
+                    <button type="button" @click="openDeleteModal('<?= e($deleteFormId) ?>', 'el cliente <?= e((string) $c['name']) ?>')" class="min-h-11 min-w-11 inline-flex items-center justify-center rounded-lg border border-red-100 text-red-600" title="Eliminar">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    </button>
+                </form>
+            </div>
+        </article>
+    <?php endforeach; ?>
 </div>
 </div>
 <?php require APP_PATH . '/Views/layout/pagination.php'; ?>

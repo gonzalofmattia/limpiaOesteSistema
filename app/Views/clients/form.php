@@ -34,6 +34,9 @@ $clientFormCfg = json_encode([
     }
     </script>
     <?php if ($isEdit): ?>
+        <div class="mb-3 text-right">
+            <a href="<?= e(url('/clientes/' . (int) ($c['id'] ?? 0))) ?>" class="text-sm text-lo-blue hover:underline">Ver ficha e historial de compras</a>
+        </div>
         <?php $balance = isset($c['effective_balance']) ? (float) $c['effective_balance'] : (float) ($c['balance'] ?? 0); ?>
         <div class="mb-4">
             <?php if ($balance > 0): ?>

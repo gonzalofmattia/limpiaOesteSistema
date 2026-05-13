@@ -241,6 +241,133 @@ final class ClientController extends Controller
         $this->view('clients/form', ['title' => 'Nuevo cliente', 'client' => null, 'segments' => $segments]);
     }
 
+    public function show(string $id): void
+    {
+        $clientId = (int) $id;
+        $db = Database::getInstance();
+        $client = $db->fetch('SELECT * FROM clients WHERE id = ?', [$clientId]);
+        if (!$client) {
+            flash('error', 'No encontrado.');
+            redirect('/clientes');
+            return;
+        }
+
+        $statuses = ClientReceivableSummary::quoteStatusesForPurchaseHistory();
+        $statusPh = implode(',', array_fill(0, count($statuses), '?'));
+        $bindStatuses = array_merge([$clientId], $statuses);
+
+        $recentQuotes = [];
+        $purchaseSummary = ['total_count' => 0, 'avg_ticket' => 0.0, 'last_purchase_at' => null];
+        $topProducts = [];
+        try {
+            $recentQuotes = $db->fetchAll(
+                "SELECT q.id, q.sale_number, q.quote_number, q.status, q.total, q.created_at, q.notes,
+                        COALESCE(q.is_mercadolibre, 0) AS is_mercadolibre, COALESCE(q.ml_net_amount, 0) AS ml_net_amount
+                 FROM quotes q
+                 WHERE q.client_id = ? AND q.status IN ({$statusPh})
+                 ORDER BY q.created_at DESC
+                 LIMIT 20",
+                $bindStatuses
+            );
+            $ticketExpr = "CASE WHEN COALESCE(q.is_mercadolibre, 0) = 1 THEN COALESCE(q.ml_net_amount, 0) ELSE COALESCE(q.total, 0) END";
+            $rowSum = $db->fetch(
+                "SELECT COUNT(*) AS total_count,
+                        COALESCE(AVG({$ticketExpr}), 0) AS avg_ticket,
+                        MAX(q.created_at) AS last_purchase_at
+                 FROM quotes q
+                 WHERE q.client_id = ? AND q.status IN ({$statusPh})",
+                $bindStatuses
+            );
+            if ($rowSum) {
+                $purchaseSummary['total_count'] = (int) ($rowSum['total_count'] ?? 0);
+                $purchaseSummary['avg_ticket'] = round((float) ($rowSum['avg_ticket'] ?? 0), 2);
+                $purchaseSummary['last_purchase_at'] = $rowSum['last_purchase_at'] ?? null;
+            }
+
+            $hasComboProducts = (bool) $db->fetchColumn("SHOW TABLES LIKE 'combo_products'");
+            if ($hasComboProducts) {
+                $topBind = array_merge([$clientId], $statuses, [$clientId], $statuses);
+                $topProducts = $db->fetchAll(
+                    "SELECT p.id, p.name,
+                            SUM(x.line_units) AS total_units,
+                            MAX(x.created_at) AS last_purchase
+                     FROM (
+                         SELECT qi.product_id AS pid, qi.quantity AS line_units, q.created_at
+                         FROM quote_items qi
+                         INNER JOIN quotes q ON q.id = qi.quote_id
+                         WHERE q.client_id = ? AND q.status IN ({$statusPh}) AND qi.product_id IS NOT NULL
+                         UNION ALL
+                         SELECT cp.product_id, qi.quantity * cp.quantity, q.created_at
+                         FROM quote_items qi
+                         INNER JOIN quotes q ON q.id = qi.quote_id
+                         INNER JOIN combo_products cp ON cp.combo_id = qi.combo_id
+                         WHERE q.client_id = ? AND q.status IN ({$statusPh}) AND qi.combo_id IS NOT NULL
+                     ) x
+                     INNER JOIN products p ON p.id = x.pid
+                     GROUP BY p.id, p.name
+                     ORDER BY total_units DESC
+                     LIMIT 10",
+                    $topBind
+                );
+            } else {
+                $topProducts = $db->fetchAll(
+                    "SELECT p.id, p.name,
+                            SUM(qi.quantity) AS total_units,
+                            MAX(q.created_at) AS last_purchase
+                     FROM quote_items qi
+                     INNER JOIN quotes q ON q.id = qi.quote_id
+                     INNER JOIN products p ON p.id = qi.product_id
+                     WHERE q.client_id = ? AND q.status IN ({$statusPh}) AND qi.product_id IS NOT NULL
+                     GROUP BY p.id, p.name
+                     ORDER BY total_units DESC
+                     LIMIT 10",
+                    $bindStatuses
+                );
+            }
+        } catch (\Throwable) {
+            $recentQuotes = [];
+            $topProducts = [];
+        }
+
+        $balance = round((float) ($client['balance'] ?? 0), 2);
+        $totalBilled = 0.0;
+        $lastPayment = null;
+        try {
+            if ((bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'")) {
+                $balance = ClientReceivableSummary::hybridBalanceForClient($db, $clientId);
+                $totalBilled = ClientReceivableSummary::totalBilledForClient($db, $clientId);
+                $lastPayment = ClientReceivableSummary::lastPaymentForClient($db, $clientId);
+            } else {
+                $totalBilled = ClientReceivableSummary::totalBilledForClient($db, $clientId);
+            }
+        } catch (\Throwable) {
+            // fallback ya asignado
+        }
+
+        $lastQuoteId = $recentQuotes !== [] ? (int) ($recentQuotes[0]['id'] ?? 0) : null;
+        if ($lastQuoteId === 0) {
+            $lastQuoteId = null;
+        }
+
+        $tolerance = (float) (setting('balance_tolerance', '800') ?? '800');
+        if ($tolerance < 0) {
+            $tolerance = 0.0;
+        }
+
+        $this->view('clients/show', [
+            'title' => (string) ($client['name'] ?? 'Cliente'),
+            'client' => $client,
+            'recent_quotes' => $recentQuotes,
+            'purchase_summary' => $purchaseSummary,
+            'top_products' => $topProducts,
+            'balance' => $balance,
+            'total_billed' => $totalBilled,
+            'last_payment' => $lastPayment,
+            'last_quote_id' => $lastQuoteId,
+            'balance_tolerance' => $tolerance,
+        ]);
+    }
+
     public function store(): void
     {
         if (!verifyCsrf()) {

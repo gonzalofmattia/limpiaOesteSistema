@@ -59,7 +59,10 @@ $remainderRows = array_values(array_filter($items, static fn ($it) => (int) ($it
                     <li>
                         <a href="<?= e(url('/presupuestos/' . (int) $q['id'])) ?>" class="text-[#1565C0] hover:underline font-mono"><?= e($q['quote_number']) ?></a>
                         — <?= e($q['client_name'] ?? '—') ?>
-                        <span class="text-gray-500">(<?= e($q['status']) ?>)</span>
+                        <span class="ml-1 align-middle inline-block">
+                            <?php $status = (string) ($q['status'] ?? ''); ?>
+                            <?php include APP_PATH . '/Views/components/status_badge.php'; ?>
+                        </span>
                     </li>
                 <?php endforeach; ?>
             </ul>

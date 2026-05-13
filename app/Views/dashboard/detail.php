@@ -35,7 +35,10 @@ $rows = is_array($rows ?? null) ? $rows : [];
                                 </div>
                                 <div class="text-right">
                                     <p class="text-sm font-semibold text-gray-800"><?= formatPrice((float) ($row['total'] ?? 0)) ?></p>
-                                    <p class="text-xs text-gray-500"><?= e((string) ($row['status'] ?? '')) ?></p>
+                                    <span class="mt-0.5 inline-block">
+                                        <?php $status = (string) ($row['status'] ?? ''); ?>
+                                        <?php include APP_PATH . '/Views/components/status_badge.php'; ?>
+                                    </span>
                                 </div>
                             </div>
                         </a>

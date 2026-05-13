@@ -65,13 +65,13 @@ window.__quoteForm = {
             <p>No se pueden eliminar ni reducir cantidades por debajo de lo ya entregado en productos con entregas.</p>
         </div>
         <?php endif; ?>
-        <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 grid sm:grid-cols-2 gap-4">
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 md:p-6 grid sm:grid-cols-2 gap-4">
             <div class="sm:col-span-2">
                 <label class="block text-sm font-medium text-gray-700 mb-1">Cliente</label>
-                <div class="flex flex-col sm:flex-row sm:items-start gap-2">
-                    <div class="flex-1 min-w-0">
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-start">
+                    <div class="w-full flex-1 min-w-0">
                         <select name="client_id" required x-model.number="selectedClientId" @change="onClientChanged()"
-                                class="w-full sm:flex-1 rounded-lg px-3 py-2 text-sm border transition-colors"
+                                class="w-full rounded-lg px-3 py-2.5 text-base md:text-sm border transition-colors min-h-11"
                                 :class="clientFieldInvalid() ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-300'">
                             <option value="">Seleccionar…</option>
                             <template x-for="client in clients" :key="client.id">
@@ -84,7 +84,7 @@ window.__quoteForm = {
                     </div>
                     <button type="button"
                             @click="openQuickClientModal()"
-                            class="shrink-0 px-3 py-2 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 self-start">
+                            class="w-full sm:w-auto shrink-0 min-h-11 px-4 py-2 rounded-lg border border-gray-300 text-base md:text-sm text-gray-700 hover:bg-gray-50 self-start">
                         + Nuevo
                     </button>
                 </div>
@@ -92,7 +92,7 @@ window.__quoteForm = {
             <div class="sm:col-span-2">
                 <label class="block text-sm font-medium text-gray-700 mb-1">Título (opcional)</label>
                 <input type="text" name="title" value="<?= e($q['title'] ?? '') ?>"
-                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-base md:text-sm min-h-11">
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Markup presupuesto (%)</label>
@@ -100,94 +100,105 @@ window.__quoteForm = {
                        x-model="customMarkup"
                        @change="refreshAllLinePrices()"
                        value="<?= isset($q['custom_markup']) && $q['custom_markup'] !== null && $q['custom_markup'] !== '' ? e((string) $q['custom_markup']) : '' ?>"
-                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-base md:text-sm min-h-11">
                 <p class="text-xs text-gray-500 mt-1" x-show="clientMarkupInfo" x-text="clientMarkupInfo"></p>
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Validez (días)</label>
                 <input type="number" name="validity_days" min="1" value="<?= e((string) ($q['validity_days'] ?? setting('quote_validity_days', '7'))) ?>"
-                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-base md:text-sm min-h-11">
             </div>
             <label class="inline-flex items-center gap-2 text-sm sm:col-span-2">
                 <input type="checkbox" name="include_iva" value="1" x-model="includeIva" @change="refreshAllLinePrices()" <?= !empty($q['include_iva']) ? 'checked' : '' ?>> Incluir IVA en precios unitarios
             </label>
             <div class="sm:col-span-2">
                 <label class="block text-sm font-medium text-gray-700 mb-1">Notas / condiciones</label>
-                <textarea name="notes" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"><?= e($q['notes'] ?? '') ?></textarea>
+                <textarea name="notes" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-base md:text-sm min-h-[5rem]"><?= e($q['notes'] ?? '') ?></textarea>
             </div>
         </div>
 
-        <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-            <div class="flex justify-between items-center mb-4">
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 md:p-6">
+            <div class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-4">
                 <h2 class="text-sm font-semibold text-gray-800">Ítems</h2>
-                <div class="flex gap-3">
-                    <button type="button" @click="addLine()" class="text-sm text-[#1565C0] hover:underline">+ Agregar producto</button>
-                    <button type="button" @click="addComboLine()" class="text-sm text-[#1a6b3c] hover:underline">+ Agregar combo</button>
+                <div class="flex flex-col gap-2 sm:flex-row sm:gap-3 w-full sm:w-auto">
+                    <button type="button" @click="addLine()" class="min-h-11 px-3 rounded-lg border border-blue-200 bg-blue-50/50 text-sm font-medium text-[#1565C0] text-center md:border-0 md:bg-transparent md:min-h-0 md:px-0 md:text-left md:hover:underline">+ Agregar producto</button>
+                    <button type="button" @click="addComboLine()" class="min-h-11 px-3 rounded-lg border border-emerald-200 bg-emerald-50/50 text-sm font-medium text-[#1a6b3c] text-center md:border-0 md:bg-transparent md:min-h-0 md:px-0 md:text-left md:hover:underline">+ Agregar combo</button>
                 </div>
             </div>
             <div class="space-y-4 mb-4">
                 <template x-for="(line, idx) in lines" :key="idx">
-                    <div class="border border-gray-200 rounded-lg p-4 grid md:grid-cols-12 gap-3 items-end">
-                        <div class="md:col-span-5" x-show="line.unit_type !== 'combo'">
+                    <div class="border border-gray-200 rounded-xl p-4 space-y-3 md:space-y-0 md:grid md:grid-cols-12 md:gap-3 md:items-end">
+                        <div class="w-full md:col-span-5" x-show="line.unit_type !== 'combo'">
                             <label class="block text-xs text-gray-500 mb-1">Buscar producto</label>
                             <input type="text" x-model="line.query" @input.debounce.300ms="search(idx)" placeholder="Código o nombre…"
-                                   class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
-                            <div x-show="line.results && line.results.length" class="mt-1 border border-gray-200 rounded bg-white max-h-40 overflow-y-auto text-sm shadow">
+                                   class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-base md:text-sm min-h-11">
+                            <div x-show="line.results && line.results.length" class="mt-1 border border-gray-200 rounded-lg bg-white max-h-48 overflow-y-auto text-base md:text-sm shadow">
                                 <template x-for="r in line.results" :key="r.id">
-                                    <button type="button" class="block w-full text-left px-2 py-1.5 hover:bg-gray-50 border-b border-gray-50 last:border-0" @click="pick(idx, r)">
+                                    <button type="button" class="block w-full text-left px-3 py-3 min-h-12 md:min-h-0 md:px-2 md:py-1.5 hover:bg-gray-50 border-b border-gray-50 last:border-0 active:bg-gray-100" @click="pick(idx, r)">
                                         <span class="block font-medium text-gray-900" x-text="r.code + ' — ' + r.name"></span>
                                         <span class="block text-xs text-gray-500 mt-0.5" x-show="r.category_context" x-text="r.category_context"></span>
                                     </button>
                                 </template>
                             </div>
-                            <p class="text-xs text-gray-600 mt-1" x-show="line.product_id">
-                                <span class="block font-medium text-gray-800" x-text="line.name"></span>
-                                <span class="block text-gray-500 mt-0.5" x-show="line.category_context" x-text="line.category_context"></span>
-                                <span class="block text-gray-500 mt-0.5" x-show="line.markup_percent !== null">
-                                    Markup aplicado:
-                                    <span x-text="Number(line.markup_percent).toFixed(2) + '%'"></span>
+                            <div class="mt-2 space-y-1" x-show="line.product_id">
+                                <p class="text-base md:text-sm font-semibold text-gray-900 leading-snug" x-text="line.name"></p>
+                                <p class="text-xs text-gray-500" x-show="line.category_context" x-text="line.category_context"></p>
+                                <p class="text-xs text-gray-500" x-show="line.markup_percent !== null">
+                                    Markup: <span x-text="Number(line.markup_percent).toFixed(2) + '%'"></span>
                                     <span x-show="line.markup_locked" title="Markup protegido por categoría">🔒</span>
-                                </span>
-                            </p>
+                                </p>
+                            </div>
                         </div>
-                        <div class="md:col-span-5" x-show="line.unit_type === 'combo'">
+                        <div class="w-full md:col-span-5" x-show="line.unit_type === 'combo'">
                             <label class="block text-xs text-gray-500 mb-1">Combo</label>
-                            <select x-model.number="line.combo_id" @change="pickCombo(idx)" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
+                            <select x-model.number="line.combo_id" @change="pickCombo(idx)" class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-base md:text-sm min-h-11">
                                 <option value="0">Seleccionar combo...</option>
                                 <template x-for="c in combos" :key="c.id">
                                     <option :value="c.id" x-text="c.name + ' — ' + formatCurrency(c.final_price || 0)"></option>
                                 </template>
                             </select>
-                            <p class="text-xs text-gray-600 mt-1" x-show="line.name" x-text="line.name"></p>
+                            <p class="text-base md:text-sm font-semibold text-gray-900 mt-2" x-show="line.name" x-text="line.name"></p>
+                            <div class="mt-2 flex items-center justify-between gap-2 md:hidden border-t border-gray-100 pt-3" x-show="line.combo_id">
+                                <span class="text-xs text-gray-500">Precio combo</span>
+                                <span class="text-base font-semibold text-gray-900" x-text="formatCurrency(line.unit_price)"></span>
+                            </div>
                         </div>
-                        <div class="md:col-span-2">
+                        <div class="w-full md:col-span-3" x-show="line.unit_type !== 'combo'">
+                            <label class="block text-xs text-gray-500 mb-1">Presentación</label>
+                            <div class="flex flex-col gap-2 sm:flex-row sm:items-center md:block md:space-y-0">
+                                <select x-model="line.unit_type" @change="updateLinePrice(idx)" class="w-full flex-1 border border-gray-300 rounded-lg px-3 py-2.5 text-base md:text-sm min-h-11">
+                                    <option value="caja" x-text="line.pack_label || 'Presentación'"></option>
+                                    <option value="unidad">Unidad</option>
+                                </select>
+                                <p class="text-base font-semibold text-gray-900 shrink-0 md:hidden" x-text="formatCurrency(line.unit_price)"></p>
+                            </div>
+                            <p class="hidden md:block text-xs text-gray-500 mt-1" x-show="line.product_id">Precio unit.: <span class="font-medium text-gray-800" x-text="formatCurrency(line.unit_price)"></span></p>
+                        </div>
+                        <div class="hidden md:block w-full md:col-span-3" x-show="line.unit_type === 'combo'">
+                            <label class="block text-xs text-gray-500 mb-1">Tipo</label>
+                            <p class="min-h-11 flex items-center text-base md:text-sm text-gray-700">Combo</p>
+                        </div>
+                        <div class="w-full md:col-span-2">
                             <label class="block text-xs text-gray-500 mb-1">Cantidad</label>
-                            <input type="number" min="1" step="1" x-model.number="line.quantity" @input="recalculateDiscountIfAuto()"
-                                   class="w-full rounded-lg px-2 py-1.5 text-sm border transition-colors"
-                                   :class="lineQuantityInvalid(line) ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-300'">
+                            <div class="flex items-stretch gap-2">
+                                <button type="button" class="md:hidden shrink-0 w-11 h-11 rounded-lg border-2 border-gray-300 text-xl font-semibold leading-none text-gray-800 bg-gray-50 active:bg-gray-100 flex items-center justify-center" @click="adjustQty(idx, -1)" aria-label="Menos">−</button>
+                                <input type="number" min="1" step="1" x-model.number="line.quantity" @input="recalculateDiscountIfAuto()"
+                                       class="flex-1 min-w-0 text-center md:text-left rounded-lg px-3 py-2.5 text-base md:text-sm border transition-colors min-h-11"
+                                       :class="lineQuantityInvalid(line) ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-300'">
+                                <button type="button" class="md:hidden shrink-0 w-11 h-11 rounded-lg border-2 border-gray-300 text-xl font-semibold leading-none text-gray-800 bg-gray-50 active:bg-gray-100 flex items-center justify-center" @click="adjustQty(idx, 1)" aria-label="Más">+</button>
+                            </div>
                             <div x-show="lineQuantityInvalid(line)" x-transition.opacity.duration.200ms class="mt-1">
                                 <p class="text-xs text-red-600">La cantidad debe ser al menos 1</p>
                             </div>
                         </div>
-                        <div class="md:col-span-3" x-show="line.unit_type !== 'combo'">
-                            <label class="block text-xs text-gray-500 mb-1">Presentación</label>
-                            <select x-model="line.unit_type" @change="updateLinePrice(idx)" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
-                                <option value="caja" x-text="line.pack_label || 'Presentación'"></option>
-                                <option value="unidad">Unidad</option>
-                            </select>
-                        </div>
-                        <div class="md:col-span-3" x-show="line.unit_type === 'combo'">
-                            <label class="block text-xs text-gray-500 mb-1">Tipo</label>
-                            <p class="h-9 flex items-center text-sm text-gray-700">Combo</p>
-                        </div>
-                        <div class="md:col-span-2 flex justify-end">
-                            <button type="button" class="text-red-600 text-sm" @click="remove(idx)">Quitar</button>
+                        <div class="w-full md:col-span-2 flex md:justify-end pt-1 md:pt-0">
+                            <button type="button" class="min-h-11 w-full md:w-auto px-4 rounded-lg border border-red-100 md:border-0 text-red-600 text-sm font-semibold hover:bg-red-50" @click="remove(idx)">Quitar ítem</button>
                         </div>
                         <input type="hidden" :name="'items['+idx+'][product_id]'" :value="line.product_id">
                         <input type="hidden" :name="'items['+idx+'][combo_id]'" :value="line.combo_id">
                         <input type="hidden" :name="'items['+idx+'][quantity]'" :value="line.quantity">
                         <input type="hidden" :name="'items['+idx+'][unit_type]'" :value="line.unit_type">
-                        <div class="md:col-span-12" x-show="line.stock_warnings && line.stock_warnings.length">
+                        <div class="w-full md:col-span-12" x-show="line.stock_warnings && line.stock_warnings.length">
                             <div class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                                 <template x-for="(warn, widx) in line.stock_warnings" :key="widx">
                                     <p x-text="'⚠️ ' + warn"></p>
@@ -208,12 +219,12 @@ window.__quoteForm = {
                 <div>
                     <label class="block text-xs text-gray-500 mb-1">Porcentaje de descuento (%)</label>
                     <input type="number" min="0" max="100" step="0.01" x-model="discountPercentage" @change="onDiscountPercentageChange()" @blur="onDiscountPercentageChange()"
-                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Ej: 10">
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-base md:text-sm min-h-11" placeholder="Ej: 10">
                 </div>
                 <div>
                     <label class="block text-xs text-gray-500 mb-1">Monto de descuento ($)</label>
                     <input type="number" min="0" step="0.01" x-model="discountAmount" @change="onDiscountAmountManualInput()" @blur="onDiscountAmountManualInput()"
-                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Ej: 15000">
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-base md:text-sm min-h-11" placeholder="Ej: 15000">
                     <p class="text-xs text-gray-500 mt-1" x-show="discountManuallyEdited">Monto ajustado manualmente.</p>
                 </div>
                 <div class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
@@ -233,10 +244,10 @@ window.__quoteForm = {
             <button type="submit"
                     :disabled="!formValid()"
                     :class="formValid() ? '' : 'opacity-50 cursor-not-allowed pointer-events-none'"
-                    class="px-5 py-2.5 rounded-lg bg-[#1a6b3c] text-white text-sm font-medium">
+                    class="min-h-11 px-5 py-3 rounded-lg bg-[#1a6b3c] text-white text-base md:text-sm font-medium">
                 Guardar presupuesto
             </button>
-            <a href="<?= e(url('/presupuestos')) ?>" class="px-5 py-2.5 rounded-lg border border-gray-300 text-sm text-center sm:text-left">Cancelar</a>
+            <a href="<?= e(url('/presupuestos')) ?>" class="min-h-11 px-5 py-3 rounded-lg border border-gray-300 text-base md:text-sm text-center sm:text-left flex items-center justify-center">Cancelar</a>
         </div>
     </form>
 
@@ -514,6 +525,15 @@ function quoteForm() {
             this.recalculateDiscountIfAuto();
         },
         remove(i) { this.lines.splice(i, 1); if (this.lines.length === 0) this.addLine(); this.recalculateDiscountIfAuto(); },
+        adjustQty(i, delta) {
+            const line = this.lines[i];
+            let q = parseInt(line.quantity, 10) || 1;
+            q += delta;
+            if (q < 1) q = 1;
+            line.quantity = q;
+            this.recalculateDiscountIfAuto();
+            this.computeLineStockWarnings(line);
+        },
         async search(i) {
             const line = this.lines[i];
             if (line.unit_type === 'combo') {
