@@ -16,7 +16,7 @@ final class App
         session_name($config['session_name'] ?? 'limpia_oeste_session');
         session_set_cookie_params([
             'httponly' => true,
-            'secure'   => true,
+            'secure'   => false,
             'samesite' => 'Lax',
         ]);
         if (session_status() !== PHP_SESSION_ACTIVE) {
