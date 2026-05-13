@@ -466,6 +466,29 @@ try {
 }
 
 try {
+    if (!$installColumnExists($pdo, 'seiq_orders', 'invoice_number')) {
+        $pdo->exec('ALTER TABLE seiq_orders ADD COLUMN invoice_number VARCHAR(50) NULL AFTER receipt_stock_applied');
+    }
+    if (!$installColumnExists($pdo, 'seiq_orders', 'invoice_date')) {
+        $pdo->exec('ALTER TABLE seiq_orders ADD COLUMN invoice_date DATE NULL AFTER invoice_number');
+    }
+    if (!$installColumnExists($pdo, 'seiq_orders', 'invoice_amount')) {
+        $pdo->exec('ALTER TABLE seiq_orders ADD COLUMN invoice_amount DECIMAL(12,2) NULL AFTER invoice_date');
+    }
+    if (!$installColumnExists($pdo, 'seiq_orders', 'received_with_order_id')) {
+        $pdo->exec('ALTER TABLE seiq_orders ADD COLUMN received_with_order_id INT NULL AFTER invoice_amount');
+        try {
+            $pdo->exec('ALTER TABLE seiq_orders ADD INDEX idx_received_with (received_with_order_id)');
+        } catch (PDOException $e) {
+            warn('Índice idx_received_with: ' . $e->getMessage());
+        }
+    }
+    ok('Migración seiq_orders factura consolidada (si aplica)');
+} catch (PDOException $e) {
+    warn('Migración seiq_orders factura consolidada: ' . $e->getMessage());
+}
+
+try {
     $pdo->exec(<<<'SQL'
 CREATE TABLE IF NOT EXISTS seiq_orders (
     id INT AUTO_INCREMENT PRIMARY KEY,

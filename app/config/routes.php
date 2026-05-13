@@ -102,6 +102,8 @@ return [
     ['GET', 'pedidos-proveedor/{id}/pdf', 'SeiqOrderController@downloadPdf', []],
     ['GET', 'pedidos-proveedor/{id}/pdf-precios', 'SeiqOrderController@downloadPdfWithPrices', []],
     ['POST', 'pedidos-proveedor/{id}/status', 'SeiqOrderController@changeStatus', []],
+    ['POST', 'pedidos-proveedor/{id}/recibir', 'SeiqOrderController@receiveOrder', []],
+    ['GET', 'api/pedidos-proveedor/{id}/companions', 'SeiqOrderController@apiSentCompanions', []],
     ['POST', 'pedidos-proveedor/{id}/quotes-delivered', 'SeiqOrderController@markQuotesDelivered', []],
     ['POST', 'pedidos-proveedor/{id}/delete', 'SeiqOrderController@delete', []],
 

@@ -313,6 +313,36 @@ final class SeiqOrderController extends Controller
             $suggestedReceivedAmount = (float) $existingInvoice['amount'];
         }
 
+        // Pedidos recibidos en conjunto con éste (si este es el «principal»)
+        $companionOrders = [];
+        if ((int) ($order['id'] ?? 0) > 0) {
+            $companionOrders = $db->fetchAll(
+                "SELECT id, order_number, total_boxes, total_products, status
+                 FROM seiq_orders
+                 WHERE received_with_order_id = ?
+                 ORDER BY order_number",
+                [(int) $order['id']]
+            );
+        }
+        // Si este pedido fue recibido junto a otro principal, traer el principal y sus hermanos
+        $mainOrder = null;
+        $siblingOrders = [];
+        $mainOrderId = (int) ($order['received_with_order_id'] ?? 0);
+        if ($mainOrderId > 0 && $mainOrderId !== (int) $order['id']) {
+            $mainOrder = $db->fetch(
+                'SELECT id, order_number, invoice_number, invoice_date, invoice_amount
+                 FROM seiq_orders WHERE id = ?',
+                [$mainOrderId]
+            );
+            $siblingOrders = $db->fetchAll(
+                "SELECT id, order_number, total_boxes, total_products, status
+                 FROM seiq_orders
+                 WHERE received_with_order_id = ? AND id <> ?
+                 ORDER BY order_number",
+                [$mainOrderId, (int) $order['id']]
+            );
+        }
+
         $this->view('pedido-seiq/show', [
             'title' => 'Pedido ' . $order['order_number'],
             'order' => $order,
@@ -320,6 +350,9 @@ final class SeiqOrderController extends Controller
             'includedQuotes' => $includedQuotes,
             'waMessage' => $waMessage,
             'suggestedReceivedAmount' => round($suggestedReceivedAmount, 2),
+            'companionOrders' => $companionOrders,
+            'mainOrder' => $mainOrder,
+            'siblingOrders' => $siblingOrders,
         ]);
     }
 
@@ -544,6 +577,206 @@ final class SeiqOrderController extends Controller
         }
 
         flash('success', 'Estado actualizado.' . $stockMessage);
+        redirect('/pedidos-proveedor/' . $id);
+    }
+
+    /**
+     * Devuelve en JSON los pedidos «sent» del mismo proveedor (excluyendo el actual)
+     * para ofrecerlos como acompañantes en el modal de recepción.
+     */
+    public function apiSentCompanions(string $id): void
+    {
+        $db = Database::getInstance();
+        $orderId = (int) $id;
+        $order = $db->fetch('SELECT supplier_id FROM seiq_orders WHERE id = ?', [$orderId]);
+        if (!$order) {
+            $this->json(['orders' => []], 404);
+            return;
+        }
+        $supplierId = (int) ($order['supplier_id'] ?? 0);
+        if ($supplierId <= 0) {
+            $this->json(['orders' => []]);
+            return;
+        }
+        $rows = $db->fetchAll(
+            "SELECT id, order_number, total_boxes, total_products, sent_at, created_at
+             FROM seiq_orders
+             WHERE supplier_id = ? AND status = 'sent' AND id <> ?
+             ORDER BY created_at ASC",
+            [$supplierId, $orderId]
+        );
+        $orders = [];
+        foreach ($rows as $r) {
+            $oid = (int) $r['id'];
+            $suggested = $this->calculateSeiqOrderTotal($oid);
+            $orders[] = [
+                'id' => $oid,
+                'order_number' => (string) ($r['order_number'] ?? ''),
+                'total_boxes' => (int) ($r['total_boxes'] ?? 0),
+                'total_products' => (int) ($r['total_products'] ?? 0),
+                'sent_at' => (string) ($r['sent_at'] ?? ''),
+                'created_at' => (string) ($r['created_at'] ?? ''),
+                'suggested_amount' => $suggested,
+                'suggested_amount_formatted' => number_format($suggested, 2, ',', '.'),
+            ];
+        }
+        $this->json(['orders' => $orders]);
+    }
+
+    /**
+     * Recepción «consolidada»: el modal envía monto real, número y fecha de la factura
+     * del proveedor, opcionalmente junto a otros pedidos «sent» cubiertos por la misma
+     * factura. Cada pedido pasa a «received» y se aplica el stock; se crea UN SOLO
+     * asiento en account_transactions sobre el pedido principal.
+     */
+    public function receiveOrder(string $id): void
+    {
+        if (!verifyCsrf()) {
+            flash('error', 'Token inválido.');
+            redirect('/pedidos-proveedor/' . $id);
+            return;
+        }
+        $db = Database::getInstance();
+        if (!$this->ensureSeiqSchema($db)) {
+            return;
+        }
+        $orderId = (int) $id;
+        $order = $db->fetch('SELECT * FROM seiq_orders WHERE id = ?', [$orderId]);
+        if (!$order) {
+            flash('error', 'Pedido no encontrado.');
+            redirect('/pedidos-proveedor');
+            return;
+        }
+        if ((string) ($order['status'] ?? '') === 'received') {
+            flash('error', 'El pedido ya fue recibido.');
+            redirect('/pedidos-proveedor/' . $id);
+            return;
+        }
+
+        $supplierId = (int) ($order['supplier_id'] ?? 0);
+        $invoiceAmount = parseArgentineAmount((string) $this->input('invoice_amount', '0'));
+        if ($invoiceAmount <= 0) {
+            flash('error', 'Ingresá el monto real de la factura del proveedor.');
+            redirect('/pedidos-proveedor/' . $id);
+            return;
+        }
+        $invoiceNumber = trim((string) $this->input('invoice_number', ''));
+        $invoiceDateRaw = trim((string) $this->input('invoice_date', date('Y-m-d')));
+        if ($invoiceDateRaw === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $invoiceDateRaw)) {
+            $invoiceDateRaw = date('Y-m-d');
+        }
+        $invoiceDate = $invoiceDateRaw;
+
+        $companionsRaw = $_POST['companion_orders'] ?? [];
+        $companionIds = [];
+        if (is_array($companionsRaw)) {
+            foreach ($companionsRaw as $cid) {
+                $cidInt = (int) $cid;
+                if ($cidInt > 0 && $cidInt !== $orderId) {
+                    $companionIds[$cidInt] = true;
+                }
+            }
+        }
+        $companionIds = array_keys($companionIds);
+
+        if ($companionIds !== [] && $supplierId > 0) {
+            $ph = implode(',', array_fill(0, count($companionIds), '?'));
+            $params = array_merge(array_map('intval', $companionIds), [$supplierId]);
+            $validCompanions = $db->fetchAll(
+                "SELECT id FROM seiq_orders
+                 WHERE id IN ({$ph}) AND supplier_id = ? AND status = 'sent'",
+                $params
+            );
+            $companionIds = array_map(static fn ($r): int => (int) $r['id'], $validCompanions);
+        } else {
+            $companionIds = [];
+        }
+
+        $allOrderIds = array_values(array_unique(array_merge([$orderId], $companionIds)));
+
+        $pdo = $db->getPdo();
+        $pdo->beginTransaction();
+        try {
+            $receivedAt = date('Y-m-d H:i:s');
+            $orderNumbers = [];
+            foreach ($allOrderIds as $oid) {
+                $row = $db->fetch(
+                    'SELECT id, order_number, status, receipt_stock_applied
+                     FROM seiq_orders WHERE id = ?',
+                    [$oid]
+                );
+                if (!$row) {
+                    continue;
+                }
+                $orderNumbers[] = (string) ($row['order_number'] ?? '');
+                $prevStatus = (string) ($row['status'] ?? '');
+                $alreadyApplied = (int) ($row['receipt_stock_applied'] ?? 0) === 1;
+
+                $data = [
+                    'status' => 'received',
+                    'received_at' => $receivedAt,
+                    'invoice_number' => $invoiceNumber !== '' ? $invoiceNumber : null,
+                    'invoice_date' => $invoiceDate,
+                ];
+                if ($oid === $orderId) {
+                    $data['invoice_amount'] = round($invoiceAmount, 2);
+                    $data['received_with_order_id'] = null;
+                } else {
+                    $data['invoice_amount'] = null;
+                    $data['received_with_order_id'] = $orderId;
+                }
+                if ($prevStatus !== 'received' && !$alreadyApplied) {
+                    $this->applySupplierOrderStockDelta($db, $oid, 1);
+                    $data['receipt_stock_applied'] = 1;
+                }
+                $db->update('seiq_orders', $data, 'id = :id', ['id' => $oid]);
+            }
+
+            $hasAccountTable = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
+            if ($hasAccountTable && $supplierId > 0) {
+                $existing = $db->fetch(
+                    "SELECT id FROM account_transactions
+                     WHERE reference_type = 'seiq_order' AND reference_id = ? AND transaction_type = 'invoice'
+                     LIMIT 1",
+                    [$orderId]
+                );
+                $descriptionParts = [];
+                if ($invoiceNumber !== '') {
+                    $descriptionParts[] = 'Factura ' . $invoiceNumber;
+                }
+                $descriptionParts[] = 'Pedido' . (count($orderNumbers) > 1 ? 's' : '') . ' ' . implode(', ', $orderNumbers);
+                $description = implode(' — ', $descriptionParts);
+
+                $invData = [
+                    'amount' => round($invoiceAmount, 2),
+                    'description' => $description,
+                    'transaction_date' => $invoiceDate,
+                ];
+                if ($existing) {
+                    $db->update('account_transactions', $invData, 'id = :id', ['id' => (int) $existing['id']]);
+                } else {
+                    $db->insert('account_transactions', array_merge([
+                        'account_type' => 'supplier',
+                        'account_id' => $supplierId,
+                        'transaction_type' => 'invoice',
+                        'reference_type' => 'seiq_order',
+                        'reference_id' => $orderId,
+                    ], $invData));
+                }
+            }
+
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            flash('error', 'No se pudo registrar la recepción: ' . $e->getMessage());
+            redirect('/pedidos-proveedor/' . $id);
+            return;
+        }
+
+        $extra = count($companionIds) > 0
+            ? ' Se recibieron ' . (count($companionIds) + 1) . ' pedidos juntos cubiertos por la factura.'
+            : '';
+        flash('success', 'Pedido recibido y stock actualizado.' . $extra);
         redirect('/pedidos-proveedor/' . $id);
     }
 
