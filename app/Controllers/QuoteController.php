@@ -227,13 +227,23 @@ final class QuoteController extends Controller
             if (!is_array($row)) {
                 continue;
             }
-            $pid = (int) ($row['product_id'] ?? 0);
-            if ($pid <= 0) {
-                continue;
-            }
             $qty = (int) ($row['quantity'] ?? 1);
             if ($qty < 1) {
                 $qty = 1;
+            }
+            $comboId = (int) ($row['combo_id'] ?? 0);
+            if ($comboId > 0) {
+                $postItems[] = [
+                    'product_id' => 0,
+                    'combo_id' => $comboId,
+                    'quantity' => $qty,
+                    'unit_type' => 'combo',
+                ];
+                continue;
+            }
+            $pid = (int) ($row['product_id'] ?? 0);
+            if ($pid <= 0) {
+                continue;
             }
             $unitRaw = (string) ($row['unit_type'] ?? 'unidad');
             $unitMode = QuoteLinePricing::normalizeUnitType($unitRaw);

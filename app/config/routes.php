@@ -139,6 +139,7 @@ return [
     ['GET', 'api/productos/buscar', 'ApiController@searchProducts', []],
     ['GET', 'api/productos/{id}/precio', 'ApiController@getProductPrice', []],
     ['GET', 'api/combos', 'ComboController@apiList', []],
+    ['GET', 'api/combos/buscar', 'ComboController@apiSearch', []],
     ['GET', 'api/combos/{id}', 'ComboController@apiShow', []],
     ['GET', 'api/combos/{id}/precio', 'ComboController@apiPrice', []],
     ['GET', 'api/categorias/{id}/productos', 'ApiController@getCategoryProducts', []],

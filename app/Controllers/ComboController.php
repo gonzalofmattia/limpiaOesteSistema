@@ -174,6 +174,41 @@ final class ComboController extends Controller
         redirect('/productos?tab=combos');
     }
 
+    public function apiSearch(): void
+    {
+        $q = trim((string) $this->query('q', ''));
+        if (strlen($q) < 2) {
+            $this->json(['results' => []]);
+            return;
+        }
+        $db = Database::getInstance();
+        $like = '%' . $q . '%';
+        $rows = $db->fetchAll(
+            'SELECT c.id, c.name, c.markup_percentage, COUNT(cp.id) AS products_count
+             FROM combos c
+             INNER JOIN combo_products cp ON cp.combo_id = c.id
+             WHERE c.is_active = 1 AND (c.name LIKE ? OR COALESCE(c.description, \'\') LIKE ?)
+             GROUP BY c.id, c.name, c.markup_percentage
+             HAVING COUNT(cp.id) > 0
+             ORDER BY c.name
+             LIMIT 20',
+            [$like, $like]
+        );
+        $out = [];
+        foreach ($rows as $row) {
+            $cid = (int) $row['id'];
+            $pricing = $this->comboPricing($db, $cid, (float) $row['markup_percentage']);
+            $out[] = [
+                'kind' => 'combo',
+                'id' => $cid,
+                'name' => (string) $row['name'],
+                'products_count' => (int) $row['products_count'],
+                'final_price' => $pricing['final_price'],
+            ];
+        }
+        $this->json(['results' => $out]);
+    }
+
     public function apiList(): void
     {
         $db = Database::getInstance();

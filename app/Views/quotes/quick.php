@@ -56,7 +56,7 @@ $cfg = [
         <template x-if="step === 1">
             <div class="flex flex-1 flex-col min-h-0">
                 <div class="shrink-0 p-3 pt-2">
-                    <label class="sr-only" for="qq-search">Buscar producto</label>
+                    <label class="sr-only" for="qq-search">Buscar producto o combo</label>
                     <input
                         id="qq-search"
                         type="search"
@@ -66,7 +66,7 @@ $cfg = [
                         x-model="searchQ"
                         @input="scheduleProductSearch()"
                         x-ref="searchInput"
-                        placeholder="Buscar producto…"
+                        placeholder="Buscar producto o combo…"
                         class="w-full rounded-2xl border-2 border-slate-200 bg-white px-4 shadow-sm outline-none ring-lo-blue focus:border-lo-blue"
                         style="height:48px;font-size:18px"
                     >
@@ -76,7 +76,7 @@ $cfg = [
                     <p class="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800" x-text="searchError"></p>
                 </div>
                 <div class="flex-1 overflow-y-auto px-3 pb-2 space-y-2">
-                    <template x-for="row in searchResults" :key="row.id">
+                    <template x-for="row in searchResults" :key="(row.kind || 'product') + '-' + row.id">
                         <div class="flex items-stretch gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
                             <div class="min-w-0 flex-1">
                                 <p class="text-lg font-semibold leading-snug text-slate-900" x-text="row.name"></p>
@@ -87,7 +87,7 @@ $cfg = [
                                 type="button"
                                 class="inline-flex h-11 w-11 shrink-0 items-center justify-center self-center rounded-xl bg-lo-blue text-2xl font-bold text-white shadow active:scale-95 min-h-[44px] min-w-[44px]"
                                 @click="addProduct(row)"
-                                aria-label="Agregar producto"
+                                :aria-label="row.kind === 'combo' ? 'Agregar combo' : 'Agregar producto'"
                             >+</button>
                         </div>
                     </template>
@@ -188,7 +188,7 @@ $cfg = [
                     <button type="button" class="grid h-11 w-11 place-items-center rounded-xl border border-red-100 bg-red-50 text-lg text-red-700 min-h-[44px] min-w-[44px]" @click="removeLine(idx)" aria-label="Quitar">×</button>
                 </div>
             </template>
-            <p class="py-4 text-center text-sm text-slate-500" x-show="lines.length === 0">Tocá + en un producto para agregarlo</p>
+            <p class="py-4 text-center text-sm text-slate-500" x-show="lines.length === 0">Tocá + en un producto o combo para agregarlo</p>
         </div>
         <div class="flex items-center justify-between gap-3 px-4 py-3">
             <div>
@@ -249,6 +249,10 @@ $cfg = [
                     this.markupRefreshTimer = setTimeout(() => this.refreshCartPrices(), 400);
                 },
                 subtitle(row) {
+                    if (row.kind === 'combo') {
+                        const n = Number(row.products_count) || 0;
+                        return 'Combo' + (n > 0 ? ' · ' + n + ' producto' + (n === 1 ? '' : 's') : '');
+                    }
                     const a = (row.sale_unit_description || '').trim();
                     const b = (row.content || '').trim();
                     const bits = [a, b].filter(Boolean);
@@ -268,10 +272,16 @@ $cfg = [
                     }
                     this.searchLoading = true;
                     try {
-                        const res = await fetch(window.appUrl('/api/productos/buscar?q=' + encodeURIComponent(q)));
-                        const data = await res.json();
-                        const list = (data && data.results) ? data.results : [];
-                        this.searchResults = list.map((r) => Object.assign({ _priceLabel: '…' }, r));
+                        const enc = encodeURIComponent(q);
+                        const [resP, resC] = await Promise.all([
+                            fetch(window.appUrl('/api/productos/buscar?q=' + enc)),
+                            fetch(window.appUrl('/api/combos/buscar?q=' + enc)),
+                        ]);
+                        const dataP = await resP.json().catch(() => ({}));
+                        const dataC = await resC.json().catch(() => ({}));
+                        const prods = ((dataP && dataP.results) ? dataP.results : []).map((r) => Object.assign({ kind: 'product', _priceLabel: '…' }, r));
+                        const combos = ((dataC && dataC.results) ? dataC.results : []).map((r) => Object.assign({ _priceLabel: '…' }, r));
+                        this.searchResults = combos.concat(prods);
                         this.hydrateSearchPrices();
                     } catch (e) {
                         this.searchResults = [];
@@ -279,6 +289,12 @@ $cfg = [
                     } finally {
                         this.searchLoading = false;
                     }
+                },
+                comboMarkupParams() {
+                    const p = new URLSearchParams();
+                    const m = String(this.customMarkupStr || '').trim().replace(',', '.');
+                    if (m !== '' && !isNaN(Number(m))) p.set('markup', m);
+                    return p.toString();
                 },
                 priceParams() {
                     const p = new URLSearchParams();
@@ -292,6 +308,15 @@ $cfg = [
                     for (let i = 0; i < rows.length; i++) {
                         const r = rows[i];
                         try {
+                            if (r.kind === 'combo') {
+                                const res = await fetch(window.appUrl('/api/combos/' + r.id + '/precio?' + this.comboMarkupParams()));
+                                const j = await res.json();
+                                if (!res.ok || typeof j.final_price === 'undefined') continue;
+                                const unit = Number(j.final_price) || 0;
+                                r._unitNet = unit;
+                                r._priceLabel = this.fmtMoney(unit);
+                                continue;
+                            }
                             const res = await fetch(window.appUrl('/api/productos/' + r.id + '/precio?' + this.priceParams()));
                             const j = await res.json();
                             if (!res.ok || !j.calc) continue;
@@ -307,9 +332,43 @@ $cfg = [
                     if (!res.ok || !j.calc) return 0;
                     return Number(j.calc.precio_venta) || 0;
                 },
+                async fetchComboPrice(comboId) {
+                    const res = await fetch(window.appUrl('/api/combos/' + comboId + '/precio?' + this.comboMarkupParams()));
+                    const j = await res.json();
+                    if (!res.ok || typeof j.final_price === 'undefined') return 0;
+                    return Number(j.final_price) || 0;
+                },
                 addProduct(row) {
+                    if (row.kind === 'combo') {
+                        const cid = Number(row.id);
+                        const existingC = this.lines.find((l) => Number(l.combo_id || 0) === cid);
+                        if (existingC) {
+                            existingC.quantity = Math.min(99999, existingC.quantity + 1);
+                            this.recalcTotal();
+                            return;
+                        }
+                        const hint = Number(row._unitNet) || Number(row.final_price) || 0;
+                        this.lines.push({
+                            key: 'c' + cid + '-' + Date.now(),
+                            combo_id: cid,
+                            product_id: 0,
+                            name: row.name,
+                            unitLabel: 'Combo',
+                            quantity: 1,
+                            unitPrice: hint,
+                        });
+                        if (!this.lines[this.lines.length - 1].unitPrice) {
+                            this.fetchComboPrice(cid).then((u) => {
+                                const ln = this.lines.find((l) => Number(l.combo_id || 0) === cid);
+                                if (ln) { ln.unitPrice = u; this.recalcTotal(); }
+                            });
+                        } else {
+                            this.recalcTotal();
+                        }
+                        return;
+                    }
                     const id = Number(row.id);
-                    const existing = this.lines.find((l) => l.product_id === id);
+                    const existing = this.lines.find((l) => Number(l.product_id || 0) === id && !Number(l.combo_id || 0));
                     if (existing) {
                         existing.quantity = Math.min(99999, existing.quantity + 1);
                         this.refreshCartPrices();
@@ -319,6 +378,7 @@ $cfg = [
                     this.lines.push({
                         key: 'p' + id + '-' + Date.now(),
                         product_id: id,
+                        combo_id: 0,
                         name: row.name,
                         unitLabel,
                         quantity: 1,
@@ -326,7 +386,7 @@ $cfg = [
                     });
                     if (!this.lines[this.lines.length - 1].unitPrice) {
                         this.fetchUnitPrice(id).then((u) => {
-                            const ln = this.lines.find((l) => l.product_id === id);
+                            const ln = this.lines.find((l) => Number(l.product_id || 0) === id && !Number(l.combo_id || 0));
                             if (ln) { ln.unitPrice = u; this.recalcTotal(); }
                         });
                     } else {
@@ -343,7 +403,12 @@ $cfg = [
                 },
                 async refreshCartPrices() {
                     for (const line of this.lines) {
-                        line.unitPrice = await this.fetchUnitPrice(line.product_id);
+                        const cid = Number(line.combo_id || 0);
+                        if (cid > 0) {
+                            line.unitPrice = await this.fetchComboPrice(cid);
+                        } else {
+                            line.unitPrice = await this.fetchUnitPrice(line.product_id);
+                        }
                     }
                     this.recalcTotal();
                     this.hydrateSearchPrices();
@@ -454,11 +519,14 @@ $cfg = [
                     if (!this.selectedClient || this.lines.length === 0) return;
                     this.saveError = '';
                     this.saving = true;
-                    const items = this.lines.map((l) => ({
-                        product_id: l.product_id,
-                        quantity: Math.max(1, parseInt(String(l.quantity), 10) || 1),
-                        unit_type: 'unidad',
-                    }));
+                    const items = this.lines.map((l) => {
+                        const qty = Math.max(1, parseInt(String(l.quantity), 10) || 1);
+                        const cid = Number(l.combo_id || 0);
+                        if (cid > 0) {
+                            return { combo_id: cid, product_id: 0, quantity: qty, unit_type: 'combo' };
+                        }
+                        return { product_id: l.product_id, quantity: qty, unit_type: 'unidad' };
+                    });
                     const body = {
                         _csrf: this.csrf,
                         client_id: this.selectedClient.id,

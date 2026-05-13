@@ -129,6 +129,20 @@ final class OperationsFlowsTest extends TestCase
         }
     }
 
+    public function testApiComboSearchStillWorks(): void
+    {
+        $r = $this->httpGet('/api/combos/buscar?q=xx');
+        $this->assertContains(
+            $r['code'],
+            [200, 302],
+            'API búsqueda de combos debe responder 200 (autenticado) o 302 (login)'
+        );
+        if ($r['code'] === 200) {
+            $json = json_decode($r['body'], true);
+            $this->assertIsArray($json, 'La respuesta debe ser JSON válido');
+        }
+    }
+
     public function testSettingsLoads(): void
     {
         $r = $this->httpGet('/settings');
