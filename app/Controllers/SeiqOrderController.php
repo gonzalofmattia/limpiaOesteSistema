@@ -161,6 +161,9 @@ final class SeiqOrderController extends Controller
 
                 $sort = 0;
                 foreach ($rowsForOrder as $row) {
+                    if ((int) ($row['boxes_to_order'] ?? 0) <= 0) {
+                        continue;
+                    }
                     $db->insert('seiq_order_items', [
                         'seiq_order_id' => $orderId,
                         'product_id' => (int) $row['product_id'],
@@ -206,6 +209,9 @@ final class SeiqOrderController extends Controller
                 ]);
                 $sort = 0;
                 foreach ($manualRows as $row) {
+                    if ((int) ($row['boxes_to_order'] ?? 0) <= 0) {
+                        continue;
+                    }
                     $db->insert('seiq_order_items', [
                         'seiq_order_id' => $orderId,
                         'product_id' => (int) $row['product_id'],
@@ -1038,6 +1044,9 @@ final class SeiqOrderController extends Controller
                 continue;
             }
             $boxes = max(0, (int) ($it['boxes_to_order'] ?? 0));
+            if ($boxes <= 0) {
+                continue;
+            }
             $upb = max(1, (int) ($it['units_per_box'] ?? 1));
             $delta = $sign * $boxes * $upb;
             if ($delta === 0) {
