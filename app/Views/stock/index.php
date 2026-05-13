@@ -7,13 +7,15 @@ $enCaminoTotal = 0;
 $bajoMinimo = 0;
 foreach (($products ?? []) as $p) {
     $stock = (int) ($p['stock_units'] ?? 0);
+    $committed = (int) ($p['stock_committed_units'] ?? 0);
+    $disponible = $stock - $committed;
     $inTransit = (int) ($p['in_transit_units'] ?? 0);
     $min = (int) ($p['units_per_box'] ?? 0);
     $stockValue += max(0, $stock) * (float) ($p['cost'] ?? 0);
     $enCaminoTotal += max(0, $inTransit);
     if ($stock <= 0) { $sinStock++; }
     if ($stock > 0 && $min > 0 && $stock < $min) { $reponer++; }
-    if (($p['stock_minimum'] ?? null) !== null && $stock < (int) $p['stock_minimum']) { $bajoMinimo++; }
+    if (($p['stock_minimum'] ?? null) !== null && $disponible < (int) $p['stock_minimum']) { $bajoMinimo++; }
 }
 $lowStockCountGlobal = (int) ($lowStockCount ?? $bajoMinimo);
 $currentFilter = $stockFilter ?? '';
@@ -123,7 +125,7 @@ document.addEventListener('alpine:init', () => {
         cellFeedback: null,
         feedbackTimer: null,
         bajoMinimo() {
-            return this.minimo !== null && this.stockUnits < this.minimo;
+            return this.minimo !== null && this.disponible() < this.minimo;
         },
         disponible() {
             return this.stockUnits - this.stockCommitted;
@@ -390,7 +392,7 @@ document.addEventListener('alpine:init', () => {
         $inTransit = max(0, (int) ($p['in_transit_units'] ?? 0));
         $availablePlusTransit = $stockAvailable + $inTransit;
         $minimo = $p['stock_minimum'] ?? null;
-        $isBajoMinimo = $minimo !== null && $stockTotal < (int) $minimo;
+        $isBajoMinimo = $minimo !== null && $stockAvailable < (int) $minimo;
         ?>
         <article class="lo-mobile-card shadow-sm <?= $isBajoMinimo ? 'border-red-200 bg-red-50/40' : '' ?>">
             <div class="flex items-start justify-between gap-2 mb-1">

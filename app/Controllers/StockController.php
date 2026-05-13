@@ -40,7 +40,7 @@ final class StockController extends Controller
              ) t ON t.product_id = p.id';
 
         if ($stockFilter === 'bajo') {
-            $where[] = 'p.stock_minimum IS NOT NULL AND p.stock_units < p.stock_minimum';
+            $where[] = 'p.stock_minimum IS NOT NULL AND (COALESCE(p.stock_units, 0) - COALESCE(p.stock_committed_units, 0)) < p.stock_minimum';
         } else {
             $where[] = '(COALESCE(p.stock_units, 0) > 0 OR COALESCE(t.in_transit_units, 0) > 0)';
         }
@@ -72,7 +72,7 @@ final class StockController extends Controller
         );
 
         $lowStockCount = (int) $db->fetchColumn(
-            'SELECT COUNT(*) FROM products WHERE stock_minimum IS NOT NULL AND stock_units < stock_minimum AND is_active = 1'
+            'SELECT COUNT(*) FROM products WHERE stock_minimum IS NOT NULL AND (COALESCE(stock_units, 0) - COALESCE(stock_committed_units, 0)) < stock_minimum AND is_active = 1'
         );
 
         $adjustments = [];
