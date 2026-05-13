@@ -180,7 +180,11 @@ function csrfField(): string
 function verifyCsrf(): bool
 {
     $token = $_POST['_csrf'] ?? '';
-    if (!is_string($token) || $token === '' || empty($_SESSION['_csrf'])) {
+    if (!is_string($token) || $token === '') {
+        $h = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+        $token = is_string($h) ? $h : '';
+    }
+    if ($token === '' || empty($_SESSION['_csrf'])) {
         return false;
     }
     return hash_equals($_SESSION['_csrf'], $token);

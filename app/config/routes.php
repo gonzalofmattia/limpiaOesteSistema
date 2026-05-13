@@ -44,6 +44,7 @@ return [
     ['GET', 'stock/proyeccion', 'StockController@projection', []],
     ['GET', 'stock-actual/reposicion', 'StockController@reposicion', []],
     ['POST', 'stock-actual/ajustar', 'StockController@adjust', []],
+    ['POST', 'stock/inline-adjust', 'StockController@inlineAdjust', []],
 
     ['GET', 'listas', 'PriceListController@index', []],
     ['GET', 'listas/generar', 'PriceListController@generateForm', []],

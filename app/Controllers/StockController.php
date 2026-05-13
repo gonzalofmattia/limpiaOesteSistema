@@ -172,6 +172,104 @@ final class StockController extends Controller
         redirect('/stock-actual');
     }
 
+    public function inlineAdjust(): void
+    {
+        if (!verifyCsrf()) {
+            $this->json(['success' => false, 'error' => 'Token inválido.'], 403);
+            return;
+        }
+        $db = Database::getInstance();
+        if (!$this->hasAdjustmentsTable($db)) {
+            $this->json(['success' => false, 'error' => 'Falta la tabla de historial de ajustes.'], 422);
+            return;
+        }
+
+        $raw = (string) file_get_contents('php://input');
+        try {
+            /** @var array<string, mixed> $payload */
+            $payload = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\Throwable) {
+            $this->json(['success' => false, 'error' => 'JSON inválido.'], 400);
+            return;
+        }
+
+        if (!is_array($payload)) {
+            $this->json(['success' => false, 'error' => 'JSON inválido.'], 400);
+            return;
+        }
+
+        $productId = (int) ($payload['product_id'] ?? 0);
+        $newStock = (int) ($payload['new_stock'] ?? -1);
+        $notesRaw = trim((string) ($payload['notes'] ?? ''));
+        $notes = $notesRaw !== '' ? $notesRaw : 'Ajuste manual inline';
+
+        if ($productId <= 0) {
+            $this->json(['success' => false, 'error' => 'Producto inválido.'], 400);
+            return;
+        }
+        if ($newStock < 0) {
+            $this->json(['success' => false, 'error' => 'El stock debe ser mayor o igual a 0.'], 400);
+            return;
+        }
+
+        $product = $db->fetch(
+            'SELECT id, stock_units, COALESCE(stock_committed_units, 0) AS stock_committed_units FROM products WHERE id = ? LIMIT 1',
+            [$productId]
+        );
+        if (!$product) {
+            $this->json(['success' => false, 'error' => 'Producto no encontrado.'], 404);
+            return;
+        }
+
+        $prevStock = (int) ($product['stock_units'] ?? 0);
+        $committed = (int) ($product['stock_committed_units'] ?? 0);
+        $delta = $newStock - $prevStock;
+        if ($delta === 0) {
+            $disponible = $newStock - $committed;
+            $this->json([
+                'success' => true,
+                'stock_units' => $newStock,
+                'stock_committed_units' => $committed,
+                'disponible' => $disponible,
+            ]);
+            return;
+        }
+
+        $db->getPdo()->beginTransaction();
+        try {
+            $db->update('products', ['stock_units' => $newStock], 'id = :id', ['id' => $productId]);
+            $db->insert('stock_adjustments', [
+                'product_id' => $productId,
+                'previous_stock' => $prevStock,
+                'new_stock' => $newStock,
+                'difference' => $delta,
+                'notes' => $notes,
+                'created_by' => 'admin',
+            ]);
+            $db->getPdo()->commit();
+        } catch (\Throwable $e) {
+            $db->getPdo()->rollBack();
+            $this->json(['success' => false, 'error' => 'No se pudo guardar: ' . $e->getMessage()], 500);
+            return;
+        }
+
+        $row = $db->fetch(
+            'SELECT stock_units, COALESCE(stock_committed_units, 0) AS stock_committed_units FROM products WHERE id = ? LIMIT 1',
+            [$productId]
+        );
+        $su = (int) ($row['stock_units'] ?? $newStock);
+        $sc = (int) ($row['stock_committed_units'] ?? $committed);
+        $disponible = $su - $sc;
+
+        $this->json([
+            'success' => true,
+            'stock_units' => $su,
+            'stock_committed_units' => $sc,
+            'disponible' => $disponible,
+        ]);
+        return;
+    }
+
     public function reposicion(): void
     {
         $db = Database::getInstance();

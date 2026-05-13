@@ -106,6 +106,168 @@ $loFilterStockActive = trim((string) ($q ?? '')) !== '' || $currentFilter === 'b
 
 <p class="text-sm text-gray-500 mb-2"><?= (int) ($total ?? count($products)) ?> productos con stock o en camino</p>
 
+<script>
+document.addEventListener('alpine:init', () => {
+    Alpine.data('inlineStockRow', (cfg) => ({
+        productId: cfg.productId,
+        stockUnits: cfg.stockUnits,
+        stockCommitted: cfg.stockCommitted,
+        inTransit: cfg.inTransit,
+        minimo: cfg.minimo,
+        canEdit: !!cfg.canEdit,
+        inlineUrl: cfg.inlineUrl,
+        csrf: cfg.csrf,
+        editing: false,
+        draft: '',
+        saving: false,
+        cellFeedback: null,
+        feedbackTimer: null,
+        bajoMinimo() {
+            return this.minimo !== null && this.stockUnits < this.minimo;
+        },
+        disponible() {
+            return this.stockUnits - this.stockCommitted;
+        },
+        disponibleMasCamino() {
+            return this.disponible() + this.inTransit;
+        },
+        disponibleClass() {
+            return this.disponible() > 0 ? 'text-green-700' : 'text-red-700';
+        },
+        dispCaminoClass() {
+            return this.disponibleMasCamino() > 0 ? 'text-emerald-700' : 'text-red-700';
+        },
+        clearFeedbackTimer() {
+            if (this.feedbackTimer) {
+                clearTimeout(this.feedbackTimer);
+                this.feedbackTimer = null;
+            }
+        },
+        setFeedback(kind) {
+            this.clearFeedbackTimer();
+            this.cellFeedback = kind;
+            if (kind) {
+                this.feedbackTimer = setTimeout(() => {
+                    this.cellFeedback = null;
+                    this.feedbackTimer = null;
+                }, 1600);
+            }
+        },
+        startEdit() {
+            if (!this.canEdit || this.saving) {
+                return;
+            }
+            this.clearFeedbackTimer();
+            this.editing = true;
+            this.draft = String(this.stockUnits);
+            this.cellFeedback = null;
+            this.$nextTick(() => {
+                const el = this.$refs.stockInput;
+                if (el) {
+                    el.focus();
+                    el.select();
+                }
+                if (window.rebuildLucideIcons) {
+                    window.rebuildLucideIcons();
+                }
+            });
+        },
+        cancelEdit() {
+            this.clearFeedbackTimer();
+            this.editing = false;
+            this.draft = String(this.stockUnits);
+            this.cellFeedback = null;
+        },
+        async commit() {
+            if (!this.editing || this.saving) {
+                return false;
+            }
+            const v = parseInt(String(this.draft).trim(), 10);
+            if (Number.isNaN(v) || v < 0) {
+                this.draft = String(this.stockUnits);
+                this.setFeedback('err');
+                return false;
+            }
+            if (v === this.stockUnits) {
+                this.editing = false;
+                return true;
+            }
+            this.saving = true;
+            try {
+                const res = await fetch(this.inlineUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json',
+                        'X-CSRF-Token': this.csrf,
+                    },
+                    body: JSON.stringify({
+                        product_id: this.productId,
+                        new_stock: v,
+                        notes: 'Ajuste manual inline',
+                    }),
+                });
+                let data = {};
+                try {
+                    data = await res.json();
+                } catch (e) {
+                    data = {};
+                }
+                if (!res.ok || !data.success) {
+                    this.draft = String(this.stockUnits);
+                    this.setFeedback('err');
+                    return false;
+                }
+                this.stockUnits = data.stock_units;
+                this.stockCommitted = data.stock_committed_units;
+                this.editing = false;
+                this.setFeedback('ok');
+                this.$nextTick(() => {
+                    if (window.rebuildLucideIcons) {
+                        window.rebuildLucideIcons();
+                    }
+                });
+                return true;
+            } catch (e) {
+                this.draft = String(this.stockUnits);
+                this.setFeedback('err');
+                return false;
+            } finally {
+                this.saving = false;
+            }
+        },
+        async onTabNext(e) {
+            e.preventDefault();
+            const ok = await this.commit();
+            if (!ok && this.editing) {
+                return;
+            }
+            const tr = this.$el.closest('tr');
+            const tbody = tr && tr.closest('tbody');
+            if (!tbody || !tr) {
+                return;
+            }
+            const rows = [...tbody.querySelectorAll('tr[data-inline-stock-row]')];
+            const i = rows.indexOf(tr);
+            if (i < 0 || i >= rows.length - 1) {
+                return;
+            }
+            const next = rows[i + 1];
+            const d = window.Alpine && Alpine.$data(next);
+            if (d && typeof d.startEdit === 'function') {
+                d.startEdit();
+            }
+        },
+        onBlurCommit() {
+            this.$nextTick(() => {
+                if (this.editing && !this.saving) {
+                    this.commit();
+                }
+            });
+        },
+    }));
+});
+</script>
 <div class="lo-table-wrap hidden md:block">
     <table class="min-w-full text-sm lo-table">
         <thead class="bg-gray-50 text-gray-600 border-b border-gray-200">
@@ -127,13 +289,26 @@ $loFilterStockActive = trim((string) ($q ?? '')) !== '' || $currentFilter === 'b
                 <?php
                 $stockTotal = max(0, (int) ($p['stock_units'] ?? 0));
                 $stockCommitted = max(0, (int) ($p['stock_committed_units'] ?? 0));
-                $stockAvailable = $stockTotal - $stockCommitted;
                 $inTransit = max(0, (int) ($p['in_transit_units'] ?? 0));
-                $availablePlusTransit = $stockAvailable + $inTransit;
                 $minimo = $p['stock_minimum'] ?? null;
-                $isBajoMinimo = $minimo !== null && $stockTotal < (int) $minimo;
+                $minimoJs = $minimo === null ? 'null' : (int) $minimo;
+                $canInline = !empty($hasAdjustmentsTable);
                 ?>
-                <tr class="<?= $isBajoMinimo ? 'bg-red-50 text-red-700' : 'hover:bg-gray-50' ?>">
+                <tr
+                    data-inline-stock-row
+                    class="group"
+                    :class="bajoMinimo() ? 'bg-red-50 text-red-700' : 'hover:bg-gray-50'"
+                    x-data='inlineStockRow({
+                        productId: <?= (int) $p['id'] ?>,
+                        stockUnits: <?= $stockTotal ?>,
+                        stockCommitted: <?= $stockCommitted ?>,
+                        inTransit: <?= $inTransit ?>,
+                        minimo: <?= $minimoJs ?>,
+                        canEdit: <?= $canInline ? 'true' : 'false' ?>,
+                        inlineUrl: <?= json_encode(url('/stock/inline-adjust'), JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>,
+                        csrf: <?= json_encode(csrfToken(), JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>
+                    })'
+                >
                     <td class="px-3 py-2 font-mono text-xs"><?= e((string) $p['code']) ?></td>
                     <?php if ((int) ($p['is_active'] ?? 1) !== 1): ?>
                         <td class="px-3 py-2">
@@ -145,12 +320,54 @@ $loFilterStockActive = trim((string) ($q ?? '')) !== '' || $currentFilter === 'b
                     <?php endif; ?>
                     <td class="px-3 py-2 text-gray-600"><?= e((string) $p['category_name']) ?></td>
                     <td class="px-3 py-2 text-right text-gray-600"><?= (int) ($p['units_per_box'] ?? 1) ?></td>
-                    <td class="px-3 py-2 text-right"><?= $stockTotal ?></td>
-                    <td class="px-3 py-2 text-right <?= $isBajoMinimo ? 'font-bold text-red-700' : 'text-gray-500' ?>"><?= $minimo !== null ? (int) $minimo : '—' ?></td>
-                    <td class="px-3 py-2 text-right <?= $stockCommitted > 0 ? 'text-amber-600 font-medium' : 'text-gray-500' ?>"><?= $stockCommitted ?></td>
-                    <td class="px-3 py-2 text-right font-semibold <?= $stockAvailable > 0 ? 'text-green-700' : 'text-red-700' ?>"><?= $stockAvailable ?></td>
+                    <td
+                        class="px-3 py-2 text-right align-middle transition-shadow duration-300 rounded-md"
+                        :class="{
+                            'ring-2 ring-green-400/80 ring-offset-1': cellFeedback === 'ok',
+                            'ring-2 ring-red-400/80 ring-offset-1': cellFeedback === 'err'
+                        }"
+                    >
+                        <template x-if="!editing">
+                            <div class="inline-flex items-center justify-end gap-0.5 w-full min-h-[2rem]">
+                                <button
+                                    type="button"
+                                    class="inline-flex items-center justify-end gap-1 rounded px-1 py-0.5 text-right tabular-nums <?= $canInline ? 'cursor-pointer hover:bg-slate-100/80' : 'cursor-default' ?>"
+                                    @click="startEdit()"
+                                    :disabled="!canEdit"
+                                >
+                                    <span x-text="stockUnits"></span>
+                                    <i
+                                        x-show="canEdit"
+                                        data-lucide="pencil"
+                                        class="h-3.5 w-3.5 shrink-0 text-slate-400 opacity-0 transition-opacity group-hover:opacity-100"
+                                        aria-hidden="true"
+                                    ></i>
+                                    <span x-show="cellFeedback === 'ok'" x-cloak class="text-green-600 font-semibold" aria-hidden="true">✓</span>
+                                </button>
+                            </div>
+                        </template>
+                        <template x-if="editing">
+                            <div class="inline-flex items-center justify-end w-full">
+                                <input
+                                    x-ref="stockInput"
+                                    type="number"
+                                    min="0"
+                                    step="1"
+                                    x-model="draft"
+                                    @keydown.enter.prevent="commit()"
+                                    @keydown.escape.prevent="cancelEdit()"
+                                    @keydown.tab.prevent="onTabNext($event)"
+                                    @blur="onBlurCommit()"
+                                    class="w-24 max-w-full rounded-md border border-sky-400/90 bg-white px-2 py-1 text-right text-sm tabular-nums shadow-sm outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-400"
+                                >
+                            </div>
+                        </template>
+                    </td>
+                    <td class="px-3 py-2 text-right" :class="bajoMinimo() ? 'font-bold text-red-700' : 'text-gray-500'"><?= $minimo !== null ? (int) $minimo : '—' ?></td>
+                    <td class="px-3 py-2 text-right font-medium tabular-nums" :class="stockCommitted > 0 ? 'text-amber-600' : 'text-gray-500'" x-text="stockCommitted"></td>
+                    <td class="px-3 py-2 text-right font-semibold" :class="disponibleClass()" x-text="disponible()"></td>
                     <td class="px-3 py-2 text-right <?= $inTransit > 0 ? 'text-blue-700 font-semibold' : 'text-gray-500' ?>"><?= $inTransit ?></td>
-                    <td class="px-3 py-2 text-right font-semibold <?= $availablePlusTransit > 0 ? 'text-emerald-700' : 'text-red-700' ?>"><?= $availablePlusTransit ?></td>
+                    <td class="px-3 py-2 text-right font-semibold" :class="dispCaminoClass()" x-text="disponibleMasCamino()"></td>
                 </tr>
             <?php endforeach; ?>
             <?php if ($products === []): ?>
