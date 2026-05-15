@@ -630,9 +630,7 @@ final class QuoteController extends Controller
         if ($status === 'sent') {
             $extra['sent_at'] = date('Y-m-d H:i:s');
         }
-        if ($status === 'accepted' && empty($quote['sale_number'])) {
-            $extra['sale_number'] = $this->nextSaleNumber($db);
-        }
+        $assignSaleNumber = $status === 'accepted' && empty($quote['sale_number']);
 
         $pdo = $db->getPdo();
         $pdo->beginTransaction();
@@ -670,7 +668,12 @@ final class QuoteController extends Controller
                 $quote = $db->fetch('SELECT * FROM quotes WHERE id = ?', [(int) $id]) ?: $quote;
             }
 
-            $db->update('quotes', array_merge(['status' => $status], $extra), 'id = :id', ['id' => (int) $id]);
+            $updateData = array_merge(['status' => $status], $extra);
+            if ($assignSaleNumber) {
+                $this->updateQuoteWithSaleNumber($db, (int) $id, $updateData);
+            } else {
+                $db->update('quotes', $updateData, 'id = :id', ['id' => (int) $id]);
+            }
 
             $hasAccountTable = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
             // Deuda en CC: al aceptar O al entregar (delivered). Si solo se entrega sin pasar por accepted, igual debe existir el cargo tipo invoice.
@@ -1606,21 +1609,46 @@ final class QuoteController extends Controller
         }
     }
 
-    private function nextSaleNumber(Database $db): string
+    private function saleNumberPrefix(): string
     {
         $prefix = setting('sale_prefix', 'V-') ?? 'V-';
         $prefix = trim($prefix);
-        if ($prefix === '') {
-            $prefix = 'V-';
-        }
-        $last = $db->fetchColumn(
-            'SELECT sale_number FROM quotes WHERE sale_number IS NOT NULL AND sale_number <> "" ORDER BY id DESC LIMIT 1'
+
+        return $prefix === '' ? 'V-' : $prefix;
+    }
+
+    private function nextSaleNumber(Database $db): string
+    {
+        $prefix = $this->saleNumberPrefix();
+        $substrStart = strlen($prefix) + 1;
+        $maxNum = (int) $db->fetchColumn(
+            'SELECT MAX(CAST(SUBSTRING(sale_number, ?) AS UNSIGNED))
+             FROM quotes
+             WHERE sale_number IS NOT NULL AND sale_number <> \'\' AND sale_number LIKE ?',
+            [$substrStart, $prefix . '%']
         );
-        $n = 0;
-        if (is_string($last) && preg_match('/(\d+)$/', $last, $m)) {
-            $n = (int) $m[1];
+
+        return sprintf('%s%04d', $prefix, $maxNum + 1);
+    }
+
+    /**
+     * @param array<string, mixed> $updateData
+     */
+    private function updateQuoteWithSaleNumber(Database $db, int $quoteId, array $updateData): void
+    {
+        $maxRetries = 3;
+        for ($i = 0; $i < $maxRetries; $i++) {
+            $updateData['sale_number'] = $this->nextSaleNumber($db);
+            try {
+                $db->update('quotes', $updateData, 'id = :id', ['id' => $quoteId]);
+
+                return;
+            } catch (\PDOException $e) {
+                if ($i === $maxRetries - 1 || !str_contains($e->getMessage(), 'Duplicate entry')) {
+                    throw $e;
+                }
+            }
         }
-        return sprintf('%s%04d', $prefix, $n + 1);
     }
 
     /**
