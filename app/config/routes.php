@@ -43,6 +43,8 @@ return [
     ['GET', 'stock-actual', 'StockController@index', []],
     ['GET', 'stock/proyeccion', 'StockController@projection', []],
     ['GET', 'stock-actual/reposicion', 'StockController@reposicion', []],
+    ['GET', 'stock/reorder-suggestion', 'StockController@reorderSuggestion', []],
+    ['POST', 'stock/create-reorder', 'SeiqOrderController@createFromSuggestion', []],
     ['POST', 'stock-actual/ajustar', 'StockController@adjust', []],
     ['POST', 'stock/inline-adjust', 'StockController@inlineAdjust', []],
 

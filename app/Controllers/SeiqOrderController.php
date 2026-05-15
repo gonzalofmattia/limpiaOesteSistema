@@ -245,6 +245,167 @@ final class SeiqOrderController extends Controller
         redirect('/pedidos-proveedor/' . $lastOrderId);
     }
 
+    public function createFromSuggestion(): void
+    {
+        if (!verifyCsrf()) {
+            $this->json(['success' => false, 'error' => 'Token inválido.'], 403);
+            return;
+        }
+        $db = Database::getInstance();
+        if (!$this->ensureSeiqSchema($db)) {
+            $this->json(['success' => false, 'error' => 'Tablas de pedidos a proveedor no disponibles.'], 422);
+            return;
+        }
+
+        $raw = (string) file_get_contents('php://input');
+        try {
+            /** @var array<string, mixed> $payload */
+            $payload = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\Throwable) {
+            $this->json(['success' => false, 'error' => 'JSON inválido.'], 400);
+            return;
+        }
+        if (!is_array($payload)) {
+            $this->json(['success' => false, 'error' => 'JSON inválido.'], 400);
+            return;
+        }
+
+        $itemsInput = $payload['items'] ?? [];
+        if (!is_array($itemsInput) || $itemsInput === []) {
+            $this->json(['success' => false, 'error' => 'Seleccioná al menos un producto.'], 400);
+            return;
+        }
+
+        $manualLines = [];
+        foreach ($itemsInput as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $productId = (int) ($item['product_id'] ?? 0);
+            $boxes = max(0, (int) ($item['boxes'] ?? 0));
+            if ($productId <= 0 || $boxes <= 0) {
+                continue;
+            }
+            $manualLines[] = [
+                'product_id' => $productId,
+                'boxes' => $boxes,
+            ];
+        }
+        if ($manualLines === []) {
+            $this->json(['success' => false, 'error' => 'Seleccioná al menos un producto con cajas a pedir.'], 400);
+            return;
+        }
+
+        $manualBySupplier = $this->parseManualRowsBySupplier($db, $manualLines);
+        if ($manualBySupplier === []) {
+            $this->json(['success' => false, 'error' => 'No se pudieron resolver los productos o proveedores.'], 400);
+            return;
+        }
+
+        $includedJson = '[]';
+        $db->getPdo()->beginTransaction();
+        try {
+            $createdOrders = [];
+            foreach ($manualBySupplier as $supplierId => $manualRows) {
+                if (!is_int($supplierId) || $supplierId <= 0 || $manualRows === []) {
+                    continue;
+                }
+                $supplier = $db->fetch(
+                    'SELECT id, name, slug, cliente_id, cliente_nombre, condicion_pago, observaciones FROM suppliers WHERE id = ?',
+                    [$supplierId]
+                );
+                if (!$supplier) {
+                    continue;
+                }
+                $supplierTotalBoxes = (int) array_sum(array_map(
+                    static fn (array $r): int => (int) ($r['boxes_to_order'] ?? 0),
+                    $manualRows
+                ));
+                if ($supplierTotalBoxes <= 0) {
+                    continue;
+                }
+                $orderNumber = $this->nextOrderNumber($db, (string) ($supplier['slug'] ?? ''));
+                $orderId = $db->insert('seiq_orders', [
+                    'supplier_id' => $supplierId,
+                    'order_number' => $orderNumber,
+                    'notes' => 'Reposición desde sugerencia de stock',
+                    'included_quotes' => $includedJson,
+                    'total_products' => count($manualRows),
+                    'total_boxes' => $supplierTotalBoxes,
+                    'status' => 'draft',
+                    'sent_at' => null,
+                    'received_at' => null,
+                    'pdf_path' => null,
+                ]);
+                $sort = 0;
+                foreach ($manualRows as $row) {
+                    if ((int) ($row['boxes_to_order'] ?? 0) <= 0) {
+                        continue;
+                    }
+                    $db->insert('seiq_order_items', [
+                        'seiq_order_id' => $orderId,
+                        'product_id' => (int) $row['product_id'],
+                        'qty_units_sold' => 0,
+                        'qty_boxes_sold' => 0,
+                        'total_units_needed' => (int) $row['total_units_needed'],
+                        'units_per_box' => (int) $row['units_per_box'],
+                        'boxes_to_order' => (int) $row['boxes_to_order'],
+                        'units_remainder' => (int) $row['units_remainder'],
+                        'sort_order' => $sort++,
+                    ]);
+                }
+                $pdfFile = $this->renderSeiqOrderPdf($orderId, $orderNumber, $manualRows, $supplier);
+                $db->update('seiq_orders', ['pdf_path' => $pdfFile], 'id = :id', ['id' => $orderId]);
+                $createdOrders[] = [
+                    'id' => $orderId,
+                    'number' => $orderNumber,
+                    'products' => count($manualRows),
+                ];
+            }
+            if ($createdOrders === []) {
+                throw new \RuntimeException('No se pudo crear ningún pedido.');
+            }
+            $db->getPdo()->commit();
+        } catch (\Throwable $e) {
+            $db->getPdo()->rollBack();
+            $this->json(['success' => false, 'error' => 'Error al crear pedido: ' . $e->getMessage()], 500);
+            return;
+        }
+
+        $count = count($createdOrders);
+        if ($count === 1) {
+            $order = $createdOrders[0];
+            $msg = sprintf(
+                'Pedido %s creado como borrador con %d producto%s.',
+                (string) $order['number'],
+                (int) $order['products'],
+                (int) $order['products'] === 1 ? '' : 's'
+            );
+            flash('success', $msg);
+            $this->json([
+                'success' => true,
+                'redirect' => url('/pedidos-proveedor/' . (int) $order['id']),
+                'message' => $msg,
+            ]);
+            return;
+        }
+
+        $numbers = implode(', ', array_map(static fn (array $o): string => (string) $o['number'], $createdOrders));
+        $totalProducts = array_sum(array_map(static fn (array $o): int => (int) $o['products'], $createdOrders));
+        $msg = sprintf(
+            '%d pedidos creados como borrador (%s) con %d productos en total.',
+            $count,
+            $numbers,
+            $totalProducts
+        );
+        flash('success', $msg);
+        $this->json([
+            'success' => true,
+            'redirect' => url('/pedidos-proveedor'),
+            'message' => $msg,
+        ]);
+    }
+
     public function show(string $id): void
     {
         $db = Database::getInstance();

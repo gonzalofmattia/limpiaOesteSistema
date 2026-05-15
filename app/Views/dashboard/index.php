@@ -69,7 +69,7 @@ $currentMonthIndex = count($labels) > 0 ? count($labels) - 1 : 0;
                 </span>
                 <div>
                     <h3 class="text-sm font-semibold text-red-800">Stock bajo</h3>
-                    <p class="text-xs text-red-700"><?= $lowStock ?> producto<?= $lowStock !== 1 ? 's' : '' ?> por debajo del mínimo configurado</p>
+                    <p class="text-xs text-red-700"><?= $lowStock ?> producto<?= $lowStock !== 1 ? 's' : '' ?> con stock efectivo por debajo del mínimo (incluye en camino)</p>
                 </div>
             </div>
             <a href="<?= e(url('/stock-actual?stock_filter=bajo')) ?>" class="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-800 hover:bg-red-50">

@@ -6,6 +6,7 @@ namespace App\Controllers;
 
 use App\Core\Controller;
 use App\Helpers\PricingEngine;
+use App\Helpers\SeiqOrderBuilder;
 use App\Models\Database;
 
 final class StockController extends Controller
@@ -31,16 +32,10 @@ final class StockController extends Controller
             $params['q2'] = '%' . $q . '%';
         }
 
-        $inTransitJoin = 'LEFT JOIN (
-                SELECT soi.product_id, SUM(soi.boxes_to_order * soi.units_per_box) AS in_transit_units
-                FROM seiq_order_items soi
-                JOIN seiq_orders so ON so.id = soi.seiq_order_id
-                WHERE so.status = \'sent\'
-                GROUP BY soi.product_id
-             ) t ON t.product_id = p.id';
+        $inTransitJoin = SeiqOrderBuilder::inTransitJoinSql();
 
         if ($stockFilter === 'bajo') {
-            $where[] = 'p.stock_minimum IS NOT NULL AND (COALESCE(p.stock_units, 0) - COALESCE(p.stock_committed_units, 0)) < p.stock_minimum';
+            $where[] = 'p.stock_minimum IS NOT NULL AND ' . SeiqOrderBuilder::effectiveStockSql() . ' < p.stock_minimum';
         } else {
             $where[] = '(COALESCE(p.stock_units, 0) > 0 OR COALESCE(t.in_transit_units, 0) > 0)';
         }
@@ -71,9 +66,7 @@ final class StockController extends Controller
             $params
         );
 
-        $lowStockCount = (int) $db->fetchColumn(
-            'SELECT COUNT(*) FROM products WHERE stock_minimum IS NOT NULL AND (COALESCE(stock_units, 0) - COALESCE(stock_committed_units, 0)) < stock_minimum AND is_active = 1'
-        );
+        $lowStockCount = SeiqOrderBuilder::countBelowMinimum($db);
 
         $adjustments = [];
         if ($hasAdjustmentsTable) {
@@ -270,60 +263,79 @@ final class StockController extends Controller
         return;
     }
 
-    public function reposicion(): void
+    public function reorderSuggestion(): void
+    {
+        $this->json(['suggestions' => $this->buildReorderSuggestions()]);
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function buildReorderSuggestions(): array
     {
         $db = Database::getInstance();
+        $inTransit = SeiqOrderBuilder::unitsInTransit($db);
 
-        $rows = $db->fetchAll(
-            "SELECT p.id, p.code, p.name, p.stock_units, p.stock_minimum, p.units_per_box,
+        $products = $db->fetchAll(
+            'SELECT p.id, p.code, p.name, p.stock_units,
                     COALESCE(p.stock_committed_units, 0) AS stock_committed_units,
-                    COALESCE(ventas.total_vendido, 0) AS vendido_90d,
-                    ROUND(COALESCE(ventas.total_vendido, 0) / 90, 1) AS promedio_diario
+                    p.units_per_box, p.stock_minimum,
+                    c.name AS category_name,
+                    COALESCE(c.supplier_id, pc.supplier_id) AS supplier_id,
+                    s.name AS supplier_name
              FROM products p
-             LEFT JOIN (
-                 SELECT base.product_id, SUM(base.units_sold) AS total_vendido
-                 FROM (
-                     SELECT qi.product_id, SUM(
-                         CASE WHEN qi.unit_type = 'caja'
-                              THEN qi.quantity * COALESCE(p2.units_per_box, 1)
-                              ELSE qi.quantity
-                         END
-                     ) AS units_sold
-                     FROM quote_items qi
-                     JOIN quotes q ON q.id = qi.quote_id
-                     JOIN products p2 ON p2.id = qi.product_id
-                     WHERE q.status IN ('accepted','delivered','partially_delivered')
-                       AND q.created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
-                       AND qi.product_id IS NOT NULL
-                     GROUP BY qi.product_id
-
-                     UNION ALL
-
-                     SELECT cp.product_id, SUM(
-                         qi.quantity * cp.quantity
-                     ) AS units_sold
-                     FROM quote_items qi
-                     JOIN quotes q ON q.id = qi.quote_id
-                     JOIN combo_products cp ON cp.combo_id = qi.combo_id
-                     WHERE q.status IN ('accepted','delivered','partially_delivered')
-                       AND q.created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
-                       AND qi.combo_id IS NOT NULL
-                     GROUP BY cp.product_id
-                 ) base
-                 GROUP BY base.product_id
-             ) ventas ON ventas.product_id = p.id
+             JOIN categories c ON c.id = p.category_id
+             LEFT JOIN categories pc ON c.parent_id = pc.id
+             LEFT JOIN suppliers s ON s.id = COALESCE(c.supplier_id, pc.supplier_id)
              WHERE p.is_active = 1
-               AND p.stock_minimum IS NOT NULL
-             ORDER BY
-                 (p.stock_units < p.stock_minimum) DESC,
-                 COALESCE(ventas.total_vendido, 0) / 90 DESC"
+               AND p.stock_minimum > 0
+               AND COALESCE(c.supplier_id, pc.supplier_id) IS NOT NULL'
         );
 
-        $this->view('stock/reposicion', [
-            'title' => 'Sugerencia de reposición',
-            'subtitle' => 'Productos con stock mínimo configurado',
-            'rows' => $rows,
-        ]);
+        $suggestions = [];
+        foreach ($products as $p) {
+            $disponible = (int) $p['stock_units'] - (int) $p['stock_committed_units'];
+            $productId = (int) $p['id'];
+            $enCamino = $inTransit[$productId] ?? 0;
+            $stockEfectivo = $disponible + $enCamino;
+            $minimo = (int) $p['stock_minimum'];
+
+            if ($stockEfectivo >= $minimo) {
+                continue;
+            }
+
+            $faltante = $minimo - $stockEfectivo;
+            $unitsPerBox = max(1, (int) $p['units_per_box']);
+            $cajasAPedir = (int) ceil($faltante / $unitsPerBox);
+
+            $suggestions[] = [
+                'product_id' => $productId,
+                'code' => (string) $p['code'],
+                'name' => (string) $p['name'],
+                'category_name' => (string) ($p['category_name'] ?? ''),
+                'supplier_id' => (int) ($p['supplier_id'] ?? 0),
+                'supplier_name' => (string) ($p['supplier_name'] ?? ''),
+                'units_per_box' => $unitsPerBox,
+                'stock_efectivo' => $stockEfectivo,
+                'disponible' => $disponible,
+                'en_camino' => $enCamino,
+                'minimo' => $minimo,
+                'faltante' => $faltante,
+                'cajas_sugeridas' => $cajasAPedir,
+            ];
+        }
+
+        usort(
+            $suggestions,
+            static fn (array $a, array $b): int => ($a['supplier_name'] <=> $b['supplier_name'])
+                ?: ($a['category_name'] <=> $b['category_name'])
+                ?: ($a['name'] <=> $b['name'])
+        );
+
+        return $suggestions;
+    }
+
+    public function reposicion(): void
+    {
+        redirect('/stock-actual?sugerencia=1');
     }
 
     public function projection(): void

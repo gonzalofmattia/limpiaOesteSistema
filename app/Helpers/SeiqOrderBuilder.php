@@ -382,7 +382,7 @@ final class SeiqOrderBuilder
      *
      * @return array<int, int> product_id => unidades en camino
      */
-    private static function unitsInTransit(Database $db): array
+    public static function unitsInTransit(Database $db): array
     {
         $rows = $db->fetchAll(
             "SELECT soi.product_id, SUM(soi.boxes_to_order * soi.units_per_box) AS units_in_transit
@@ -402,6 +402,38 @@ final class SeiqOrderBuilder
         }
 
         return $out;
+    }
+
+    /** JOIN de unidades en camino (pedidos proveedor status=sent). */
+    public static function inTransitJoinSql(string $productsAlias = 'p'): string
+    {
+        return 'LEFT JOIN (
+                SELECT soi.product_id, SUM(soi.boxes_to_order * soi.units_per_box) AS in_transit_units
+                FROM seiq_order_items soi
+                JOIN seiq_orders so ON so.id = soi.seiq_order_id
+                WHERE so.status = \'sent\'
+                GROUP BY soi.product_id
+             ) t ON t.product_id = ' . $productsAlias . '.id';
+    }
+
+    /** Expresión SQL: disponible + en camino. */
+    public static function effectiveStockSql(string $productsAlias = 'p', string $transitAlias = 't'): string
+    {
+        return '(COALESCE(' . $productsAlias . '.stock_units, 0) - COALESCE(' . $productsAlias
+            . '.stock_committed_units, 0)) + COALESCE(' . $transitAlias . '.in_transit_units, 0)';
+    }
+
+    /** Productos activos con stock efectivo por debajo del mínimo. */
+    public static function countBelowMinimum(Database $db): int
+    {
+        return (int) $db->fetchColumn(
+            'SELECT COUNT(*)
+             FROM products p
+             ' . self::inTransitJoinSql() . '
+             WHERE p.is_active = 1
+               AND p.stock_minimum IS NOT NULL
+               AND ' . self::effectiveStockSql() . ' < p.stock_minimum'
+        );
     }
 
     /**

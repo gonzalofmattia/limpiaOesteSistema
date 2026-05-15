@@ -7,6 +7,7 @@ namespace App\Controllers;
 use App\Core\Controller;
 use App\Helpers\ClientReceivableSummary;
 use App\Helpers\QuoteDeliveryStock;
+use App\Helpers\SeiqOrderBuilder;
 use App\Models\Database;
 
 final class DashboardController extends Controller
@@ -207,9 +208,7 @@ final class DashboardController extends Controller
 
         $lowStockCount = 0;
         try {
-            $lowStockCount = (int) $db->fetchColumn(
-                'SELECT COUNT(*) FROM products WHERE stock_minimum IS NOT NULL AND (COALESCE(stock_units, 0) - COALESCE(stock_committed_units, 0)) < stock_minimum AND is_active = 1'
-            );
+            $lowStockCount = SeiqOrderBuilder::countBelowMinimum($db);
         } catch (\Throwable) {
         }
 
