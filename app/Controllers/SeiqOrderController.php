@@ -460,10 +460,8 @@ final class SeiqOrderController extends Controller
         }
 
         $waMessage = $this->buildWhatsAppMessage($order, $items);
-        $suggestedReceivedAmount = 0.0;
-        foreach ($items as $it) {
-            $suggestedReceivedAmount += $this->orderItemCostPerBox($it) * (int) ($it['boxes_to_order'] ?? 0);
-        }
+        // Igual que API compañeros y PDF con precios: Costo LO por caja vía PricingEngine (requiere join de categorías).
+        $suggestedReceivedAmount = $this->calculateSeiqOrderTotal((int) $id);
         $existingInvoice = $db->fetch(
             "SELECT amount FROM account_transactions
              WHERE reference_type = 'seiq_order' AND reference_id = ? AND transaction_type = 'invoice'

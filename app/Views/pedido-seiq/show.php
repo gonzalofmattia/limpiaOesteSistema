@@ -263,12 +263,20 @@ $mainOrder = $mainOrder ?? null;
     <?php if ($orderStatus === 'sent'): ?>
         <?php
         $modalItems = array_values(array_filter($items, static fn ($r) => (int) ($r['boxes_to_order'] ?? 0) > 0));
+        $receiveSupplierModalConfig = [
+            'orderId' => (int) $order['id'],
+            'companionsUrl' => url('/api/pedidos-proveedor/' . (int) $order['id'] . '/companions'),
+            'mainSuggestedNum' => round((float) $suggestedReceivedAmount, 2),
+            'mainOrderNumber' => (string) $order['order_number'],
+        ];
+        // JSON dentro de x-data: si el atributo va entre comillas dobles, rompe el HTML.
+        // Atributo con comillas simples + JSON estándar entre comillas dobles internas.
+        $receiveSupplierModalConfigJson = json_encode(
+            $receiveSupplierModalConfig,
+            JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS
+        );
         ?>
-        <div x-data="receiveSupplierOrderModal({
-                orderId: <?= (int) $order['id'] ?>,
-                companionsUrl: '<?= e(url('/api/pedidos-proveedor/' . (int) $order['id'] . '/companions')) ?>',
-                suggestedAmount: '<?= e(number_format($suggestedReceivedAmount, 2, ',', '.')) ?>'
-             })"
+        <div x-data='receiveSupplierOrderModal(<?= $receiveSupplierModalConfigJson ?>)'
              x-show="open"
              x-cloak
              class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto"
@@ -332,8 +340,18 @@ $mainOrder = $mainOrder ?? null;
                                 <input type="text" name="invoice_amount" x-model="invoiceAmount" required
                                        inputmode="decimal"
                                        placeholder="0,00"
-                                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                                       @input="onInvoiceAmountInput()">
                                 <p class="text-[11px] text-gray-500 mt-1">Editá si difiere del calculado</p>
+                                <div x-show="selectedCompanions.length > 0" x-cloak class="text-[11px] text-gray-600 mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                                    <span class="text-gray-500" x-text="buildBreakdown()"></span>
+                                    <button type="button"
+                                            x-show="userEditedAmount"
+                                            @click.prevent="restoreCalculated()"
+                                            class="text-[#1565C0] hover:underline whitespace-nowrap text-xs font-medium shrink-0">
+                                        Restaurar calculado
+                                    </button>
+                                </div>
                             </div>
                             <div class="sm:col-span-1">
                                 <label class="block text-xs text-gray-600 mb-1">Fecha factura</label>
@@ -360,7 +378,9 @@ $mainOrder = $mainOrder ?? null;
                                             <div class="flex items-center gap-3 min-w-0">
                                                 <input type="checkbox" name="companion_orders[]" :value="c.id"
                                                        x-model="selectedCompanions"
-                                                       class="rounded border-gray-300 text-[#1a6b3c] focus:ring-[#1a6b3c]">
+                                                       :disabled="!showCompanions"
+                                                       @change="afterCompanionToggle()"
+                                                       class="rounded border-gray-300 text-[#1a6b3c] focus:ring-[#1a6b3c] disabled:opacity-50">
                                                 <div class="min-w-0">
                                                     <div class="font-mono text-sm" x-text="c.order_number"></div>
                                                     <div class="text-[11px] text-gray-500">
@@ -398,24 +418,89 @@ function enviarPedidoWhatsApp() {
 }
 
 function receiveSupplierOrderModal(config) {
+    const mainNum = typeof config.mainSuggestedNum === 'number' ? config.mainSuggestedNum : parseFloat(config.mainSuggestedNum) || 0;
+    const mainOrderNumber = typeof config.mainOrderNumber === 'string' ? config.mainOrderNumber : String(config.mainOrderNumber ?? '');
+    function formatAr(n) {
+        const num = typeof n === 'number' ? n : parseFloat(n);
+        if (Number.isNaN(num)) {
+            return '0,00';
+        }
+        return num.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
     return {
         open: false,
         orderId: config.orderId,
         companionsUrl: config.companionsUrl,
+        mainSuggestedNum: Math.round(mainNum * 100) / 100,
+        mainOrderNumber,
         invoiceNumber: '',
-        invoiceAmount: config.suggestedAmount || '',
+        invoiceAmount: formatAr(mainNum),
         invoiceDate: new Date().toISOString().slice(0, 10),
         showCompanions: false,
         loadingCompanions: false,
         companions: [],
         selectedCompanions: [],
+        userEditedAmount: false,
+        formatArgentina(n) {
+            return formatAr(n);
+        },
+        isCompanionSelected(id) {
+            const n = Number(id);
+            return this.selectedCompanions.some((x) => Number(x) === n);
+        },
+        calculatedTotalNumeric() {
+            let t = this.mainSuggestedNum;
+            for (const row of this.companions) {
+                if (!this.isCompanionSelected(row.id)) {
+                    continue;
+                }
+                t += Number(row.suggested_amount || 0);
+            }
+            return Math.round(t * 100) / 100;
+        },
+        applyCalculatedInvoice() {
+            this.invoiceAmount = this.formatArgentina(this.calculatedTotalNumeric());
+        },
+        buildBreakdown() {
+            const parts = [`${this.mainOrderNumber} $${this.formatArgentina(this.mainSuggestedNum)}`];
+            for (const row of this.companions) {
+                if (this.isCompanionSelected(row.id)) {
+                    parts.push(`${row.order_number} $${this.formatArgentina(Number(row.suggested_amount || 0))}`);
+                }
+            }
+            const total = this.calculatedTotalNumeric();
+            return 'Calculado: ' + parts.join(' + ') + ' = $' + this.formatArgentina(total);
+        },
+        onInvoiceAmountInput() {
+            this.userEditedAmount = true;
+        },
+        restoreCalculated() {
+            this.userEditedAmount = false;
+            this.applyCalculatedInvoice();
+        },
+        afterCompanionToggle() {
+            if (!this.userEditedAmount) {
+                this.applyCalculatedInvoice();
+            }
+        },
         openModal() {
             this.open = true;
-            this.$nextTick(() => window.rebuildLucideIcons && window.rebuildLucideIcons());
+            this.userEditedAmount = false;
+            this.showCompanions = false;
+            this.selectedCompanions = [];
+            this.companions = [];
+            this.invoiceNumber = '';
+            this.invoiceAmount = this.formatArgentina(this.mainSuggestedNum);
+            this.invoiceDate = new Date().toISOString().slice(0, 10);
+            queueMicrotask(() => window.rebuildLucideIcons && window.rebuildLucideIcons());
         },
         async onTogglePartners() {
             if (!this.showCompanions) {
                 this.selectedCompanions = [];
+                if (!this.userEditedAmount) {
+                    this.invoiceAmount = this.formatArgentina(this.mainSuggestedNum);
+                }
                 return;
             }
             if (this.companions.length > 0) {
