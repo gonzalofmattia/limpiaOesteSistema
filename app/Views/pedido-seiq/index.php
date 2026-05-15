@@ -58,6 +58,15 @@
                             <a href="<?= e(url('/pedidos-proveedor/' . (int) $o['id'] . '/pdf')) ?>" class="text-green-600 hover:text-green-700 transition hover:scale-105" title="Descargar PDF">
                                 <i data-lucide="file-text" class="w-5 h-5 text-green-500 hover:text-green-700"></i>
                             </a>
+                            <?php if ((string) ($o['status'] ?? '') === 'draft'): ?>
+                                <?php $deleteFormId = 'delete-seiq-order-' . (int) $o['id']; ?>
+                                <form id="<?= e($deleteFormId) ?>" method="post" action="<?= e(url('/pedidos-proveedor/' . (int) $o['id'] . '/delete')) ?>" class="inline">
+                                    <?= csrfField() ?>
+                                    <button type="button" @click="openDeleteModal('<?= e($deleteFormId) ?>', 'el pedido <?= e((string) $o['order_number']) ?>')" class="text-red-600 hover:text-red-700 transition hover:scale-105" title="Eliminar pedido">
+                                        <i data-lucide="trash-2" class="w-5 h-5"></i>
+                                    </button>
+                                </form>
+                            <?php endif; ?>
                             </div>
                         </td>
                     </tr>

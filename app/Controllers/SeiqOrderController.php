@@ -313,9 +313,13 @@ final class SeiqOrderController extends Controller
             $suggestedReceivedAmount = (float) $existingInvoice['amount'];
         }
 
-        // Pedidos recibidos en conjunto con éste (si este es el «principal»)
+        $orderStatus = (string) ($order['status'] ?? '');
+
+        // Pedidos recibidos en conjunto (solo aplica a pedidos ya recibidos)
         $companionOrders = [];
-        if ((int) ($order['id'] ?? 0) > 0) {
+        $mainOrder = null;
+        $siblingOrders = [];
+        if ($orderStatus === 'received' && $this->seiqColumnExists($db, 'received_with_order_id')) {
             $companionOrders = $db->fetchAll(
                 "SELECT id, order_number, total_boxes, total_products, status
                  FROM seiq_orders
@@ -323,24 +327,21 @@ final class SeiqOrderController extends Controller
                  ORDER BY order_number",
                 [(int) $order['id']]
             );
-        }
-        // Si este pedido fue recibido junto a otro principal, traer el principal y sus hermanos
-        $mainOrder = null;
-        $siblingOrders = [];
-        $mainOrderId = (int) ($order['received_with_order_id'] ?? 0);
-        if ($mainOrderId > 0 && $mainOrderId !== (int) $order['id']) {
-            $mainOrder = $db->fetch(
-                'SELECT id, order_number, invoice_number, invoice_date, invoice_amount
-                 FROM seiq_orders WHERE id = ?',
-                [$mainOrderId]
-            );
-            $siblingOrders = $db->fetchAll(
-                "SELECT id, order_number, total_boxes, total_products, status
-                 FROM seiq_orders
-                 WHERE received_with_order_id = ? AND id <> ?
-                 ORDER BY order_number",
-                [$mainOrderId, (int) $order['id']]
-            );
+            $mainOrderId = (int) ($order['received_with_order_id'] ?? 0);
+            if ($mainOrderId > 0 && $mainOrderId !== (int) $order['id']) {
+                $mainOrder = $db->fetch(
+                    'SELECT id, order_number, invoice_number, invoice_date, invoice_amount
+                     FROM seiq_orders WHERE id = ?',
+                    [$mainOrderId]
+                );
+                $siblingOrders = $db->fetchAll(
+                    "SELECT id, order_number, total_boxes, total_products, status
+                     FROM seiq_orders
+                     WHERE received_with_order_id = ? AND id <> ?
+                     ORDER BY order_number",
+                    [$mainOrderId, (int) $order['id']]
+                );
+            }
         }
 
         $this->view('pedido-seiq/show', [
@@ -947,6 +948,7 @@ final class SeiqOrderController extends Controller
             $hasItems = (bool) $db->fetchColumn("SHOW TABLES LIKE 'seiq_order_items'");
             $hasSuppliers = (bool) $db->fetchColumn("SHOW TABLES LIKE 'suppliers'");
             if ($hasOrders && $hasItems && $hasSuppliers) {
+                $this->ensureSeiqInvoiceColumns($db);
                 return true;
             }
         } catch (\Throwable) {
@@ -956,6 +958,46 @@ final class SeiqOrderController extends Controller
         flash('error', 'Falta migrar base de datos para pedidos de proveedores. Ejecutá install.php o la migración multi-proveedor en producción.');
         redirect('/');
         return false;
+    }
+
+    /** Columnas de factura consolidada en seiq_orders (idempotente). */
+    private function ensureSeiqInvoiceColumns(Database $db): void
+    {
+        $pdo = $db->getPdo();
+        $columns = [
+            'receipt_stock_applied' => 'ALTER TABLE seiq_orders ADD COLUMN receipt_stock_applied TINYINT(1) NOT NULL DEFAULT 0 AFTER received_at',
+            'invoice_number' => 'ALTER TABLE seiq_orders ADD COLUMN invoice_number VARCHAR(50) NULL AFTER receipt_stock_applied',
+            'invoice_date' => 'ALTER TABLE seiq_orders ADD COLUMN invoice_date DATE NULL AFTER invoice_number',
+            'invoice_amount' => 'ALTER TABLE seiq_orders ADD COLUMN invoice_amount DECIMAL(12,2) NULL AFTER invoice_date',
+            'received_with_order_id' => 'ALTER TABLE seiq_orders ADD COLUMN received_with_order_id INT NULL AFTER invoice_amount',
+        ];
+        foreach ($columns as $name => $sql) {
+            if (!$this->seiqColumnExists($db, $name)) {
+                $pdo->exec($sql);
+            }
+        }
+        if ($this->seiqColumnExists($db, 'received_with_order_id')) {
+            $hasIndex = (int) $db->fetchColumn(
+                "SELECT COUNT(*) FROM information_schema.STATISTICS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'seiq_orders' AND INDEX_NAME = 'idx_received_with'"
+            ) > 0;
+            if (!$hasIndex) {
+                try {
+                    $pdo->exec('ALTER TABLE seiq_orders ADD INDEX idx_received_with (received_with_order_id)');
+                } catch (\Throwable) {
+                    // Índice duplicado u otro error no bloqueante.
+                }
+            }
+        }
+    }
+
+    private function seiqColumnExists(Database $db, string $column): bool
+    {
+        return (int) $db->fetchColumn(
+            'SELECT COUNT(*) FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?',
+            ['seiq_orders', $column]
+        ) > 0;
     }
 
     /**

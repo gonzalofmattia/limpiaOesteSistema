@@ -106,6 +106,7 @@ return [
     ['GET', 'api/pedidos-proveedor/{id}/companions', 'SeiqOrderController@apiSentCompanions', []],
     ['POST', 'pedidos-proveedor/{id}/quotes-delivered', 'SeiqOrderController@markQuotesDelivered', []],
     ['POST', 'pedidos-proveedor/{id}/delete', 'SeiqOrderController@delete', []],
+    ['POST', 'pedidos-proveedor/{id}/eliminar', 'SeiqOrderController@delete', []],
 
     ['GET', 'settings', 'SettingsController@index', []],
     ['POST', 'settings', 'SettingsController@update', []],

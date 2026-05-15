@@ -22,7 +22,7 @@ $companionOrders = $companionOrders ?? [];
 $siblingOrders = $siblingOrders ?? [];
 $mainOrder = $mainOrder ?? null;
 ?>
-<div class="max-w-6xl space-y-6" x-data>
+<div class="max-w-6xl space-y-6">
     <div class="flex flex-wrap justify-between gap-4 items-start">
         <div>
             <p class="text-sm text-gray-700 font-medium"><?= e($order['order_number']) ?> · <?= e((string) ($order['supplier_name'] ?? '—')) ?></p>
@@ -130,12 +130,12 @@ $mainOrder = $mainOrder ?? null;
         </div>
     <?php endif; ?>
 
-    <?php if ((string) ($order['status'] ?? '') === 'draft'): ?>
-    <form method="post" action="<?= e(url('/pedidos-proveedor/' . (int) $order['id'] . '/delete')) ?>"
-          onsubmit="return confirm('¿Eliminar este pedido? Los presupuestos asociados volverán a estar disponibles para nuevos pedidos.')">
-        <?= csrfField() ?>
-        <button type="submit" class="px-3 py-1 rounded-lg text-xs border border-red-300 text-red-700 hover:bg-red-50">Eliminar pedido</button>
-    </form>
+    <?php if ($orderStatus === 'draft'): ?>
+        <?php $deleteFormId = 'delete-seiq-order-' . (int) $order['id']; ?>
+        <form id="<?= e($deleteFormId) ?>" method="post" action="<?= e(url('/pedidos-proveedor/' . (int) $order['id'] . '/delete')) ?>" class="inline">
+            <?= csrfField() ?>
+            <button type="button" @click="openDeleteModal('<?= e($deleteFormId) ?>', 'el pedido <?= e((string) $order['order_number']) ?>')" class="px-3 py-1 rounded-lg text-xs border border-red-300 text-red-700 hover:bg-red-50">Eliminar pedido</button>
+        </form>
     <?php endif; ?>
 
     <?php if (!empty($includedQuotes)): ?>
