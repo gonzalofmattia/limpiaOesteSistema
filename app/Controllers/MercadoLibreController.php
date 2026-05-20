@@ -9,6 +9,8 @@ use App\Helpers\ClaudeDescriptionGenerator;
 use App\Helpers\Env;
 use App\Helpers\MercadoLibreService;
 use App\Helpers\MercadoLibreTokenManager;
+use App\Helpers\MlImageImporter;
+use App\Helpers\SeiqImageScraper;
 use App\Helpers\PricingEngine;
 use App\Helpers\QuoteLinePricing;
 use App\Models\Database;
@@ -281,6 +283,125 @@ final class MercadoLibreController extends Controller
         }
 
         redirect('/mercadolibre');
+    }
+
+    public function importImages(): void
+    {
+        try {
+            $importer = new MlImageImporter();
+            $this->view('mercadolibre/import_images', [
+                'title' => 'Importar imágenes desde ML',
+                'without_photos_count' => $importer->countActiveWithoutPhotos(),
+                'products' => $importer->getActiveProductsWithPhotoStatus(),
+            ]);
+        } catch (\Throwable $e) {
+            flash('error', 'No se pudo cargar la importación de imágenes: ' . $e->getMessage());
+            redirect('/mercadolibre');
+        }
+    }
+
+    public function importImagesExecute(): void
+    {
+        if (!verifyCsrf()) {
+            http_response_code(419);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['success' => false, 'error' => 'CSRF'], JSON_UNESCAPED_UNICODE);
+            return;
+        }
+
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+
+        header('Content-Type: application/x-ndjson; charset=utf-8');
+        header('Cache-Control: no-cache, no-store');
+        header('X-Accel-Buffering: no');
+
+        $importer = new MlImageImporter();
+
+        $limitRaw = trim((string) $this->input('limit', ''));
+        $limit = $limitRaw !== '' ? max(1, (int) $limitRaw) : null;
+        $products = $importer->getActiveProductsWithoutPhotos($limit);
+        $total = count($products);
+        $imported = 0;
+        $notFound = 0;
+        $errors = 0;
+
+        $emit = static function (array $payload): void {
+            echo json_encode($payload, JSON_UNESCAPED_UNICODE) . "\n";
+            if (function_exists('flush')) {
+                flush();
+            }
+        };
+
+        $emit([
+            'type' => 'start',
+            'total' => $total,
+            'limit' => $limit,
+        ]);
+
+        foreach ($products as $index => $product) {
+            $result = $importer->importProduct($product);
+            $status = (string) ($result['status'] ?? 'error');
+
+            if ($status === 'ok') {
+                $imported++;
+            } elseif ($status === 'no_encontrado') {
+                $notFound++;
+            } elseif ($status !== 'skipped') {
+                $errors++;
+            }
+
+            $emit([
+                'type' => 'progress',
+                'index' => $index + 1,
+                'total' => $total,
+                'product_id' => (int) ($product['id'] ?? 0),
+                'product_name' => (string) ($product['name'] ?? ''),
+                'search_term' => (string) ($result['search_term'] ?? ''),
+                'image_url' => (string) ($result['image_url'] ?? ''),
+                'status' => $status,
+                'message' => (string) ($result['message'] ?? ''),
+            ]);
+        }
+
+        $emit([
+            'type' => 'done',
+            'imported' => $imported,
+            'not_found' => $notFound,
+            'errors' => $errors,
+            'total' => $total,
+        ]);
+    }
+
+    public function importSeiqImagesExecute(): void
+    {
+        if (!verifyCsrf()) {
+            http_response_code(419);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['success' => false, 'error' => 'CSRF'], JSON_UNESCAPED_UNICODE);
+            return;
+        }
+
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+
+        header('Content-Type: application/x-ndjson; charset=utf-8');
+        header('Cache-Control: no-cache, no-store');
+        header('X-Accel-Buffering: no');
+
+        $scraper = new SeiqImageScraper();
+        $emit = static function (array $payload): void {
+            echo json_encode($payload, JSON_UNESCAPED_UNICODE) . "\n";
+            if (function_exists('flush')) {
+                flush();
+            }
+        };
+
+        $scraper->run(static function (array $event) use ($emit): void {
+            $emit($event);
+        });
     }
 
     public function listings(): void

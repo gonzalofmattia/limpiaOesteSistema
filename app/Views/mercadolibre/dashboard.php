@@ -18,6 +18,9 @@ $mlUserId = trim((string) ($ml_user_id ?? ''));
             <a href="<?= e(url('/mercadolibre/ordenes')) ?>" class="inline-flex items-center gap-2 rounded-lg border border-lo-border bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
                 <i data-lucide="shopping-bag" class="h-4 w-4"></i>Órdenes
             </a>
+            <a href="<?= e(url('/mercadolibre/importar-imagenes')) ?>" class="inline-flex items-center gap-2 rounded-lg border border-lo-border bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                <i data-lucide="image-down" class="h-4 w-4"></i>Importar imágenes
+            </a>
             <?php if ($connected): ?>
                 <form method="post" action="<?= e(url('/mercadolibre/desconectar')) ?>" class="inline">
                     <?= csrfField() ?>

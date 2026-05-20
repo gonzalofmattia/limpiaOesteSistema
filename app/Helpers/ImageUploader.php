@@ -108,6 +108,25 @@ final class ImageUploader
         return $this->thumbDir($productId) . '/' . basename($filename);
     }
 
+    /** Genera miniatura a partir de un original ya guardado en originals/{productId}/. */
+    public function ensureThumbFromOriginal(int $productId, string $filename): void
+    {
+        $filename = basename($filename);
+        $sourcePath = $this->originalPath($productId, $filename);
+        if (!is_file($sourcePath)) {
+            throw new \RuntimeException('Original no encontrado.');
+        }
+        $mime = $this->detectMime($sourcePath, '');
+        if (!isset(self::ALLOWED_MIMES[$mime])) {
+            throw new \RuntimeException('Tipo de imagen no permitido.');
+        }
+        $thumbDir = $this->thumbDir($productId);
+        if (!is_dir($thumbDir) && !mkdir($thumbDir, 0755, true)) {
+            throw new \RuntimeException('No se pudo crear la carpeta de miniaturas.');
+        }
+        $this->generateThumb($sourcePath, $mime, $thumbDir . '/' . $filename);
+    }
+
     private function originalDir(int $productId): string
     {
         return rtrim((string) STORAGE_PATH, '/') . '/products/originals/' . $productId;
