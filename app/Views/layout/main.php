@@ -87,7 +87,17 @@
     </script>
 </head>
 <body class="bg-lo-bg text-lo-text antialiased" x-data="{ sidebarOpen: false, deleteModal: { open: false, formId: '', itemName: 'este registro' }, openDeleteModal(formId, itemName){ this.deleteModal.formId=formId; this.deleteModal.itemName=itemName || 'este registro'; this.deleteModal.open=true; this.$nextTick(() => window.rebuildLucideIcons && window.rebuildLucideIcons()); } }">
-<?php $flash = getFlash(); ?>
+<?php
+$flash = getFlash();
+$mlActiveListingsCount = 0;
+try {
+    $mlActiveListingsCount = (int) \App\Models\Database::getInstance()->fetchColumn(
+        "SELECT COUNT(*) FROM ml_listings WHERE status = 'active'"
+    );
+} catch (\Throwable) {
+    $mlActiveListingsCount = 0;
+}
+?>
 <div class="min-h-screen lg:flex">
     <aside class="fixed lg:static inset-y-0 left-0 z-40 w-[220px] bg-white border-r border-lo-border flex flex-col transition-transform duration-200"
            x-transition:enter="transition ease-out duration-200"
@@ -118,6 +128,11 @@
             <a href="<?= e(url('/presupuestos')) ?>" class="<?= $itemBase ?> <?= isActive('/presupuestos') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="file-text" class="h-4 w-4"></i><span>Presupuestos</span></a>
             <a href="<?= e(url('/ventas')) ?>" class="<?= $itemBase ?> <?= isActive('/ventas') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="shopping-cart" class="h-4 w-4"></i><span>Ventas</span></a>
             <a href="<?= e(url('/ventas-ml')) ?>" class="<?= $itemBase ?> <?= isActive('/ventas-ml') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="store" class="h-4 w-4"></i><span>Ventas ML</span></a>
+            <a href="<?= e(url('/mercadolibre')) ?>" class="<?= $itemBase ?> <?= isActive('/mercadolibre') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>">
+                <i data-lucide="shopping-bag" class="h-4 w-4"></i>
+                <span class="flex-1">MercadoLibre</span>
+                <span class="ml-auto inline-flex min-w-[1.25rem] justify-center rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] font-bold text-green-800"><?= $mlActiveListingsCount ?></span>
+            </a>
             <a href="<?= e(url('/pedidos-proveedor')) ?>" class="<?= $itemBase ?> <?= isActive('/pedidos-proveedor') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="truck" class="h-4 w-4"></i><span>Pedidos a Proveedores</span></a>
             <a href="<?= e(url('/cuenta-corriente')) ?>" class="<?= $itemBase ?> <?= isActive('/cuenta-corriente') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="wallet" class="h-4 w-4"></i><span>Cuenta Corriente</span></a>
             <p class="px-3 pt-4 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Sistema</p>

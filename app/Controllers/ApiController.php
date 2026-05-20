@@ -50,7 +50,8 @@ final class ApiController extends Controller
             $params[] = $supplierSlug;
         }
         $rows = $db->fetchAll(
-            'SELECT p.id, p.code, p.name, p.sale_unit_label, p.sale_unit_type, p.sale_unit_description,
+            'SELECT p.id, p.code, p.name, p.presentation, p.presentacion_minorista, p.unit_volume,
+                    p.sale_unit_label, p.sale_unit_type, p.sale_unit_description,
                     p.units_per_box, p.content, p.stock_units, COALESCE(p.stock_committed_units, 0) AS stock_committed_units,
                     c.name AS category_name, c.slug AS category_slug,
                     pc.name AS parent_category_name,
@@ -308,9 +309,54 @@ final class ApiController extends Controller
         return is_numeric($s) ? (float) $s : null;
     }
 
-    public function serveProductImage(string $id, string $img): void
+    public function serveProductImageById(string $id, string $img): void
     {
         $this->outputProductImage((int) $id, (int) $img, false);
+    }
+
+    public function serveProductImage(string $product_id, string $filename): void
+    {
+        if (!ctype_digit($product_id) || (int) $product_id <= 0) {
+            http_response_code(404);
+            header('Content-Type: text/plain; charset=utf-8');
+            echo 'No encontrado';
+            return;
+        }
+
+        $filename = basename($filename);
+        if ($filename === '' || !preg_match('/^[a-zA-Z0-9.\-]+$/', $filename)) {
+            http_response_code(404);
+            header('Content-Type: text/plain; charset=utf-8');
+            echo 'No encontrado';
+            return;
+        }
+
+        $path = rtrim((string) STORAGE_PATH, '/') . '/products/originals/' . $product_id . '/' . $filename;
+        if (!is_file($path) || !is_readable($path)) {
+            http_response_code(404);
+            header('Content-Type: text/plain; charset=utf-8');
+            echo 'No encontrado';
+            return;
+        }
+
+        $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+        $mime = match ($ext) {
+            'jpg', 'jpeg' => 'image/jpeg',
+            'png' => 'image/png',
+            'webp' => 'image/webp',
+            default => 'application/octet-stream',
+        };
+
+        $size = (int) filesize($path);
+        header('Content-Type: ' . $mime);
+        header('Cache-Control: public, max-age=86400');
+        if ($size > 0) {
+            header('Content-Length: ' . (string) $size);
+        }
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'HEAD') {
+            readfile($path);
+        }
+        exit;
     }
 
     public function serveProductThumb(string $id, string $img): void

@@ -37,7 +37,9 @@ final class Router
         $url = trim((string) $url, '/');
 
         foreach ($this->routes as $route) {
-            if ($route['method'] !== $method) {
+            $methodMatch = $route['method'] === $method
+                || ($method === 'HEAD' && $route['method'] === 'GET');
+            if (!$methodMatch) {
                 continue;
             }
             $regex = $this->patternToRegex($route['pattern']);
@@ -94,6 +96,10 @@ final class Router
     {
         if ($name === 'slug') {
             return '[a-z0-9]+(?:-[a-z0-9]+)*';
+        }
+
+        if ($name === 'filename') {
+            return '[a-zA-Z0-9.\-]+';
         }
 
         return '[0-9]+';

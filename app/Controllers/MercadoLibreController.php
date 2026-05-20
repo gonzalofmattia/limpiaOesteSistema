@@ -5,6 +5,10 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Controller;
+use App\Helpers\ClaudeDescriptionGenerator;
+use App\Helpers\Env;
+use App\Helpers\MercadoLibreService;
+use App\Helpers\MercadoLibreTokenManager;
 use App\Helpers\PricingEngine;
 use App\Helpers\QuoteLinePricing;
 use App\Models\Database;
@@ -130,6 +134,1147 @@ final class MercadoLibreController extends Controller
             'items' => $items,
             'stats' => $stats,
         ]);
+    }
+
+    public function dashboard(): void
+    {
+        try {
+            $db = Database::getInstance();
+            $connected = MercadoLibreTokenManager::isConnected();
+            $mlUserId = trim(setting('ml_user_id', '') ?? '');
+
+            $statusRows = $db->fetchAll(
+                'SELECT status, COUNT(*) AS total FROM ml_listings GROUP BY status'
+            );
+            $statusCounts = [
+                'draft' => 0,
+                'active' => 0,
+                'paused' => 0,
+                'closed' => 0,
+            ];
+            foreach ($statusRows as $row) {
+                $key = (string) ($row['status'] ?? '');
+                if (array_key_exists($key, $statusCounts)) {
+                    $statusCounts[$key] = (int) ($row['total'] ?? 0);
+                }
+            }
+
+            $lastSyncedAt = $db->fetchColumn(
+                'SELECT MAX(last_synced_at) FROM ml_listings WHERE last_synced_at IS NOT NULL'
+            );
+
+            $activeSyncErrors = $db->fetchAll(
+                "SELECT l.id, l.title, l.product_id, l.ml_item_id, l.last_sync_error, l.last_synced_at,
+                        p.name AS product_name
+                 FROM ml_listings l
+                 LEFT JOIN products p ON p.id = l.product_id
+                 WHERE l.status = 'active'
+                   AND l.last_sync_error IS NOT NULL
+                   AND TRIM(l.last_sync_error) <> ''
+                 ORDER BY l.updated_at DESC
+                 LIMIT 10"
+            );
+
+            $recentSyncErrors = $db->fetchAll(
+                "SELECT l.id, l.title, l.product_id, l.status, l.last_sync_error, l.last_synced_at,
+                        p.name AS product_name
+                 FROM ml_listings l
+                 LEFT JOIN products p ON p.id = l.product_id
+                 WHERE l.last_sync_error IS NOT NULL
+                   AND TRIM(l.last_sync_error) <> ''
+                 ORDER BY l.updated_at DESC
+                 LIMIT 5"
+            );
+
+            $activeListings = $db->fetchAll(
+                "SELECT l.id, l.title, l.product_id, l.ml_item_id, l.price, l.available_quantity_override,
+                        l.last_synced_at, l.last_sync_error, l.ml_permalink,
+                        p.name AS product_name
+                 FROM ml_listings l
+                 LEFT JOIN products p ON p.id = l.product_id
+                 WHERE l.status = 'active'
+                 ORDER BY l.updated_at DESC
+                 LIMIT 20"
+            );
+
+            $this->view('mercadolibre/dashboard', [
+                'title' => 'MercadoLibre',
+                'connected' => $connected,
+                'ml_user_id' => $mlUserId,
+                'status_counts' => $statusCounts,
+                'last_synced_at' => $lastSyncedAt ?: null,
+                'active_sync_errors' => $activeSyncErrors,
+                'recent_sync_errors' => $recentSyncErrors,
+                'active_listings' => $activeListings,
+            ]);
+        } catch (\Throwable $e) {
+            flash('error', 'No se pudo cargar el panel ML: ' . $e->getMessage());
+            redirect('/dashboard');
+        }
+    }
+
+    public function connect(): void
+    {
+        try {
+            $clientId = $this->mlClientId();
+            $redirectUri = $this->mlRedirectUri();
+            if ($clientId === '' || $redirectUri === '') {
+                flash('error', 'Configurá ML_APP_ID y ML_REDIRECT_URI en el .env antes de conectar.');
+                redirect('/mercadolibre');
+                return;
+            }
+
+            $params = http_build_query([
+                'response_type' => 'code',
+                'client_id' => $clientId,
+                'redirect_uri' => $redirectUri,
+            ]);
+
+            redirect('https://auth.mercadolibre.com.ar/authorization?' . $params);
+        } catch (\Throwable $e) {
+            flash('error', 'No se pudo iniciar la conexión con MercadoLibre: ' . $e->getMessage());
+            redirect('/mercadolibre');
+        }
+    }
+
+    public function callback(): void
+    {
+        try {
+            $error = trim((string) $this->query('error', ''));
+            if ($error !== '') {
+                $desc = trim((string) $this->query('error_description', $error));
+                flash('error', 'MercadoLibre rechazó la autorización: ' . $desc);
+                redirect('/mercadolibre');
+                return;
+            }
+
+            $code = trim((string) $this->query('code', ''));
+            if ($code === '') {
+                flash('error', 'No se recibió el código de autorización de MercadoLibre.');
+                redirect('/mercadolibre');
+                return;
+            }
+
+            $tokenData = $this->exchangeAuthorizationCode($code);
+            MercadoLibreTokenManager::saveTokens($tokenData);
+            flash('success', 'Cuenta de MercadoLibre conectada correctamente.');
+            redirect('/mercadolibre');
+        } catch (\Throwable $e) {
+            flash('error', 'No se pudo completar la conexión con MercadoLibre: ' . $e->getMessage());
+            redirect('/mercadolibre');
+        }
+    }
+
+    public function disconnect(): void
+    {
+        if (!verifyCsrf()) {
+            flash('error', 'Token inválido.');
+            redirect('/mercadolibre');
+            return;
+        }
+
+        try {
+            MercadoLibreTokenManager::revokeTokens();
+            flash('success', 'Cuenta de MercadoLibre desconectada.');
+        } catch (\Throwable $e) {
+            flash('error', 'No se pudo desconectar: ' . $e->getMessage());
+        }
+
+        redirect('/mercadolibre');
+    }
+
+    public function listings(): void
+    {
+        try {
+            $db = Database::getInstance();
+            $page = max(1, (int) $this->query('page', 1));
+            $perPage = (int) $this->query('per_page', 20);
+            $perPage = $perPage > 0 ? min($perPage, 100) : 20;
+            $statusFilter = trim((string) $this->query('status', ''));
+
+            $where = '1=1';
+            $params = [];
+            if (in_array($statusFilter, ['draft', 'active', 'paused', 'closed'], true)) {
+                $where .= ' AND l.status = ?';
+                $params[] = $statusFilter;
+            }
+
+            $total = (int) $db->fetchColumn(
+                "SELECT COUNT(*) FROM ml_listings l WHERE {$where}",
+                $params
+            );
+            $totalPages = max(1, (int) ceil($total / $perPage));
+            if ($page > $totalPages) {
+                $page = $totalPages;
+            }
+            $offset = ($page - 1) * $perPage;
+
+            $listings = $db->fetchAll(
+                "SELECT l.*, p.name AS product_name, p.code AS product_code,
+                        cov.filename AS cover_filename
+                 FROM ml_listings l
+                 LEFT JOIN products p ON p.id = l.product_id
+                 LEFT JOIN product_images cov ON cov.id = (
+                     SELECT pi.id FROM product_images pi
+                     WHERE pi.product_id = p.id
+                     ORDER BY pi.is_cover DESC, pi.sort_order ASC, pi.id ASC
+                     LIMIT 1
+                 )
+                 WHERE {$where}
+                 ORDER BY l.updated_at DESC, l.id DESC
+                 LIMIT " . (int) $perPage . ' OFFSET ' . (int) $offset,
+                $params
+            );
+
+            $this->view('mercadolibre/listings', [
+                'title' => 'Listings MercadoLibre',
+                'listings' => $listings,
+                'page' => $page,
+                'per_page' => $perPage,
+                'total' => $total,
+                'total_pages' => $totalPages,
+                'status_filter' => $statusFilter,
+            ]);
+        } catch (\Throwable $e) {
+            flash('error', 'No se pudo cargar los listings: ' . $e->getMessage());
+            redirect('/mercadolibre');
+        }
+    }
+
+    public function newListing(): void
+    {
+        try {
+            $this->view('mercadolibre/new_listing', [
+                'title' => 'Nuevo listing ML',
+                'listing' => null,
+                'products' => $this->activeProductsForSelect(),
+                'default_markup' => (float) (setting('ml_default_markup', '75') ?? '75'),
+                'default_quantity' => (int) (setting('ml_default_quantity', '12') ?? '12'),
+                'initial_image_count' => 0,
+                'initial_description' => '',
+            ]);
+        } catch (\Throwable $e) {
+            flash('error', 'No se pudo abrir el formulario: ' . $e->getMessage());
+            redirect('/mercadolibre/listings');
+        }
+    }
+
+    public function storeListing(): void
+    {
+        if (!verifyCsrf()) {
+            flash('error', 'Token inválido.');
+            redirect('/mercadolibre/listings/nueva');
+            return;
+        }
+
+        try {
+            $payload = $this->validateListingPayload(null);
+            if ($payload['error'] !== null) {
+                flash('error', $payload['error']);
+                redirect('/mercadolibre/listings/nueva');
+                return;
+            }
+
+            $db = Database::getInstance();
+            $listingId = $db->insert('ml_listings', $payload['data']);
+            $this->saveProductDescriptionIfEmpty((int) $payload['data']['product_id']);
+            flash('success', 'Listing guardado como borrador.');
+            redirect('/mercadolibre/listings/' . $listingId . '/editar');
+        } catch (\Throwable $e) {
+            flash('error', 'No se pudo guardar el listing: ' . $e->getMessage());
+            redirect('/mercadolibre/listings/nueva');
+        }
+    }
+
+    public function editListing(string $id): void
+    {
+        try {
+            $listing = $this->findListing((int) $id);
+            if ($listing === null) {
+                flash('error', 'Listing no encontrado.');
+                redirect('/mercadolibre/listings');
+                return;
+            }
+
+            $productId = (int) ($listing['product_id'] ?? 0);
+            $initialDescription = '';
+            if ($productId > 0) {
+                $prod = Database::getInstance()->fetch(
+                    'SELECT full_description, short_description, description FROM products WHERE id = ?',
+                    [$productId]
+                );
+                if ($prod) {
+                    $initialDescription = trim((string) ($prod['full_description'] ?? ''));
+                    if ($initialDescription === '') {
+                        $initialDescription = trim((string) ($prod['short_description'] ?? ''));
+                    }
+                    if ($initialDescription === '') {
+                        $initialDescription = trim((string) ($prod['description'] ?? ''));
+                    }
+                }
+            }
+            $this->view('mercadolibre/new_listing', [
+                'title' => 'Editar listing ML',
+                'listing' => $listing,
+                'products' => $this->activeProductsForSelect(),
+                'default_markup' => (float) (setting('ml_default_markup', '75') ?? '75'),
+                'default_quantity' => (int) (setting('ml_default_quantity', '12') ?? '12'),
+                'initial_image_count' => $productId > 0 ? MercadoLibreService::countProductImages($productId) : 0,
+                'initial_description' => $initialDescription,
+            ]);
+        } catch (\Throwable $e) {
+            flash('error', 'No se pudo cargar el listing: ' . $e->getMessage());
+            redirect('/mercadolibre/listings');
+        }
+    }
+
+    public function updateListing(string $id): void
+    {
+        $listingId = (int) $id;
+        if ($this->isInlineListingRequest()) {
+            $this->updateListingInline($listingId);
+
+            return;
+        }
+
+        if (!verifyCsrf()) {
+            flash('error', 'Token inválido.');
+            redirect('/mercadolibre/listings/' . $listingId . '/editar');
+            return;
+        }
+
+        try {
+            $listing = $this->findListing($listingId);
+            if ($listing === null) {
+                flash('error', 'Listing no encontrado.');
+                redirect('/mercadolibre/listings');
+                return;
+            }
+
+            $payload = $this->validateListingPayload($listing);
+            if ($payload['error'] !== null) {
+                flash('error', $payload['error']);
+                redirect('/mercadolibre/listings/' . $listingId . '/editar');
+                return;
+            }
+
+            Database::getInstance()->update(
+                'ml_listings',
+                $payload['data'],
+                'id = :id',
+                ['id' => $listingId]
+            );
+            $this->saveProductDescriptionIfEmpty((int) $payload['data']['product_id']);
+            flash('success', 'Listing actualizado.');
+            redirect('/mercadolibre/listings/' . $listingId . '/editar');
+        } catch (\Throwable $e) {
+            flash('error', 'No se pudo actualizar el listing: ' . $e->getMessage());
+            redirect('/mercadolibre/listings/' . $listingId . '/editar');
+        }
+    }
+
+    public function publishListing(string $id): void
+    {
+        $listingId = (int) $id;
+        if (!verifyCsrf()) {
+            flash('error', 'Token inválido.');
+            redirect('/mercadolibre/listings');
+            return;
+        }
+
+        try {
+            $listing = $this->findListing($listingId);
+            if ($listing === null) {
+                flash('error', 'Listing no encontrado.');
+                redirect('/mercadolibre/listings');
+                return;
+            }
+
+            $this->saveProductDescriptionIfEmpty((int) ($listing['product_id'] ?? 0));
+            $result = MercadoLibreService::publishItem($listingId);
+            if ($result['success']) {
+                flash('success', 'Publicado en MercadoLibre: ' . ($result['ml_item_id'] ?: 'OK'));
+            } else {
+                flash('error', 'No se pudo publicar: ' . ($result['error'] ?: 'Error desconocido'));
+            }
+        } catch (\Throwable $e) {
+            flash('error', 'Error al publicar: ' . $e->getMessage());
+        }
+
+        redirect('/mercadolibre/listings');
+    }
+
+    public function syncListing(string $id): void
+    {
+        $listingId = (int) $id;
+        if ($this->isInlineListingRequest()) {
+            $this->syncListingInline($listingId);
+
+            return;
+        }
+
+        if (!verifyCsrf()) {
+            flash('error', 'Token inválido.');
+            redirect('/mercadolibre/listings');
+            return;
+        }
+
+        try {
+            if ($this->findListing($listingId) === null) {
+                flash('error', 'Listing no encontrado.');
+                redirect('/mercadolibre/listings');
+                return;
+            }
+
+            $result = MercadoLibreService::syncItem($listingId);
+            if (!empty($result['ml_not_found'])) {
+                flash('info', 'El ítem ya no existe en MercadoLibre; el listing se marcó como cerrado.');
+            } elseif ($result['success']) {
+                flash('success', 'Listing sincronizado correctamente.');
+            } else {
+                flash('error', 'No se pudo sincronizar: ' . ($result['error'] ?: 'Error desconocido'));
+            }
+        } catch (\Throwable $e) {
+            flash('error', 'Error al sincronizar: ' . $e->getMessage());
+        }
+
+        redirect('/mercadolibre/listings');
+    }
+
+    public function pauseListing(string $id): void
+    {
+        $listingId = (int) $id;
+        if (!verifyCsrf()) {
+            flash('error', 'Token inválido.');
+            redirect('/mercadolibre/listings');
+            return;
+        }
+
+        try {
+            $listing = $this->findListing($listingId);
+            if ($listing === null) {
+                flash('error', 'Listing no encontrado.');
+                redirect('/mercadolibre/listings');
+                return;
+            }
+
+            $mlItemId = trim((string) ($listing['ml_item_id'] ?? ''));
+            if ($mlItemId === '') {
+                flash('error', 'El listing aún no está publicado en ML.');
+                redirect('/mercadolibre/listings');
+                return;
+            }
+
+            if (MercadoLibreService::pauseItem($mlItemId)) {
+                Database::getInstance()->update('ml_listings', [
+                    'status' => 'paused',
+                    'last_synced_at' => date('Y-m-d H:i:s'),
+                    'last_sync_error' => null,
+                ], 'id = :id', ['id' => $listingId]);
+                flash('success', 'Listing pausado en MercadoLibre.');
+            } else {
+                flash('error', 'No se pudo pausar el listing en MercadoLibre.');
+            }
+        } catch (\Throwable $e) {
+            flash('error', 'Error al pausar: ' . $e->getMessage());
+        }
+
+        redirect('/mercadolibre/listings');
+    }
+
+    public function reactivateListing(string $id): void
+    {
+        $listingId = (int) $id;
+        if (!verifyCsrf()) {
+            flash('error', 'Token inválido.');
+            redirect('/mercadolibre/listings');
+            return;
+        }
+
+        try {
+            $listing = $this->findListing($listingId);
+            if ($listing === null) {
+                flash('error', 'Listing no encontrado.');
+                redirect('/mercadolibre/listings');
+                return;
+            }
+
+            $mlItemId = trim((string) ($listing['ml_item_id'] ?? ''));
+            if ($mlItemId === '') {
+                flash('error', 'El listing aún no está publicado en ML.');
+                redirect('/mercadolibre/listings');
+                return;
+            }
+
+            if (MercadoLibreService::reactivateItem($mlItemId)) {
+                Database::getInstance()->update('ml_listings', [
+                    'status' => 'active',
+                    'last_synced_at' => date('Y-m-d H:i:s'),
+                    'last_sync_error' => null,
+                ], 'id = :id', ['id' => $listingId]);
+                flash('success', 'Listing reactivado en MercadoLibre.');
+            } else {
+                flash('error', 'No se pudo reactivar el listing en MercadoLibre.');
+            }
+        } catch (\Throwable $e) {
+            flash('error', 'Error al reactivar: ' . $e->getMessage());
+        }
+
+        redirect('/mercadolibre/listings');
+    }
+
+    public function deleteListing(string $id): void
+    {
+        $listingId = (int) $id;
+        if (!verifyCsrf()) {
+            flash('error', 'Token inválido.');
+            redirect('/mercadolibre/listings');
+            return;
+        }
+
+        try {
+            $listing = $this->findListing($listingId);
+            if ($listing === null) {
+                flash('error', 'Listing no encontrado.');
+                redirect('/mercadolibre/listings');
+                return;
+            }
+
+            $status = (string) ($listing['status'] ?? 'draft');
+            $mlItemId = trim((string) ($listing['ml_item_id'] ?? ''));
+            $canDelete = $status === 'draft' || $status === 'closed' || $mlItemId === '';
+            if (!$canDelete) {
+                flash('error', 'Solo se pueden eliminar borradores, listings cerrados o los que nunca se publicaron en ML.');
+                redirect('/mercadolibre/listings');
+                return;
+            }
+
+            if ($mlItemId !== '') {
+                MercadoLibreService::closeAndDeleteItem($mlItemId);
+            }
+
+            Database::getInstance()->delete('ml_listings', 'id = :id', ['id' => $listingId]);
+            flash('success', 'Listing eliminado.');
+        } catch (\Throwable $e) {
+            flash('error', 'Error al eliminar: ' . $e->getMessage());
+        }
+
+        redirect('/mercadolibre/listings');
+    }
+
+    public function syncAll(): void
+    {
+        if (!verifyCsrf()) {
+            flash('error', 'Token inválido.');
+            redirect('/mercadolibre');
+            return;
+        }
+
+        set_time_limit(60);
+
+        try {
+            $db = Database::getInstance();
+            $rows = $db->fetchAll(
+                "SELECT id, title FROM ml_listings WHERE status IN ('active', 'paused') ORDER BY id ASC"
+            );
+
+            $ok = 0;
+            $closed = 0;
+            $fail = 0;
+            $errorLines = [];
+
+            foreach ($rows as $row) {
+                $listingId = (int) ($row['id'] ?? 0);
+                if ($listingId <= 0) {
+                    continue;
+                }
+                $result = MercadoLibreService::syncItem($listingId);
+                if (!empty($result['ml_not_found'])) {
+                    $closed++;
+                    continue;
+                }
+                if ($result['success']) {
+                    $ok++;
+                    continue;
+                }
+                $fail++;
+                $title = trim((string) ($row['title'] ?? ''));
+                $errorLines[] = ($title !== '' ? $title : ('#' . $listingId))
+                    . ': ' . ($result['error'] ?: 'Error desconocido');
+            }
+
+            if ($rows === []) {
+                flash('info', 'No hay listings activos ni pausados para sincronizar.');
+            } elseif ($fail === 0) {
+                $summary = "Sincronización completa: {$ok} listing(s) actualizado(s).";
+                if ($closed > 0) {
+                    $summary .= " {$closed} marcado(s) como cerrado(s) (ítem inexistente en ML).";
+                }
+                flash('success', $summary);
+            } else {
+                $summary = "Sincronizados: {$ok}. Con error: {$fail}.";
+                if ($closed > 0) {
+                    $summary .= " Cerrados en ML inexistente: {$closed}.";
+                }
+                if ($errorLines !== []) {
+                    $summary .= ' ' . implode(' | ', array_slice($errorLines, 0, 3));
+                }
+                flash('error', $summary);
+            }
+        } catch (\Throwable $e) {
+            flash('error', 'Error en sincronización masiva: ' . $e->getMessage());
+        }
+
+        redirect('/mercadolibre');
+    }
+
+    public function orders(): void
+    {
+        try {
+            $offset = max(0, (int) $this->query('offset', 0));
+            $result = MercadoLibreService::getOrders($offset);
+
+            $this->view('mercadolibre/orders', [
+                'title' => 'Órdenes MercadoLibre',
+                'connected' => MercadoLibreTokenManager::isConnected(),
+                'orders' => $result['orders'],
+                'orders_success' => $result['success'],
+                'orders_error' => $result['error'],
+                'offset' => $offset,
+            ]);
+        } catch (\Throwable $e) {
+            flash('error', 'No se pudieron cargar las órdenes ML: ' . $e->getMessage());
+            redirect('/mercadolibre');
+        }
+    }
+
+    public function pricePreview(): void
+    {
+        try {
+            $productId = (int) $this->query('product_id', 0);
+            if ($productId <= 0) {
+                $this->json(['success' => false, 'error' => 'product_id inválido'], 400);
+                return;
+            }
+
+            $markupRaw = trim((string) $this->query('markup', ''));
+            $markup = $markupRaw !== '' ? (float) str_replace(',', '.', $markupRaw) : null;
+
+            $targetRaw = trim((string) $this->query('precio_objetivo', ''));
+            $precioObjetivo = $targetRaw !== '' ? (float) str_replace(',', '.', $targetRaw) : null;
+            if ($precioObjetivo !== null && $precioObjetivo <= 0) {
+                $precioObjetivo = null;
+            }
+
+            $exists = Database::getInstance()->fetchColumn(
+                'SELECT 1 FROM products WHERE id = ? AND is_active = 1',
+                [$productId]
+            );
+            if (!$exists) {
+                $this->json(['success' => false, 'error' => 'Producto no encontrado'], 404);
+                return;
+            }
+
+            if ($precioObjetivo !== null) {
+                $breakdown = MercadoLibreService::calculateMlPriceBreakdown($productId, null, $precioObjetivo);
+            } else {
+                $effectiveMarkup = $markup ?? (float) (setting('ml_default_markup', '75') ?? '75');
+                $breakdown = MercadoLibreService::calculateMlPriceBreakdown($productId, $effectiveMarkup);
+            }
+            if ($breakdown === null) {
+                $this->json(['success' => false, 'error' => 'No se pudo calcular el precio (costo base inválido).'], 422);
+                return;
+            }
+
+            $this->json(array_merge(['success' => true, 'product_id' => $productId], $breakdown));
+        } catch (\Throwable $e) {
+            $this->json(['success' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function generateDescription(): void
+    {
+        try {
+            $productId = (int) $this->input('product_id', 0);
+            if ($productId <= 0) {
+                $this->json(['success' => false, 'error' => 'product_id inválido'], 400);
+                return;
+            }
+
+            $result = ClaudeDescriptionGenerator::generateForProduct($productId);
+            if (!$result['success']) {
+                $this->json(['success' => false, 'error' => $result['error']], 422);
+                return;
+            }
+
+            $this->json([
+                'success' => true,
+                'descripcion' => $result['descripcion'],
+                'full_description' => $result['full_description'],
+                'short_description' => $result['short_description'],
+                'error' => '',
+            ]);
+        } catch (\Throwable $e) {
+            $this->json(['success' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function saveProductCatalogDescription(): void
+    {
+        if (!verifyCsrf()) {
+            $this->json(['success' => false, 'error' => 'Token inválido.'], 419);
+
+            return;
+        }
+
+        try {
+            $productId = (int) $this->input('product_id', 0);
+            if ($productId <= 0) {
+                $this->json(['success' => false, 'error' => 'product_id inválido'], 400);
+
+                return;
+            }
+
+            $exists = Database::getInstance()->fetchColumn(
+                'SELECT COUNT(*) FROM products WHERE id = ? AND is_active = 1',
+                [$productId]
+            );
+            if ((int) $exists === 0) {
+                $this->json(['success' => false, 'error' => 'Producto no encontrado o inactivo.'], 404);
+
+                return;
+            }
+
+            $result = ClaudeDescriptionGenerator::generateForProduct($productId);
+            if (!$result['success']) {
+                $this->json(['success' => false, 'error' => $result['error']], 422);
+
+                return;
+            }
+
+            $full = trim($result['full_description']);
+            $short = trim($result['short_description']);
+
+            Database::getInstance()->update(
+                'products',
+                [
+                    'full_description' => $full !== '' ? $full : null,
+                    'short_description' => $short !== '' ? mb_substr($short, 0, 255) : null,
+                ],
+                'id = :id',
+                ['id' => $productId]
+            );
+
+            $this->json([
+                'success' => true,
+                'full' => $full,
+                'short' => $short,
+                'error' => '',
+            ]);
+        } catch (\Throwable $e) {
+            $this->json(['success' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function suggestCategory(): void
+    {
+        try {
+            $title = trim((string) $this->query('title', ''));
+            if ($title === '') {
+                $this->json(['success' => false, 'category_id' => null, 'error' => 'Ingresá un título para sugerir categoría.'], 400);
+                return;
+            }
+
+            $categoryId = MercadoLibreService::predictCategory($title);
+            if ($categoryId === null) {
+                $this->json([
+                    'success' => false,
+                    'category_id' => null,
+                    'error' => 'No se encontró una categoría sugerida. Verificá la conexión con ML.',
+                ]);
+                return;
+            }
+
+            $this->json([
+                'success' => true,
+                'category_id' => $categoryId,
+                'error' => '',
+            ]);
+        } catch (\Throwable $e) {
+            $this->json(['success' => false, 'category_id' => null, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function productImageCount(): void
+    {
+        try {
+            $productId = (int) $this->query('product_id', 0);
+            if ($productId <= 0) {
+                $this->json(['success' => false, 'count' => 0, 'error' => 'product_id inválido'], 400);
+                return;
+            }
+
+            $count = MercadoLibreService::countProductImages($productId);
+            $this->json([
+                'success' => true,
+                'count' => $count,
+                'has_images' => $count > 0,
+                'error' => '',
+            ]);
+        } catch (\Throwable $e) {
+            $this->json(['success' => false, 'count' => 0, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    private function saveProductDescriptionIfEmpty(int $productId): void
+    {
+        if ($productId <= 0) {
+            return;
+        }
+
+        $mlText = trim((string) $this->input('ml_description', ''));
+        $catalogFull = trim((string) $this->input('product_full_description', ''));
+        $catalogShort = trim((string) $this->input('product_short_description', ''));
+
+        if ($mlText === '' && $catalogFull === '' && $catalogShort === '') {
+            return;
+        }
+
+        if ($catalogFull === '' && $mlText !== '') {
+            $catalogFull = ClaudeDescriptionGenerator::stripMlListingHeader($mlText);
+        }
+
+        $db = Database::getInstance();
+        $row = $db->fetch(
+            'SELECT full_description, short_description FROM products WHERE id = ?',
+            [$productId]
+        );
+        if (!$row) {
+            return;
+        }
+
+        $updates = [];
+        if (trim((string) ($row['full_description'] ?? '')) === '' && $catalogFull !== '') {
+            $updates['full_description'] = $catalogFull;
+        }
+        if (trim((string) ($row['short_description'] ?? '')) === '' && $catalogShort !== '') {
+            $updates['short_description'] = mb_substr($catalogShort, 0, 255);
+        }
+
+        if ($updates !== []) {
+            $db->update('products', $updates, 'id = :id', ['id' => $productId]);
+        }
+    }
+
+    /** @return array<string, mixed>|null */
+    private function findListing(int $listingId): ?array
+    {
+        if ($listingId <= 0) {
+            return null;
+        }
+
+        return Database::getInstance()->fetch(
+            'SELECT * FROM ml_listings WHERE id = ?',
+            [$listingId]
+        );
+    }
+
+    private function isInlineListingRequest(): bool
+    {
+        return (string) ($_POST['inline'] ?? '') === '1';
+    }
+
+    private function updateListingInline(int $listingId): void
+    {
+        if (!verifyCsrf()) {
+            $this->json(['success' => false, 'error' => 'Token inválido.'], 419);
+
+            return;
+        }
+
+        try {
+            $listing = $this->findListing($listingId);
+            if ($listing === null) {
+                $this->json(['success' => false, 'error' => 'Listing no encontrado.'], 404);
+
+                return;
+            }
+
+            $productId = (int) ($listing['product_id'] ?? 0);
+            if ($productId <= 0) {
+                $this->json(['success' => false, 'error' => 'El listing no tiene producto asociado.'], 400);
+
+                return;
+            }
+
+            $title = $this->truncateText(trim((string) $this->input('title', (string) ($listing['title'] ?? ''))), 60);
+            if ($title === '') {
+                $this->json(['success' => false, 'error' => 'El título no puede estar vacío.'], 400);
+
+                return;
+            }
+
+            $markupRaw = trim((string) $this->input('ml_markup', ''));
+            $mlMarkup = $markupRaw !== '' ? round((float) str_replace(',', '.', $markupRaw), 2) : null;
+
+            $quantity = max(1, (int) $this->input(
+                'available_quantity_override',
+                (int) ($listing['available_quantity_override'] ?? 12)
+            ));
+
+            $price = MercadoLibreService::calculateMlPrice($productId, $mlMarkup);
+            if ($price <= 0) {
+                $this->json(['success' => false, 'error' => 'No se pudo calcular el precio ML.'], 400);
+
+                return;
+            }
+
+            $price = round($price, 2);
+            Database::getInstance()->update(
+                'ml_listings',
+                [
+                    'title' => $title,
+                    'ml_markup' => $mlMarkup,
+                    'available_quantity_override' => $quantity,
+                    'price' => $price,
+                ],
+                'id = :id',
+                ['id' => $listingId]
+            );
+
+            $this->json([
+                'success' => true,
+                'title' => $title,
+                'ml_markup' => $mlMarkup,
+                'ml_markup_display' => $mlMarkup !== null ? rtrim(rtrim(number_format($mlMarkup, 2, ',', ''), '0'), ',') : '',
+                'available_quantity_override' => $quantity,
+                'price' => $price,
+                'price_formatted' => formatPrice($price),
+            ]);
+        } catch (\Throwable $e) {
+            $this->json(['success' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    private function syncListingInline(int $listingId): void
+    {
+        if (!verifyCsrf()) {
+            $this->json(['success' => false, 'error' => 'Token inválido.'], 419);
+
+            return;
+        }
+
+        try {
+            if ($this->findListing($listingId) === null) {
+                $this->json(['success' => false, 'error' => 'Listing no encontrado.'], 404);
+
+                return;
+            }
+
+            $result = MercadoLibreService::syncItem($listingId);
+            $listing = $this->findListing($listingId);
+            if ($listing === null) {
+                $this->json(['success' => false, 'error' => 'Listing no encontrado.'], 404);
+
+                return;
+            }
+
+            $mlNotFound = !empty($result['ml_not_found']);
+            $success = $mlNotFound || !empty($result['success']);
+            $pictures = $listing['ml_pictures_count'] ?? null;
+            $picturesInt = $pictures !== null && $pictures !== '' ? (int) $pictures : null;
+
+            $this->json([
+                'success' => $success,
+                'ml_not_found' => $mlNotFound,
+                'error' => $success ? '' : (string) ($result['error'] ?? 'Error al sincronizar'),
+                'status' => (string) ($listing['status'] ?? 'draft'),
+                'price' => (float) ($listing['price'] ?? 0),
+                'price_formatted' => formatPrice((float) ($listing['price'] ?? 0)),
+                'ml_pictures_count' => $picturesInt,
+                'last_sync_error' => trim((string) ($listing['last_sync_error'] ?? '')),
+            ]);
+        } catch (\Throwable $e) {
+            $this->json(['success' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function activeProductsForSelect(): array
+    {
+        return Database::getInstance()->fetchAll(
+            'SELECT id, code, name, presentation, content
+             FROM products
+             WHERE is_active = 1
+             ORDER BY name ASC'
+        );
+    }
+
+    /**
+     * @param array<string, mixed>|null $existing
+     * @return array{error: ?string, data: array<string, mixed>}
+     */
+    private function validateListingPayload(?array $existing): array
+    {
+        $db = Database::getInstance();
+        $productId = (int) $this->input('product_id', 0);
+        if ($productId <= 0) {
+            return ['error' => 'Seleccioná un producto.', 'data' => []];
+        }
+
+        $product = $db->fetch('SELECT id, name FROM products WHERE id = ? AND is_active = 1', [$productId]);
+        if (!$product) {
+            return ['error' => 'Producto no encontrado o inactivo.', 'data' => []];
+        }
+
+        $title = $this->truncateText(trim((string) $this->input('title', '')), 60);
+        if ($title === '') {
+            $title = $this->truncateText(trim((string) ($product['name'] ?? 'Producto ML')), 60);
+        }
+        if ($title === '') {
+            return ['error' => 'Ingresá un título para MercadoLibre (máx. 60 caracteres).', 'data' => []];
+        }
+
+        $categoryId = trim((string) $this->input('ml_category_id', ''));
+        $categoryId = $categoryId !== '' ? $categoryId : null;
+
+        $markupRaw = trim((string) $this->input('ml_markup', ''));
+        $mlMarkup = $markupRaw !== '' ? round((float) str_replace(',', '.', $markupRaw), 2) : null;
+
+        $priceRaw = trim((string) $this->input('price', ''));
+        if ($priceRaw !== '') {
+            $price = $this->parseRequiredMoney($priceRaw);
+            if ($price === null || $price <= 0) {
+                return ['error' => 'El precio ingresado no es válido.', 'data' => []];
+            }
+        } else {
+            $price = MercadoLibreService::calculateMlPrice($productId, $mlMarkup);
+            if ($price <= 0) {
+                return ['error' => 'No se pudo calcular el precio ML para este producto.', 'data' => []];
+            }
+        }
+
+        $quantity = max(1, (int) $this->input('available_quantity_override', setting('ml_default_quantity', '12') ?? '12'));
+        $listingType = trim((string) $this->input('listing_type_id', 'gold_special'));
+        if ($listingType === '') {
+            $listingType = 'gold_special';
+        }
+
+        $notes = trim((string) $this->input('notes', ''));
+        $notes = $notes !== '' ? $notes : null;
+
+        $data = [
+            'product_id' => $productId,
+            'combo_id' => null,
+            'title' => $title,
+            'ml_category_id' => $categoryId,
+            'price' => round($price, 2),
+            'ml_markup' => $mlMarkup,
+            'available_quantity_override' => $quantity,
+            'listing_type_id' => $listingType,
+            'notes' => $notes,
+        ];
+
+        if ($existing === null) {
+            $data['status'] = 'draft';
+            $data['listing_type_id'] = $data['listing_type_id'] ?: 'gold_special';
+        }
+
+        return ['error' => null, 'data' => $data];
+    }
+
+    /** @return array<string, mixed> */
+    private function exchangeAuthorizationCode(string $code): array
+    {
+        $clientId = $this->mlClientId();
+        $clientSecret = $this->mlClientSecret();
+        $redirectUri = $this->mlRedirectUri();
+        if ($clientId === '' || $clientSecret === '' || $redirectUri === '') {
+            throw new \RuntimeException('Credenciales ML incompletas en .env o settings.');
+        }
+
+        $postFields = http_build_query([
+            'grant_type' => 'authorization_code',
+            'client_id' => $clientId,
+            'client_secret' => $clientSecret,
+            'code' => $code,
+            'redirect_uri' => $redirectUri,
+        ]);
+
+        $ch = curl_init('https://api.mercadolibre.com/oauth/token');
+        if ($ch === false) {
+            throw new \RuntimeException('No se pudo inicializar curl.');
+        }
+
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $postFields,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPHEADER => [
+                'Accept: application/json',
+                'Content-Type: application/x-www-form-urlencoded',
+            ],
+            CURLOPT_TIMEOUT => 30,
+        ]);
+
+        $body = curl_exec($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+
+        if ($body === false || $curlError !== '') {
+            throw new \RuntimeException('Error de red al obtener token: ' . $curlError);
+        }
+
+        /** @var array<string, mixed>|null $decoded */
+        $decoded = json_decode((string) $body, true);
+        if ($httpCode >= 400 || !is_array($decoded)) {
+            $msg = is_array($decoded)
+                ? (string) ($decoded['message'] ?? $decoded['error'] ?? $decoded['error_description'] ?? $body)
+                : (string) $body;
+            throw new \RuntimeException("OAuth falló ({$httpCode}): {$msg}");
+        }
+
+        return $decoded;
+    }
+
+    private function mlClientId(): string
+    {
+        $fromSettings = trim(setting('ml_app_id', '') ?? '');
+        if ($fromSettings !== '') {
+            return $fromSettings;
+        }
+
+        return trim(Env::get('ML_APP_ID'));
+    }
+
+    private function mlClientSecret(): string
+    {
+        $fromSettings = trim(setting('ml_client_secret', '') ?? '');
+        if ($fromSettings !== '') {
+            return $fromSettings;
+        }
+
+        return trim(Env::get('ML_CLIENT_SECRET'));
+    }
+
+    private function mlRedirectUri(): string
+    {
+        $fromEnv = trim(Env::get('ML_REDIRECT_URI'));
+        if ($fromEnv !== '') {
+            return $fromEnv;
+        }
+
+        return rtrim(Env::get('APP_URL'), '/') . '/mercadolibre/callback';
+    }
+
+    private function truncateText(string $text, int $max): string
+    {
+        if (function_exists('mb_substr')) {
+            return mb_substr($text, 0, $max);
+        }
+
+        return substr($text, 0, $max);
     }
 
     private function ensureMercadoLibreClient(Database $db): int

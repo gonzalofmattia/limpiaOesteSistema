@@ -63,7 +63,9 @@ window.__productFormCfg = {
     categories: <?= $catsJson ?>,
     csrf: <?= json_encode(csrfToken(), JSON_UNESCAPED_UNICODE) ?>,
     initialCategoryId: <?= json_encode((string) $selectedCatId, JSON_UNESCAPED_UNICODE) ?>,
-    imageCfg: <?= $imageCfgJson ?>
+    imageCfg: <?= $imageCfgJson ?>,
+    catalogShort: <?= json_encode((string) ($p['short_description'] ?? ''), JSON_UNESCAPED_UNICODE) ?>,
+    catalogFull: <?= json_encode((string) ($p['full_description'] ?? ''), JSON_UNESCAPED_UNICODE) ?>
 };
 </script>
 <div class="max-w-4xl" x-data="productForm()" x-init="init(window.__productFormCfg)">
@@ -246,8 +248,21 @@ window.__productFormCfg = {
         </section>
 
         <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-            <h2 class="text-sm font-semibold text-gray-800 border-b border-gray-100 pb-2 mb-4">Catálogo web (público)</h2>
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-2 mb-4">
+                <h2 class="text-sm font-semibold text-gray-800">Catálogo web (público)</h2>
+                <?php if ($isEdit): ?>
+                    <button type="button" @click="generateCatalogDescriptions()" :disabled="catalogDescLoading || !productId"
+                            class="inline-flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-sm font-medium text-violet-800 hover:bg-violet-100 disabled:opacity-50">
+                        <span x-show="!catalogDescLoading">✨ Generar descripciones con IA</span>
+                        <span x-show="catalogDescLoading" class="inline-flex items-center gap-2">
+                            <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                            Generando…
+                        </span>
+                    </button>
+                <?php endif; ?>
+            </div>
             <p class="text-xs text-gray-500 mb-4">Estos datos alimentan la API pública para un futuro catálogo online. La publicación la activás manualmente.</p>
+            <p class="text-xs text-red-600 mb-2" x-show="catalogDescError" x-text="catalogDescError"></p>
             <div class="grid sm:grid-cols-2 gap-4">
                 <div class="sm:col-span-2">
                     <label class="block text-sm font-medium text-gray-700 mb-1">Slug (URL)</label>
@@ -257,13 +272,13 @@ window.__productFormCfg = {
                 </div>
                 <div class="sm:col-span-2">
                     <label class="block text-sm font-medium text-gray-700 mb-1">Descripción corta (catálogo)</label>
-                    <input type="text" name="short_description" maxlength="255"
-                           value="<?= e((string) ($p['short_description'] ?? '')) ?>"
+                    <input type="text" name="short_description" maxlength="255" x-model="catalogShort"
                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
                 </div>
                 <div class="sm:col-span-2">
                     <label class="block text-sm font-medium text-gray-700 mb-1">Descripción larga (catálogo)</label>
-                    <textarea name="full_description" rows="4" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"><?= e((string) ($p['full_description'] ?? '')) ?></textarea>
+                    <textarea name="full_description" rows="4" x-model="catalogFull"
+                              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></textarea>
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Volumen / contenido (catálogo)</label>
@@ -380,6 +395,10 @@ function productForm() {
         altOpen: false,
         altDraft: '',
         altTargetId: null,
+        catalogShort: '',
+        catalogFull: '',
+        catalogDescLoading: false,
+        catalogDescError: '',
         fmt: { lista: '—', discount: '—', costo: '—', markup: '—', venta: '—', margen: '—' },
         src: { discount: '—', markup: '—' },
         init(cfg) {
@@ -387,6 +406,8 @@ function productForm() {
             this.categories = cfg.categories || [];
             this.csrf = cfg.csrf || '';
             this.categoryId = cfg.initialCategoryId || '';
+            this.catalogShort = cfg.catalogShort ?? '';
+            this.catalogFull = cfg.catalogFull ?? '';
             this.imageCfg = cfg.imageCfg || null;
             if (this.imageCfg) {
                 this.productId = this.imageCfg.productId;
@@ -611,7 +632,44 @@ function productForm() {
                 this.src.discount = j.discount_source || '—';
                 this.src.markup = j.markup_source || '—';
             } catch (e) { /* silencioso */ }
-        }
+        },
+        async generateCatalogDescriptions() {
+            if (!this.productId || this.productId <= 0) {
+                this.catalogDescError = 'Guardá el producto primero para generar descripciones.';
+                return;
+            }
+            this.catalogDescLoading = true;
+            this.catalogDescError = '';
+            try {
+                const body = new URLSearchParams({
+                    _csrf: this.csrf,
+                    product_id: String(this.productId),
+                });
+                const res = await fetch(window.appUrl('/api/ml/guardar-descripcion-producto'), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Accept': 'application/json',
+                    },
+                    body: body.toString(),
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    this.catalogDescError = data.error || 'No se pudieron generar las descripciones.';
+                    return;
+                }
+                if (data.short) {
+                    this.catalogShort = data.short;
+                }
+                if (data.full) {
+                    this.catalogFull = data.full;
+                }
+            } catch (e) {
+                this.catalogDescError = 'Error de red al generar descripciones.';
+            } finally {
+                this.catalogDescLoading = false;
+            }
+        },
     };
 }
 </script>
