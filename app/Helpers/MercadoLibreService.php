@@ -597,6 +597,64 @@ final class MercadoLibreService
         }
     }
 
+    /** @return array{success: bool, order: array<string, mixed>|null, error: string} */
+    public static function getOrder(string $orderId): array
+    {
+        $orderId = trim($orderId);
+        if ($orderId === '') {
+            return [
+                'success' => false,
+                'order' => null,
+                'error' => 'ID de orden inválido.',
+            ];
+        }
+
+        try {
+            $result = self::apiRequest('GET', '/orders/' . rawurlencode($orderId), null, true);
+            if (!$result['success'] || !is_array($result['data'])) {
+                self::logError('getOrder', "order_id={$orderId}", $result['http_code'], $result['error']);
+
+                return [
+                    'success' => false,
+                    'order' => null,
+                    'error' => $result['error'] ?: 'No se pudo obtener la orden.',
+                ];
+            }
+
+            return [
+                'success' => true,
+                'order' => $result['data'],
+                'error' => '',
+            ];
+        } catch (\Throwable $e) {
+            self::logError('getOrder', "order_id={$orderId}", 0, $e->getMessage());
+
+            return [
+                'success' => false,
+                'order' => null,
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    public static function fetchUserEmail(int $userId): string
+    {
+        if ($userId <= 0) {
+            return '';
+        }
+
+        try {
+            $result = self::apiRequest('GET', '/users/' . $userId, null, true);
+            if (!$result['success'] || !is_array($result['data'])) {
+                return '';
+            }
+
+            return trim((string) ($result['data']['email'] ?? ''));
+        } catch (\Throwable) {
+            return '';
+        }
+    }
+
     /** @return array{success: bool, orders: list<array<string, mixed>>, error: string} */
     public static function getOrders(int $offset = 0): array
     {
@@ -611,8 +669,11 @@ final class MercadoLibreService
             }
 
             $offset = max(0, $offset);
+            $fromDate = (new \DateTimeImmutable('-30 days'))->format('Y-m-d\T00:00:00.000-03:00');
             $path = '/orders/search?seller=' . rawurlencode($userId)
-                . '&sort=date_desc&offset=' . $offset;
+                . '&sort=date_desc&offset=' . $offset
+                . '&limit=50'
+                . '&order.date_created.from=' . rawurlencode($fromDate);
 
             $result = self::apiRequest('GET', $path, null, true);
             if (!$result['success']) {

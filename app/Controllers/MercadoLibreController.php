@@ -1457,11 +1457,17 @@ final class MercadoLibreController extends Controller
         try {
             $offset = max(0, (int) $this->query('offset', 0));
             $result = MercadoLibreService::getOrders($offset);
+            $importedSalesMap = $this->fetchImportedMlSalesMap();
+            $tableRows = $this->buildMlOrderTableRows($result['orders']);
+            $orderNetDisplay = $this->buildOrderNetDisplayMap($result['orders'], $importedSalesMap);
 
             $this->view('mercadolibre/orders', [
                 'title' => 'Órdenes MercadoLibre',
                 'connected' => MercadoLibreTokenManager::isConnected(),
                 'orders' => $result['orders'],
+                'table_rows' => $tableRows,
+                'imported_sales_map' => $importedSalesMap,
+                'order_net_display' => $orderNetDisplay,
                 'orders_success' => $result['success'],
                 'orders_error' => $result['error'],
                 'offset' => $offset,
@@ -1469,6 +1475,52 @@ final class MercadoLibreController extends Controller
         } catch (\Throwable $e) {
             flash('error', 'No se pudieron cargar las órdenes ML: ' . $e->getMessage());
             redirect('/mercadolibre');
+        }
+    }
+
+    public function importOrder(string $orderId): void
+    {
+        if (!verifyCsrf()) {
+            flash('error', 'Token inválido.');
+            redirect('/mercadolibre/ordenes');
+            return;
+        }
+
+        $orderId = trim($orderId);
+        if ($orderId === '') {
+            flash('error', 'ID de orden inválido.');
+            redirect('/mercadolibre/ordenes');
+            return;
+        }
+
+        try {
+            $db = Database::getInstance();
+            $existing = $this->findMlSaleByMlOrderId($db, $orderId);
+            if ($existing !== null) {
+                redirect('/ventas-ml/' . $existing);
+                return;
+            }
+
+            $fetch = MercadoLibreService::getOrder($orderId);
+            if (!$fetch['success'] || !is_array($fetch['order'])) {
+                flash('error', 'No se pudo obtener la orden de ML: ' . ($fetch['error'] ?: 'error desconocido'));
+                redirect('/mercadolibre/ordenes');
+                return;
+            }
+
+            $payload = $this->buildSalePayloadFromMlOrder($fetch['order']);
+            $result = $this->persistSale(null, $payload);
+            if ($result['error'] !== null) {
+                flash('error', $result['error']);
+                redirect('/mercadolibre/ordenes');
+                return;
+            }
+
+            flash('success', 'Venta ML importada desde la orden #' . $orderId . '.');
+            redirect('/ventas-ml/' . (int) $result['id']);
+        } catch (\Throwable $e) {
+            flash('error', 'No se pudo importar la orden: ' . $e->getMessage());
+            redirect('/mercadolibre/ordenes');
         }
     }
 
@@ -2018,30 +2070,50 @@ final class MercadoLibreController extends Controller
         ]);
     }
 
-    /** @return array{id?:int,error:?string} */
-    private function persistSale(?int $quoteId): array
+    /**
+     * @param array<string, mixed>|null $payload Datos estructurados (importación ML). Si es null, usa $_POST / input().
+     * @return array{id?:int,error:?string}
+     */
+    private function persistSale(?int $quoteId, ?array $payload = null): array
     {
         $db = Database::getInstance();
-        $saleDate = trim((string) $this->input('sale_date', date('Y-m-d')));
-        $mlSaleTotal = $this->parseRequiredMoney($this->input('ml_sale_total', ''));
-        $mlNetAmount = $this->parseRequiredMoney($this->input('ml_net_amount', ''));
+        $fromPayload = $payload !== null;
+
+        $saleDate = trim((string) ($fromPayload ? ($payload['sale_date'] ?? date('Y-m-d')) : $this->input('sale_date', date('Y-m-d'))));
+        $mlSaleTotal = $this->resolveMoneyValue(
+            $fromPayload ? ($payload['ml_sale_total'] ?? null) : $this->input('ml_sale_total', '')
+        );
+        $mlNetAmount = $this->resolveMoneyValue(
+            $fromPayload ? ($payload['ml_net_amount'] ?? null) : $this->input('ml_net_amount', '')
+        );
         if ($mlSaleTotal === null || $mlNetAmount === null) {
             return ['error' => 'Ingresá el total de venta ML y el neto recibido de Mercado Pago.'];
         }
-        $linesRaw = $_POST['items'] ?? [];
+
+        $linesRaw = $fromPayload ? ($payload['items'] ?? []) : ($_POST['items'] ?? []);
         if (!is_array($linesRaw) || $linesRaw === []) {
             return ['error' => 'Agregá al menos un producto.'];
+        }
+
+        $title = $fromPayload ? trim((string) ($payload['title'] ?? 'Venta MercadoLibre')) : 'Venta MercadoLibre';
+        $notes = $fromPayload
+            ? trim((string) ($payload['notes'] ?? 'Venta registrada desde módulo Ventas ML'))
+            : 'Venta registrada desde módulo Ventas ML';
+        $mlOrderId = $fromPayload ? trim((string) ($payload['ml_order_id'] ?? '')) : '';
+        $priceFieldUsed = $fromPayload ? trim((string) ($payload['price_field_used'] ?? 'manual_ml')) : 'manual_ml';
+        if ($priceFieldUsed === '') {
+            $priceFieldUsed = 'manual_ml';
         }
 
         $db->getPdo()->beginTransaction();
         try {
             $clientId = $this->ensureMercadoLibreClient($db);
             if ($quoteId === null) {
-                $quoteId = $db->insert('quotes', [
+                $insertData = [
                     'quote_number' => $this->nextQuoteNumber($db),
                     'client_id' => $clientId,
-                    'title' => 'Venta MercadoLibre',
-                    'notes' => 'Venta registrada desde módulo Ventas ML',
+                    'title' => $title !== '' ? $title : 'Venta MercadoLibre',
+                    'notes' => $notes !== '' ? $notes : 'Venta registrada desde módulo Ventas ML',
                     'validity_days' => 1,
                     'custom_markup' => null,
                     'include_iva' => 0,
@@ -2055,7 +2127,11 @@ final class MercadoLibreController extends Controller
                     'total' => round($mlSaleTotal, 2),
                     'status' => 'accepted',
                     'created_at' => $saleDate . ' 00:00:00',
-                ]);
+                ];
+                if ($mlOrderId !== '' && $this->quotesHasMlOrderIdColumn($db)) {
+                    $insertData['ml_order_id'] = $mlOrderId;
+                }
+                $quoteId = $db->insert('quotes', $insertData);
             } else {
                 $exists = $db->fetch(
                     'SELECT id FROM quotes WHERE id = ? AND COALESCE(is_mercadolibre, 0) = 1',
@@ -2066,13 +2142,25 @@ final class MercadoLibreController extends Controller
                     return ['error' => 'Venta ML no encontrada.'];
                 }
                 $db->delete('quote_items', 'quote_id = :qid', ['qid' => $quoteId]);
-                $db->update('quotes', [
+                $updateData = [
                     'client_id' => $clientId,
                     'ml_net_amount' => round($mlNetAmount, 2),
                     'ml_sale_total' => round($mlSaleTotal, 2),
                     'total' => round($mlSaleTotal, 2),
                     'created_at' => $saleDate . ' 00:00:00',
-                ], 'id = :id', ['id' => $quoteId]);
+                ];
+                if ($fromPayload) {
+                    if ($title !== '') {
+                        $updateData['title'] = $title;
+                    }
+                    if ($notes !== '') {
+                        $updateData['notes'] = $notes;
+                    }
+                    if ($mlOrderId !== '' && $this->quotesHasMlOrderIdColumn($db)) {
+                        $updateData['ml_order_id'] = $mlOrderId;
+                    }
+                }
+                $db->update('quotes', $updateData, 'id = :id', ['id' => $quoteId]);
             }
 
             $sort = 0;
@@ -2084,7 +2172,7 @@ final class MercadoLibreController extends Controller
                 $productId = (int) ($line['product_id'] ?? 0);
                 $quantity = max(1, (int) ($line['quantity'] ?? 1));
                 $unitType = QuoteLinePricing::normalizeUnitType((string) ($line['unit_type'] ?? 'caja'));
-                $unitPrice = $this->parseRequiredMoney($line['unit_price'] ?? '');
+                $unitPrice = $this->resolveMoneyValue($line['unit_price'] ?? '');
                 if ($productId <= 0 || $unitPrice === null || $unitPrice < 0) {
                     continue;
                 }
@@ -2115,7 +2203,7 @@ final class MercadoLibreController extends Controller
                     'unit_price' => round($unitPrice, 2),
                     'individual_unit_price' => $individualUnit,
                     'subtotal' => $lineSubtotal,
-                    'price_field_used' => 'manual_ml',
+                    'price_field_used' => $priceFieldUsed,
                     'discount_applied' => null,
                     'markup_applied' => null,
                     'notes' => null,
@@ -2207,6 +2295,188 @@ final class MercadoLibreController extends Controller
         return (float) $normalized;
     }
 
+    private function resolveMoneyValue(mixed $value): ?float
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (is_int($value) || is_float($value)) {
+            return (float) $value;
+        }
+
+        return $this->parseRequiredMoney($value);
+    }
+
+    private function quotesHasMlOrderIdColumn(Database $db): bool
+    {
+        return (int) $db->fetchColumn(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = 'quotes'
+               AND COLUMN_NAME = 'ml_order_id'"
+        ) > 0;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildSalePayloadFromMlOrder(array $order): array
+    {
+        $db = Database::getInstance();
+        $mlOrderId = trim((string) ($order['id'] ?? ''));
+
+        $orderDate = trim((string) ($order['date_created'] ?? $order['date_closed'] ?? ''));
+        $saleDate = date('Y-m-d');
+        if ($orderDate !== '') {
+            try {
+                $saleDate = (new \DateTime($orderDate))->format('Y-m-d');
+            } catch (\Throwable) {
+            }
+        }
+
+        $mlSaleTotal = round((float) ($order['total_amount'] ?? $order['paid_amount'] ?? 0), 2);
+        if ($mlSaleTotal <= 0) {
+            $itemsSum = 0.0;
+            foreach ($order['order_items'] ?? [] as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                $qty = max(1, (int) ($row['quantity'] ?? 1));
+                $unit = (float) ($row['unit_price'] ?? $row['full_unit_price'] ?? 0);
+                $itemsSum += round($unit * $qty, 2);
+            }
+            if ($itemsSum > 0) {
+                $mlSaleTotal = round($itemsSum, 2);
+            }
+        }
+
+        $mlNetResolved = $this->resolveMlNetAmountFromOrder($order, $mlSaleTotal);
+        $mlNetAmount = $mlNetResolved['amount'];
+        $this->logMlOrderImport(
+            $mlOrderId,
+            'ml_net_amount campo=' . $mlNetResolved['source'] . ' valor=' . number_format($mlNetAmount, 2, '.', '')
+        );
+
+        $lines = [];
+        foreach ($order['order_items'] ?? [] as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $mlItemId = trim((string) ($item['item']['id'] ?? $item['item_id'] ?? ''));
+            $title = trim((string) ($item['item']['title'] ?? $item['title'] ?? ''));
+            $quantity = max(1, (int) ($item['quantity'] ?? 1));
+            $unitPrice = round((float) ($item['unit_price'] ?? $item['full_unit_price'] ?? 0), 2);
+
+            $productId = 0;
+            if ($mlItemId !== '') {
+                $productId = (int) $db->fetchColumn(
+                    'SELECT product_id FROM ml_listings WHERE ml_item_id = ? LIMIT 1',
+                    [$mlItemId]
+                );
+            }
+
+            if ($productId <= 0) {
+                $this->logMlOrderImport(
+                    $mlOrderId,
+                    'Item sin match en ml_listings: '
+                    . ($title !== '' ? $title : ($mlItemId !== '' ? $mlItemId : 'ítem desconocido'))
+                );
+                continue;
+            }
+
+            $lines[] = [
+                'product_id' => $productId,
+                'quantity' => $quantity,
+                'unit_type' => 'unidad',
+                'unit_price' => $unitPrice,
+            ];
+        }
+
+        return [
+            'sale_date' => $saleDate,
+            'ml_sale_total' => $mlSaleTotal,
+            'ml_net_amount' => $mlNetAmount,
+            'items' => $lines,
+            'ml_order_id' => $mlOrderId,
+            'title' => $mlOrderId !== '' ? ('Orden ML #' . $mlOrderId) : 'Venta MercadoLibre',
+            'notes' => $mlOrderId !== ''
+                ? ('Importada desde orden MercadoLibre #' . $mlOrderId)
+                : 'Importada desde MercadoLibre',
+            'price_field_used' => 'ml_order',
+        ];
+    }
+
+    /**
+     * @return array{amount: float, source: string}
+     */
+    private function resolveMlNetAmountFromOrder(array $order, ?float $mlSaleTotal = null): array
+    {
+        $payment = null;
+        $payments = $order['payments'] ?? [];
+        if (is_array($payments)) {
+            foreach ($payments as $row) {
+                if (is_array($row)) {
+                    $payment = $row;
+                    break;
+                }
+            }
+        }
+
+        if ($payment !== null && isset($payment['net_received_amount']) && is_numeric($payment['net_received_amount'])) {
+            $amount = round((float) $payment['net_received_amount'], 2);
+            if ($amount >= 0) {
+                return [
+                    'amount' => $amount,
+                    'source' => 'payments[0].net_received_amount',
+                ];
+            }
+        }
+
+        if ($payment !== null) {
+            $totalPaid = (float) ($payment['total_paid_amount'] ?? 0);
+            if ($totalPaid > 0) {
+                $shipping = (float) ($payment['shipping_cost'] ?? 0);
+                $taxes = (float) ($payment['taxes_amount'] ?? 0);
+                $amount = round($totalPaid - $shipping - $taxes, 2);
+
+                return [
+                    'amount' => max(0.0, $amount),
+                    'source' => 'payments[0].total_paid_amount - shipping_cost - taxes_amount',
+                ];
+            }
+        }
+
+        if ($mlSaleTotal === null) {
+            $mlSaleTotal = round((float) ($order['total_amount'] ?? $order['paid_amount'] ?? 0), 2);
+        }
+        $amount = round($mlSaleTotal * 0.88 - 1275, 2);
+
+        return [
+            'amount' => max(0.0, $amount),
+            'source' => 'estimado (total*0.88-1275)',
+        ];
+    }
+
+    private function logMlOrderImport(string $mlOrderId, string $message): void
+    {
+        $logDir = defined('STORAGE_PATH')
+            ? rtrim((string) STORAGE_PATH, '/') . '/logs'
+            : dirname(__DIR__, 2) . '/storage/logs';
+
+        if (!is_dir($logDir)) {
+            @mkdir($logDir, 0775, true);
+        }
+
+        $line = sprintf(
+            '[%s] INFO importOrder ml_order_id=%s: %s',
+            date('Y-m-d H:i:s'),
+            $mlOrderId !== '' ? $mlOrderId : '(vacío)',
+            str_replace(["\r", "\n"], ' ', $message)
+        );
+
+        @error_log($line . PHP_EOL, 3, $logDir . '/ml_errors.log');
+    }
+
     private function nextQuoteNumber(Database $db): string
     {
         $prefix = setting('quote_prefix', 'LO') ?? 'LO';
@@ -2222,5 +2492,140 @@ final class MercadoLibreController extends Controller
         }
 
         return sprintf('%s-%d-%04d', $prefix, $year, $n + 1);
+    }
+
+    /**
+     * @return array<string, array{id: int, ml_net_amount: float|null, ml_sale_total: float|null}>
+     */
+    private function fetchImportedMlSalesMap(): array
+    {
+        try {
+            $db = Database::getInstance();
+            if (!$this->quotesHasMlOrderIdColumn($db)) {
+                return [];
+            }
+
+            $rows = $db->fetchAll(
+                "SELECT id, ml_order_id, ml_net_amount, ml_sale_total FROM quotes
+                 WHERE COALESCE(is_mercadolibre, 0) = 1
+                   AND ml_order_id IS NOT NULL AND TRIM(ml_order_id) <> ''"
+            );
+            $map = [];
+            foreach ($rows as $row) {
+                $mlOrderId = trim((string) ($row['ml_order_id'] ?? ''));
+                if ($mlOrderId === '') {
+                    continue;
+                }
+                $map[$mlOrderId] = [
+                    'id' => (int) ($row['id'] ?? 0),
+                    'ml_net_amount' => isset($row['ml_net_amount']) && $row['ml_net_amount'] !== null
+                        ? round((float) $row['ml_net_amount'], 2)
+                        : null,
+                    'ml_sale_total' => isset($row['ml_sale_total']) && $row['ml_sale_total'] !== null
+                        ? round((float) $row['ml_sale_total'], 2)
+                        : null,
+                ];
+            }
+
+            return $map;
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    /**
+     * Neto a mostrar por orden: venta importada → ml_net_amount guardado; si no, resuelto desde API.
+     *
+     * @param list<array<string, mixed>> $orders
+     * @param array<string, array{id: int, ml_net_amount: float|null, ml_sale_total: float|null}> $importedSalesMap
+     * @return array<string, array{amount: float, source: string, from_system: bool}>
+     */
+    private function buildOrderNetDisplayMap(array $orders, array $importedSalesMap): array
+    {
+        $display = [];
+        foreach ($orders as $order) {
+            if (!is_array($order)) {
+                continue;
+            }
+            $orderId = trim((string) ($order['id'] ?? ''));
+            if ($orderId === '') {
+                continue;
+            }
+
+            if (isset($importedSalesMap[$orderId]) && $importedSalesMap[$orderId]['ml_net_amount'] !== null) {
+                $display[$orderId] = [
+                    'amount' => (float) $importedSalesMap[$orderId]['ml_net_amount'],
+                    'source' => 'sistema (venta ML importada)',
+                    'from_system' => true,
+                ];
+                continue;
+            }
+
+            $mlSaleTotal = round((float) ($order['total_amount'] ?? $order['paid_amount'] ?? 0), 2);
+            $resolved = $this->resolveMlNetAmountFromOrder($order, $mlSaleTotal > 0 ? $mlSaleTotal : null);
+            $display[$orderId] = [
+                'amount' => $resolved['amount'],
+                'source' => $resolved['source'],
+                'from_system' => false,
+            ];
+        }
+
+        return $display;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $orders
+     * @return list<array{order: array<string, mixed>, item: array<string, mixed>|null, order_id: string, is_first_item: bool}>
+     */
+    private function buildMlOrderTableRows(array $orders): array
+    {
+        $rows = [];
+        foreach ($orders as $order) {
+            if (!is_array($order)) {
+                continue;
+            }
+            $orderId = trim((string) ($order['id'] ?? ''));
+            $items = $order['order_items'] ?? [];
+            if (!is_array($items) || $items === []) {
+                $rows[] = [
+                    'order' => $order,
+                    'item' => null,
+                    'order_id' => $orderId,
+                    'is_first_item' => true,
+                ];
+                continue;
+            }
+            $first = true;
+            foreach ($items as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+                $rows[] = [
+                    'order' => $order,
+                    'item' => $item,
+                    'order_id' => $orderId,
+                    'is_first_item' => $first,
+                ];
+                $first = false;
+            }
+        }
+
+        return $rows;
+    }
+
+    private function findMlSaleByMlOrderId(Database $db, string $mlOrderId): ?int
+    {
+        if (!$this->quotesHasMlOrderIdColumn($db)) {
+            return null;
+        }
+
+        $row = $db->fetch(
+            'SELECT id FROM quotes
+             WHERE ml_order_id = ? AND COALESCE(is_mercadolibre, 0) = 1
+             LIMIT 1',
+            [$mlOrderId]
+        );
+
+        return $row ? (int) ($row['id'] ?? 0) : null;
     }
 }
