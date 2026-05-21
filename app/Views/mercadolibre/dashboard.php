@@ -15,6 +15,11 @@ $mlUserId = trim((string) ($ml_user_id ?? ''));
             <a href="<?= e(url('/mercadolibre/listings')) ?>" class="inline-flex items-center gap-2 rounded-lg border border-lo-border bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
                 <i data-lucide="list" class="h-4 w-4"></i>Listings
             </a>
+            <?php if ($connected): ?>
+                <a href="<?= e(url('/mercadolibre/vincular-existentes')) ?>" class="inline-flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-medium text-violet-800 hover:bg-violet-100">
+                    <i data-lucide="link-2" class="h-4 w-4"></i>Vincular publicaciones existentes
+                </a>
+            <?php endif; ?>
             <a href="<?= e(url('/mercadolibre/ordenes')) ?>" class="inline-flex items-center gap-2 rounded-lg border border-lo-border bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
                 <i data-lucide="shopping-bag" class="h-4 w-4"></i>Órdenes
             </a>

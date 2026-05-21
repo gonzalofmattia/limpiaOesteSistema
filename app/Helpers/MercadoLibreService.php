@@ -633,6 +633,479 @@ final class MercadoLibreService
         }
     }
 
+    /**
+     * Publicaciones activas y pausadas del vendedor con detalle para vincular al sistema.
+     *
+     * @return array{success: bool, items: list<array<string, mixed>>, error: string}
+     */
+    public static function fetchSellerItemsForLinking(): array
+    {
+        try {
+            $userId = trim(setting('ml_user_id', '') ?? '');
+            self::logInfo(
+                'fetchSellerItemsForLinking',
+                'ml_user_id=' . ($userId !== '' ? $userId : '(vacío)'),
+                'Inicio fetch publicaciones vendedor para vincular'
+            );
+
+            if ($userId === '') {
+                return [
+                    'success' => false,
+                    'items' => [],
+                    'error' => 'No hay usuario ML conectado.',
+                ];
+            }
+
+            $itemIds = [];
+            foreach (['active', 'inactive'] as $status) {
+                $found = self::searchUserItemIds($userId, $status);
+                if ($status === 'inactive' && $found === []) {
+                    $found = self::searchUserItemIds($userId, 'paused');
+                }
+                foreach ($found as $id) {
+                    $itemIds[$id] = true;
+                }
+            }
+
+            $ids = array_keys($itemIds);
+            if ($ids === []) {
+                self::logInfo(
+                    'fetchSellerItemsForLinking',
+                    'ml_user_id=' . $userId,
+                    'items/search sin IDs; probando fallback sites/' . self::getSiteId() . '/search?seller_id='
+                );
+                $fallbackIds = self::searchSellerItemsViaSiteSearch($userId);
+                self::logSellerSearchDiagnostic(
+                    'fetchSellerItemsForLinking',
+                    $userId,
+                    'fallback_site_search',
+                    $fallbackIds['raw_response'],
+                    $fallbackIds['ids']
+                );
+                foreach ($fallbackIds['ids'] as $id) {
+                    $itemIds[$id] = true;
+                }
+                $ids = array_keys($itemIds);
+            }
+
+            if ($ids === []) {
+                return [
+                    'success' => true,
+                    'items' => [],
+                    'error' => '',
+                ];
+            }
+
+            $items = self::fetchItemsDetailsForLinking($ids);
+            self::logInfo(
+                'fetchSellerItemsForLinking',
+                'ml_user_id=' . $userId,
+                'Detalle items: ' . count($items) . ' parseados de ' . count($ids) . ' IDs'
+            );
+
+            return [
+                'success' => true,
+                'items' => $items,
+                'error' => '',
+            ];
+        } catch (\Throwable $e) {
+            self::logError('fetchSellerItemsForLinking', '', 0, $e->getMessage());
+
+            return [
+                'success' => false,
+                'items' => [],
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Diagnóstico: llama items/search y, si results vacío, sites/search. Loguea JSON completo en ml_errors.log.
+     *
+     * @return array<string, mixed>
+     */
+    public static function diagnoseSellerItemsForLinking(): array
+    {
+        $userId = trim(setting('ml_user_id', '') ?? '');
+        $siteId = self::getSiteId();
+        $report = [
+            'ml_user_id' => $userId,
+            'site_id' => $siteId,
+            'connected' => MercadoLibreTokenManager::isConnected(),
+            'items_search_active' => null,
+            'items_search_inactive' => null,
+            'items_search_paused' => null,
+            'site_search_fallback' => null,
+        ];
+
+        self::logInfo('diagnoseLinkExisting', 'ml_user_id=' . ($userId !== '' ? $userId : '(vacío)'), '=== INICIO DIAGNÓSTICO VINCULAR EXISTENTES ===');
+
+        if ($userId === '') {
+            self::logError('diagnoseLinkExisting', 'ml_user_id', 0, 'ml_user_id vacío en settings');
+
+            return $report;
+        }
+
+        foreach (['active' => 'items_search_active', 'inactive' => 'items_search_inactive'] as $status => $key) {
+            $path = '/users/' . rawurlencode($userId)
+                . '/items/search?status=' . rawurlencode($status)
+                . '&limit=50&offset=0';
+            $result = self::apiRequest('GET', $path, null, true);
+            $analysis = self::analyzeItemsSearchResponse($result);
+            $report[$key] = $analysis;
+            self::logSellerSearchDiagnostic('diagnoseLinkExisting', $userId, 'items/search status=' . $status, $analysis['raw_json'], $analysis['parsed_ids']);
+        }
+
+        $pausedPath = '/users/' . rawurlencode($userId) . '/items/search?status=paused&limit=50&offset=0';
+        $pausedResult = self::apiRequest('GET', $pausedPath, null, true);
+        $pausedAnalysis = self::analyzeItemsSearchResponse($pausedResult);
+        $report['items_search_paused'] = $pausedAnalysis;
+        self::logSellerSearchDiagnostic('diagnoseLinkExisting', $userId, 'items/search status=paused', $pausedAnalysis['raw_json'], $pausedAnalysis['parsed_ids']);
+
+        $allIds = array_merge(
+            $report['items_search_active']['parsed_ids'] ?? [],
+            $report['items_search_inactive']['parsed_ids'] ?? [],
+            $report['items_search_paused']['parsed_ids'] ?? []
+        );
+        $allIds = array_values(array_unique($allIds));
+
+        if ($allIds === []) {
+            $fallback = self::searchSellerItemsViaSiteSearch($userId);
+            $report['site_search_fallback'] = [
+                'http_code' => $fallback['http_code'],
+                'success' => $fallback['success'],
+                'error' => $fallback['error'],
+                'parsed_ids' => $fallback['ids'],
+                'raw_json' => $fallback['raw_response'],
+                'top_level_keys' => $fallback['top_level_keys'],
+                'results_count' => count($fallback['ids']),
+            ];
+            self::logSellerSearchDiagnostic(
+                'diagnoseLinkExisting',
+                $userId,
+                'fallback sites/' . $siteId . '/search?seller_id=',
+                $fallback['raw_response'],
+                $fallback['ids']
+            );
+        }
+
+        self::logInfo('diagnoseLinkExisting', 'ml_user_id=' . $userId, '=== FIN DIAGNÓSTICO VINCULAR EXISTENTES ===');
+
+        return $report;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public static function fetchItemForLinking(string $mlItemId): ?array
+    {
+        $mlItemId = trim($mlItemId);
+        if ($mlItemId === '') {
+            return null;
+        }
+
+        $items = self::fetchItemsDetailsForLinking([$mlItemId]);
+
+        return $items[0] ?? null;
+    }
+
+    /** @return list<string> */
+    private static function searchUserItemIds(string $userId, string $status): array
+    {
+        $ids = [];
+        $offset = 0;
+        $limit = 50;
+        $maxPages = 40;
+
+        for ($page = 0; $page < $maxPages; $page++) {
+            $path = '/users/' . rawurlencode($userId)
+                . '/items/search?status=' . rawurlencode($status)
+                . '&limit=' . $limit
+                . '&offset=' . $offset;
+
+            $result = self::apiRequest('GET', $path, null, true);
+
+            if ($page === 0 && $status === 'active') {
+                $analysis = self::analyzeItemsSearchResponse($result);
+                self::logSellerSearchDiagnostic(
+                    'searchUserItemIds',
+                    $userId,
+                    'items/search status=active offset=0',
+                    $analysis['raw_json'],
+                    $analysis['parsed_ids']
+                );
+            }
+
+            if (!$result['success'] || !is_array($result['data'])) {
+                self::logError(
+                    'searchUserItemIds',
+                    "ml_user_id={$userId} status={$status} offset={$offset}",
+                    $result['http_code'],
+                    $result['error']
+                );
+                break;
+            }
+
+            $data = $result['data'];
+            $batch = self::extractItemIdsFromSearchPayload($data);
+            if ($batch === []) {
+                if ($page === 0) {
+                    self::logInfo(
+                        'searchUserItemIds',
+                        "ml_user_id={$userId} status={$status}",
+                        'Primera página sin IDs parseables. keys=' . implode(',', array_keys($data))
+                        . ' | results_type=' . gettype($data['results'] ?? null)
+                    );
+                }
+                break;
+            }
+
+            foreach ($batch as $id) {
+                $ids[] = $id;
+            }
+
+            $total = (int) ($data['paging']['total'] ?? 0);
+            $offset += $limit;
+            if ($offset >= $total) {
+                break;
+            }
+        }
+
+        return $ids;
+    }
+
+    /**
+     * @return array{success: bool, http_code: int, error: string, ids: list<string>, raw_response: string, top_level_keys: list<string>}
+     */
+    private static function searchSellerItemsViaSiteSearch(string $userId): array
+    {
+        $siteId = self::getSiteId();
+        $path = '/sites/' . rawurlencode($siteId) . '/search?seller_id=' . rawurlencode($userId) . '&limit=50';
+        $result = self::apiRequest('GET', $path, null, true);
+        $empty = [
+            'success' => false,
+            'http_code' => (int) ($result['http_code'] ?? 0),
+            'error' => (string) ($result['error'] ?? ''),
+            'ids' => [],
+            'raw_response' => '',
+            'top_level_keys' => [],
+        ];
+
+        if (!$result['success'] || !is_array($result['data'])) {
+            $empty['raw_response'] = json_encode($result['data'] ?? $result, JSON_UNESCAPED_UNICODE) ?: '';
+
+            return $empty;
+        }
+
+        $data = $result['data'];
+        $ids = [];
+        $results = $data['results'] ?? [];
+        if (is_array($results)) {
+            foreach ($results as $row) {
+                if (is_string($row)) {
+                    $id = trim($row);
+                    if ($id !== '') {
+                        $ids[] = $id;
+                    }
+                    continue;
+                }
+                if (is_array($row)) {
+                    $id = trim((string) ($row['id'] ?? ''));
+                    if ($id !== '') {
+                        $ids[] = $id;
+                    }
+                }
+            }
+        }
+
+        return [
+            'success' => true,
+            'http_code' => (int) ($result['http_code'] ?? 200),
+            'error' => '',
+            'ids' => array_values(array_unique($ids)),
+            'raw_response' => json_encode($data, JSON_UNESCAPED_UNICODE) ?: '',
+            'top_level_keys' => array_keys($data),
+        ];
+    }
+
+    /**
+     * @param array{success: bool, http_code: int, data: array<string, mixed>|null, error: string} $result
+     * @return array<string, mixed>
+     */
+    private static function analyzeItemsSearchResponse(array $result): array
+    {
+        $data = is_array($result['data'] ?? null) ? $result['data'] : [];
+        $parsedIds = self::extractItemIdsFromSearchPayload($data);
+        $resultsRaw = $data['results'] ?? null;
+        $resultsPreview = '';
+        if (is_array($resultsRaw)) {
+            $resultsPreview = json_encode(array_slice($resultsRaw, 0, 3), JSON_UNESCAPED_UNICODE) ?: '[]';
+            if (count($resultsRaw) > 3) {
+                $resultsPreview .= ' ... (+' . (count($resultsRaw) - 3) . ' más)';
+            }
+        } elseif ($resultsRaw !== null) {
+            $resultsPreview = gettype($resultsRaw);
+        }
+
+        return [
+            'success' => (bool) ($result['success'] ?? false),
+            'http_code' => (int) ($result['http_code'] ?? 0),
+            'error' => (string) ($result['error'] ?? ''),
+            'top_level_keys' => array_keys($data),
+            'results_field_type' => gettype($resultsRaw),
+            'results_count' => is_array($resultsRaw) ? count($resultsRaw) : 0,
+            'results_preview' => $resultsPreview,
+            'paging' => $data['paging'] ?? null,
+            'parsed_ids' => $parsedIds,
+            'parsed_ids_count' => count($parsedIds),
+            'raw_json' => json_encode($data, JSON_UNESCAPED_UNICODE) ?: '',
+        ];
+    }
+
+    /** @param array<string, mixed> $data */
+    private static function extractItemIdsFromSearchPayload(array $data): array
+    {
+        $batch = $data['results'] ?? [];
+        if (!is_array($batch)) {
+            return [];
+        }
+
+        $ids = [];
+        foreach ($batch as $itemId) {
+            if (is_string($itemId) || is_numeric($itemId)) {
+                $id = trim((string) $itemId);
+                if ($id !== '') {
+                    $ids[] = $id;
+                }
+                continue;
+            }
+            if (is_array($itemId)) {
+                $id = trim((string) ($itemId['id'] ?? $itemId['item_id'] ?? ''));
+                if ($id !== '') {
+                    $ids[] = $id;
+                }
+            }
+        }
+
+        return $ids;
+    }
+
+    public static function logLinkExisting(string $context, string $message): void
+    {
+        self::logInfo('linkExisting', $context, $message);
+    }
+
+    /** @param list<string> $parsedIds */
+    private static function logSellerSearchDiagnostic(
+        string $method,
+        string $userId,
+        string $endpoint,
+        string $rawJson,
+        array $parsedIds
+    ): void {
+        self::logInfo(
+            $method,
+            "ml_user_id={$userId} endpoint={$endpoint}",
+            'JSON completo ML: ' . ($rawJson !== '' ? $rawJson : '(vacío)')
+        );
+        self::logInfo(
+            $method,
+            "ml_user_id={$userId} endpoint={$endpoint}",
+            'IDs parseados (' . count($parsedIds) . '): ' . ($parsedIds !== [] ? implode(', ', array_slice($parsedIds, 0, 20)) : '(ninguno)')
+            . (count($parsedIds) > 20 ? ' ...' : '')
+        );
+    }
+
+    /**
+     * @param list<string> $itemIds
+     * @return list<array<string, mixed>>
+     */
+    private static function fetchItemsDetailsForLinking(array $itemIds): array
+    {
+        $items = [];
+        $itemIds = array_values(array_filter(array_map(static fn ($id) => trim((string) $id), $itemIds)));
+        if ($itemIds === []) {
+            return [];
+        }
+
+        foreach (array_chunk($itemIds, 20) as $chunkIndex => $chunk) {
+            $idsParam = implode(',', array_map('rawurlencode', $chunk));
+            $result = self::apiRequest('GET', '/items?ids=' . $idsParam, null, true);
+            if (!$result['success'] || !is_array($result['data'])) {
+                self::logError(
+                    'fetchItemsDetailsForLinking',
+                    'ids=' . implode(',', $chunk),
+                    $result['http_code'],
+                    $result['error']
+                );
+                continue;
+            }
+
+            if ($chunkIndex === 0 && isset($result['data'][0]) && is_array($result['data'][0])) {
+                $firstRow = $result['data'][0];
+                self::logInfo(
+                    'fetchItemsDetailsForLinking',
+                    'ids=' . implode(',', array_slice($chunk, 0, 2)),
+                    'Formato multi-get: keys=' . implode(',', array_keys($firstRow))
+                    . ' | tiene_body=' . (isset($firstRow['body']) ? 'si' : 'no')
+                );
+            }
+
+            foreach ($result['data'] as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                if (isset($row['body']) && is_array($row['body'])) {
+                    $row = $row['body'];
+                }
+                $normalized = self::normalizeItemForLinking($row);
+                if ($normalized['ml_item_id'] !== '') {
+                    $items[] = $normalized;
+                }
+            }
+        }
+
+        usort($items, static fn (array $a, array $b): int => strcmp(
+            (string) ($a['title'] ?? ''),
+            (string) ($b['title'] ?? '')
+        ));
+
+        return $items;
+    }
+
+    /** @param array<string, mixed> $data */
+    private static function normalizeItemForLinking(array $data): array
+    {
+        $mlItemId = trim((string) ($data['id'] ?? ''));
+        $mlStatus = trim((string) ($data['status'] ?? ''));
+        $thumbStored = self::sanitizeMlThumbnailForStorage(self::extractThumbnailFromMlItemData($data));
+        $thumbDisplay = $thumbStored ?? trim((string) ($data['secure_thumbnail'] ?? $data['thumbnail'] ?? ''));
+
+        return [
+            'ml_item_id' => $mlItemId,
+            'title' => self::truncate(trim((string) ($data['title'] ?? '')), 60),
+            'price' => round((float) ($data['price'] ?? 0), 2),
+            'ml_thumbnail' => $thumbStored,
+            'thumbnail_url' => $thumbDisplay,
+            'ml_category_id' => trim((string) ($data['category_id'] ?? '')),
+            'ml_status' => $mlStatus,
+            'status' => self::mapMlItemStatusToLocal($mlStatus),
+            'available_quantity' => max(0, (int) ($data['available_quantity'] ?? 0)),
+            'ml_permalink' => trim((string) ($data['permalink'] ?? '')),
+            'listing_type_id' => trim((string) ($data['listing_type_id'] ?? 'gold_special')) ?: 'gold_special',
+        ];
+    }
+
+    private static function mapMlItemStatusToLocal(string $mlStatus): string
+    {
+        return match ($mlStatus) {
+            'active' => 'active',
+            'paused' => 'paused',
+            'closed' => 'closed',
+            default => 'active',
+        };
+    }
+
     /** @param array<string, mixed> $product */
     public static function buildDescription(array $product): string
     {

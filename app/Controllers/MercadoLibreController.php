@@ -404,6 +404,242 @@ final class MercadoLibreController extends Controller
         });
     }
 
+    public function linkExisting(): void
+    {
+        try {
+            if (!MercadoLibreTokenManager::isConnected()) {
+                flash('error', 'Conectá la cuenta de MercadoLibre antes de vincular publicaciones.');
+                redirect('/mercadolibre/conectar');
+
+                return;
+            }
+
+            MercadoLibreService::diagnoseSellerItemsForLinking();
+            $fetch = MercadoLibreService::fetchSellerItemsForLinking();
+            if (!$fetch['success']) {
+                flash('error', 'No se pudieron obtener las publicaciones de ML: ' . ($fetch['error'] ?: 'error desconocido'));
+                redirect('/mercadolibre');
+
+                return;
+            }
+
+            $db = Database::getInstance();
+            $linkedRows = $db->fetchAll(
+                'SELECT l.ml_item_id, l.id AS listing_id, l.title AS listing_title, l.status,
+                        l.product_id, p.code AS product_code, p.name AS product_name
+                 FROM ml_listings l
+                 LEFT JOIN products p ON p.id = l.product_id
+                 WHERE l.ml_item_id IS NOT NULL AND TRIM(l.ml_item_id) <> \'\''
+            );
+
+            $linkedByMlId = [];
+            foreach ($linkedRows as $row) {
+                $mlId = trim((string) ($row['ml_item_id'] ?? ''));
+                if ($mlId !== '') {
+                    $linkedByMlId[$mlId] = $row;
+                }
+            }
+
+            $unlinked = [];
+            $linked = [];
+            foreach ($fetch['items'] as $item) {
+                $mlId = trim((string) ($item['ml_item_id'] ?? ''));
+                if ($mlId === '') {
+                    continue;
+                }
+                if (isset($linkedByMlId[$mlId])) {
+                    $linked[] = array_merge($item, [
+                        'listing_id' => (int) ($linkedByMlId[$mlId]['listing_id'] ?? 0),
+                        'product_id' => (int) ($linkedByMlId[$mlId]['product_id'] ?? 0),
+                        'product_code' => (string) ($linkedByMlId[$mlId]['product_code'] ?? ''),
+                        'product_name' => (string) ($linkedByMlId[$mlId]['product_name'] ?? ''),
+                        'local_status' => (string) ($linkedByMlId[$mlId]['status'] ?? ''),
+                    ]);
+                } else {
+                    $unlinked[] = $item;
+                }
+            }
+
+            MercadoLibreService::logLinkExisting(
+                'ml_user_id=' . trim(setting('ml_user_id', '') ?? ''),
+                'Página cargada: ' . count($fetch['items']) . ' items ML, '
+                . count($unlinked) . ' sin vincular, ' . count($linked) . ' ya vinculados'
+            );
+
+            $this->view('mercadolibre/link_existing', [
+                'title' => 'Vincular publicaciones ML',
+                'unlinked' => $unlinked,
+                'linked' => $linked,
+                'fetch_error' => '',
+            ]);
+        } catch (\Throwable $e) {
+            flash('error', 'No se pudo cargar la vinculación: ' . $e->getMessage());
+            redirect('/mercadolibre');
+        }
+    }
+
+    public function saveLinkExisting(): void
+    {
+        if (!verifyCsrf()) {
+            $this->json(['success' => false, 'error' => 'Token inválido.'], 419);
+
+            return;
+        }
+
+        try {
+            if (!MercadoLibreTokenManager::isConnected()) {
+                $this->json(['success' => false, 'error' => 'Cuenta ML no conectada.'], 403);
+
+                return;
+            }
+
+            $batch = (string) $this->input('batch', '') === '1';
+            $pairs = [];
+
+            if ($batch) {
+                $raw = $this->input('items', '[]');
+                $decoded = is_string($raw) ? json_decode($raw, true) : $raw;
+                if (!is_array($decoded)) {
+                    $this->json(['success' => false, 'error' => 'Lista de items inválida.'], 400);
+
+                    return;
+                }
+                foreach ($decoded as $row) {
+                    if (!is_array($row)) {
+                        continue;
+                    }
+                    $pairs[] = [
+                        'ml_item_id' => trim((string) ($row['ml_item_id'] ?? '')),
+                        'product_id' => (int) ($row['product_id'] ?? 0),
+                    ];
+                }
+            } else {
+                $pairs[] = [
+                    'ml_item_id' => trim((string) $this->input('ml_item_id', '')),
+                    'product_id' => (int) $this->input('product_id', 0),
+                ];
+            }
+
+            if ($pairs === []) {
+                $this->json(['success' => false, 'error' => 'No hay publicaciones para vincular.'], 400);
+
+                return;
+            }
+
+            $linked = [];
+            $errors = [];
+
+            foreach ($pairs as $pair) {
+                $result = $this->persistMlItemLink($pair['ml_item_id'], $pair['product_id']);
+                if ($result['success']) {
+                    $linked[] = $result['data'];
+                } else {
+                    $errors[] = [
+                        'ml_item_id' => $pair['ml_item_id'],
+                        'error' => $result['error'],
+                    ];
+                }
+            }
+
+            if ($batch) {
+                $this->json([
+                    'success' => $errors === [],
+                    'linked' => $linked,
+                    'errors' => $errors,
+                    'error' => $errors !== [] ? 'Algunas vinculaciones fallaron.' : '',
+                ]);
+
+                return;
+            }
+
+            if ($linked !== []) {
+                $this->json([
+                    'success' => true,
+                    'listing_id' => (int) ($linked[0]['listing_id'] ?? 0),
+                    'ml_item_id' => (string) ($linked[0]['ml_item_id'] ?? ''),
+                    'error' => '',
+                ]);
+
+                return;
+            }
+
+            $this->json([
+                'success' => false,
+                'error' => (string) ($errors[0]['error'] ?? 'No se pudo vincular.'),
+            ], 422);
+        } catch (\Throwable $e) {
+            $this->json(['success' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * @return array{success: bool, data: array<string, mixed>, error: string}
+     */
+    private function persistMlItemLink(string $mlItemId, int $productId): array
+    {
+        $mlItemId = trim($mlItemId);
+        if ($mlItemId === '') {
+            return ['success' => false, 'data' => [], 'error' => 'ml_item_id inválido.'];
+        }
+        if ($productId <= 0) {
+            return ['success' => false, 'data' => [], 'error' => 'Seleccioná un producto del catálogo.'];
+        }
+
+        $db = Database::getInstance();
+
+        $existsProduct = (int) $db->fetchColumn(
+            'SELECT COUNT(*) FROM products WHERE id = ? AND is_active = 1',
+            [$productId]
+        );
+        if ($existsProduct === 0) {
+            return ['success' => false, 'data' => [], 'error' => 'Producto no encontrado o inactivo.'];
+        }
+
+        $already = $db->fetch(
+            'SELECT id FROM ml_listings WHERE ml_item_id = ? LIMIT 1',
+            [$mlItemId]
+        );
+        if ($already) {
+            return ['success' => false, 'data' => [], 'error' => 'Esta publicación ya está vinculada en el sistema.'];
+        }
+
+        $item = MercadoLibreService::fetchItemForLinking($mlItemId);
+        if ($item === null) {
+            return ['success' => false, 'data' => [], 'error' => 'No se pudo obtener el ítem desde MercadoLibre.'];
+        }
+
+        $title = $this->truncateText(trim((string) ($item['title'] ?? '')), 60);
+        if ($title === '') {
+            return ['success' => false, 'data' => [], 'error' => 'El ítem de ML no tiene título.'];
+        }
+
+        $qty = max(1, (int) ($item['available_quantity'] ?? 12));
+        $listingId = $db->insert('ml_listings', [
+            'product_id' => $productId,
+            'ml_item_id' => $mlItemId,
+            'ml_category_id' => ($item['ml_category_id'] ?? '') !== '' ? $item['ml_category_id'] : null,
+            'title' => $title,
+            'status' => (string) ($item['status'] ?? 'active'),
+            'listing_type_id' => (string) ($item['listing_type_id'] ?? 'gold_special'),
+            'price' => round((float) ($item['price'] ?? 0), 2),
+            'available_quantity_override' => $qty,
+            'ml_permalink' => ($item['ml_permalink'] ?? '') !== '' ? $item['ml_permalink'] : null,
+            'ml_thumbnail' => ($item['ml_thumbnail'] ?? null) ?: null,
+            'last_synced_at' => date('Y-m-d H:i:s'),
+            'last_sync_error' => null,
+        ]);
+
+        return [
+            'success' => true,
+            'data' => [
+                'listing_id' => (int) $listingId,
+                'ml_item_id' => $mlItemId,
+                'product_id' => $productId,
+            ],
+            'error' => '',
+        ];
+    }
+
     public function listings(): void
     {
         try {

@@ -101,6 +101,8 @@ return [
     ['GET', 'mercadolibre/callback', 'MercadoLibreController@callback', ['public' => true]],
     ['POST', 'mercadolibre/desconectar', 'MercadoLibreController@disconnect', []],
     ['GET', 'mercadolibre/listings', 'MercadoLibreController@listings', []],
+    ['GET', 'mercadolibre/vincular-existentes', 'MercadoLibreController@linkExisting', []],
+    ['POST', 'mercadolibre/vincular-existentes/guardar', 'MercadoLibreController@saveLinkExisting', []],
     ['GET', 'mercadolibre/listings/nueva', 'MercadoLibreController@newListing', []],
     ['POST', 'mercadolibre/listings', 'MercadoLibreController@storeListing', []],
     ['POST', 'mercadolibre/listings/sync-all', 'MercadoLibreController@syncAll', []],
