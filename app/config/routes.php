@@ -114,6 +114,8 @@ return [
     ['POST', 'mercadolibre/listings/{id}/activar', 'MercadoLibreController@reactivateListing', []],
     ['POST', 'mercadolibre/listings/{id}/eliminar', 'MercadoLibreController@deleteListing', []],
     ['GET', 'mercadolibre/ordenes', 'MercadoLibreController@orders', []],
+    ['GET', 'mercadolibre/publicacion-masiva', 'MercadoLibreController@bulkPublish', []],
+    ['POST', 'mercadolibre/publicacion-masiva/ejecutar', 'MercadoLibreController@bulkPublishExecute', []],
     ['GET', 'mercadolibre/importar-imagenes', 'MercadoLibreController@importImages', []],
     ['POST', 'mercadolibre/importar-imagenes/ejecutar', 'MercadoLibreController@importImagesExecute', []],
     ['POST', 'mercadolibre/importar-imagenes/seiq-ejecutar', 'MercadoLibreController@importSeiqImagesExecute', []],

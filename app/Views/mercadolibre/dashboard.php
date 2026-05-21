@@ -23,6 +23,11 @@ $mlUserId = trim((string) ($ml_user_id ?? ''));
             <a href="<?= e(url('/mercadolibre/ordenes')) ?>" class="inline-flex items-center gap-2 rounded-lg border border-lo-border bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
                 <i data-lucide="shopping-bag" class="h-4 w-4"></i>Órdenes
             </a>
+            <?php if ($connected): ?>
+                <a href="<?= e(url('/mercadolibre/publicacion-masiva')) ?>" class="inline-flex items-center gap-2 rounded-lg border border-lo-blue/30 bg-lo-blueSoft px-4 py-2 text-sm font-medium text-lo-blue hover:bg-blue-100">
+                    <i data-lucide="upload-cloud" class="h-4 w-4"></i>Publicación masiva
+                </a>
+            <?php endif; ?>
             <a href="<?= e(url('/mercadolibre/importar-imagenes')) ?>" class="inline-flex items-center gap-2 rounded-lg border border-lo-border bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
                 <i data-lucide="image-down" class="h-4 w-4"></i>Importar imágenes
             </a>
