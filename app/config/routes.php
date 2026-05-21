@@ -19,6 +19,8 @@ return [
     ['POST', 'categorias/{id}/toggle', 'CategoryController@toggle', []],
 
     ['GET', 'catalogo-visual', 'VisualCatalogController@index', []],
+    ['GET', 'catalogo/generar-descripciones', 'CatalogDescriptionController@index', []],
+    ['POST', 'catalogo/generar-descripciones/ejecutar', 'CatalogDescriptionController@execute', []],
     ['GET', 'productos', 'ProductController@index', []],
     ['GET', 'productos/crear', 'ProductController@create', []],
     ['POST', 'productos', 'ProductController@store', []],
