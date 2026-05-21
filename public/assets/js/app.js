@@ -178,6 +178,14 @@ window.appUrl = function (path) {
     return b + '/' + path;
 };
 
+/** URL pública HTTPS de imagen de producto (/producto-imagen/{id}/{filename}). */
+window.productImageUrl = function (productId, filename) {
+    var b = (typeof window.PRODUCT_IMAGE_PUBLIC_BASE !== 'undefined' && window.PRODUCT_IMAGE_PUBLIC_BASE)
+        ? String(window.PRODUCT_IMAGE_PUBLIC_BASE).replace(/\/$/, '')
+        : 'https://limpiaoeste.com.ar/sistema/public';
+    return b + '/producto-imagen/' + productId + '/' + encodeURIComponent(filename);
+};
+
 document.addEventListener('DOMContentLoaded', function () {
     window.rebuildLucideIcons = function () {
         if (window.lucide && typeof window.lucide.createIcons === 'function') {

@@ -27,6 +27,30 @@ function url(string $path = '/'): string
     return ($base === '' ? '' : $base) . '/' . $path;
 }
 
+/**
+ * Base pública HTTPS para URLs de imágenes de producto (ML, catálogo visual, API externa).
+ * Override opcional: PRODUCT_IMAGE_PUBLIC_BASE en .env
+ */
+function productImagePublicBaseUrl(): string
+{
+    $base = trim(\App\Helpers\Env::get('PRODUCT_IMAGE_PUBLIC_BASE', ''));
+    if ($base === '') {
+        $base = 'https://limpiaoeste.com.ar/sistema/public';
+    }
+
+    return preg_replace('#^http:#i', 'https:', rtrim($base, '/'));
+}
+
+/** URL absoluta HTTPS: /producto-imagen/{product_id}/{filename} */
+function productImageUrl(int $productId, string $filename): string
+{
+    return productImagePublicBaseUrl()
+        . '/producto-imagen/'
+        . $productId
+        . '/'
+        . rawurlencode($filename);
+}
+
 function redirect(string $pathOrUrl): void
 {
     if (preg_match('#^https?://#i', $pathOrUrl)) {

@@ -99,7 +99,7 @@ final class Router
         }
 
         if ($name === 'filename') {
-            return '[a-zA-Z0-9.\-]+';
+            return '[a-zA-Z0-9._\-]+';
         }
 
         return '[0-9]+';

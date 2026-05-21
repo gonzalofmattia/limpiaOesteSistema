@@ -1095,7 +1095,7 @@ final class MercadoLibreService
                 if ($filename === '') {
                     continue;
                 }
-                $candidateUrls[] = self::picturePublicUrl($productId, $filename);
+                $candidateUrls[] = productImageUrl($productId, $filename);
                 if (count($candidateUrls) >= self::MAX_PICTURES) {
                     break;
                 }
@@ -1150,23 +1150,9 @@ final class MercadoLibreService
         }
     }
 
-    private static function picturePublicBaseUrl(): string
-    {
-        return 'https://limpiaoeste.com.ar/sistema/public';
-    }
-
     private static function mlBadgePictureUrl(): string
     {
-        return self::picturePublicBaseUrl() . self::ML_BADGE_PICTURE_PATH;
-    }
-
-    private static function picturePublicUrl(int $productId, string $filename): string
-    {
-        return self::picturePublicBaseUrl()
-            . '/producto-imagen/'
-            . $productId
-            . '/'
-            . $filename;
+        return productImagePublicBaseUrl() . self::ML_BADGE_PICTURE_PATH;
     }
 
     /** @return array{accessible: bool, http_code: int} */

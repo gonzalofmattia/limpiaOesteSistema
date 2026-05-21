@@ -18,6 +18,7 @@ return [
     ['POST', 'categorias/{id}', 'CategoryController@update', []],
     ['POST', 'categorias/{id}/toggle', 'CategoryController@toggle', []],
 
+    ['GET', 'catalogo-visual', 'VisualCatalogController@index', []],
     ['GET', 'productos', 'ProductController@index', []],
     ['GET', 'productos/crear', 'ProductController@create', []],
     ['POST', 'productos', 'ProductController@store', []],
@@ -25,6 +26,7 @@ return [
     ['POST', 'productos/{id}', 'ProductController@update', []],
     ['POST', 'productos/{id}/toggle', 'ProductController@toggle', []],
     ['POST', 'productos/{id}/imagenes/subir', 'ProductController@uploadImages', []],
+    ['POST', 'api/productos/{id}/subir-imagen', 'ProductController@uploadCoverImage', []],
     ['POST', 'productos/{id}/imagenes/reordenar', 'ProductController@reorderImages', []],
     ['POST', 'productos/{id}/imagenes/{img}/portada', 'ProductController@setCover', []],
     ['POST', 'productos/{id}/imagenes/{img}/eliminar', 'ProductController@deleteImage', []],

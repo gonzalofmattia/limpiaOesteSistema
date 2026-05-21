@@ -1,5 +1,8 @@
 RewriteEngine On
 
+# Imágenes de producto: /public/producto-imagen/* debe ir al front controller (no es archivo estático)
+RewriteRule ^public/producto-imagen/(.*)$ public/index.php?url=producto-imagen/$1 [QSA,L]
+
 # Si el hosting apunta a la raíz del repo y no a public/
 RewriteCond %{REQUEST_URI} !^/public/
 RewriteRule ^(.*)$ public/$1 [L]

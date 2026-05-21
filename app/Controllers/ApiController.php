@@ -324,7 +324,7 @@ final class ApiController extends Controller
         }
 
         $filename = basename($filename);
-        if ($filename === '' || !preg_match('/^[a-zA-Z0-9.\-]+$/', $filename)) {
+        if ($filename === '' || !preg_match('/^[a-zA-Z0-9._-]+$/', $filename)) {
             http_response_code(404);
             header('Content-Type: text/plain; charset=utf-8');
             echo 'No encontrado';
@@ -333,6 +333,9 @@ final class ApiController extends Controller
 
         $path = rtrim((string) STORAGE_PATH, '/') . '/products/originals/' . $product_id . '/' . $filename;
         if (!is_file($path) || !is_readable($path)) {
+            if (\App\Helpers\Env::get('APP_ENV', 'production') === 'local') {
+                redirect(productImageUrl((int) $product_id, $filename));
+            }
             http_response_code(404);
             header('Content-Type: text/plain; charset=utf-8');
             echo 'No encontrado';

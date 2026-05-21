@@ -139,7 +139,7 @@ $mlStatusLabel = static function (string $status): string {
                     $coverFilename = trim((string) ($l['cover_filename'] ?? ''));
                     $mlThumbnail = trim((string) ($l['ml_thumbnail'] ?? ''));
                     $localCoverUrl = ($productId > 0 && $coverFilename !== '')
-                        ? url('/producto-imagen/' . $productId . '/' . rawurlencode($coverFilename))
+                        ? productImageUrl($productId, $coverFilename)
                         : '';
                     if ($mlThumbnail !== '') {
                         $thumbUrl = $mlThumbnail;

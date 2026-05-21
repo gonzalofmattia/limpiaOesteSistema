@@ -364,6 +364,64 @@ final class ProductController extends Controller
         $this->json(['success' => true, 'images' => $created]);
     }
 
+    public function uploadCoverImage(string $id): void
+    {
+        if (!verifyCsrf()) {
+            $this->json(['success' => false, 'error' => 'CSRF'], 419);
+            return;
+        }
+        $pid = (int) $id;
+        $db = Database::getInstance();
+        $exists = $db->fetch('SELECT id FROM products WHERE id = ?', [$pid]);
+        if (!$exists) {
+            $this->json(['success' => false, 'error' => 'No encontrado'], 404);
+            return;
+        }
+        $current = (int) $db->fetchColumn('SELECT COUNT(*) FROM product_images WHERE product_id = ?', [$pid]);
+        if ($current >= 8) {
+            $this->json(['success' => false, 'error' => 'Máximo 8 imágenes por producto.'], 400);
+            return;
+        }
+        $file = null;
+        foreach (['image', 'file'] as $key) {
+            $files = $this->normalizeFilesInput($key);
+            if ($files !== []) {
+                $file = $files[0];
+                break;
+            }
+        }
+        if ($file === null) {
+            $this->json(['success' => false, 'error' => 'No se recibió ningún archivo.'], 400);
+            return;
+        }
+        try {
+            $meta = (new ImageUploader())->upload($file, $pid);
+        } catch (\Throwable) {
+            $this->json(['success' => false, 'error' => 'No se pudo procesar la imagen.'], 400);
+            return;
+        }
+        $db->update('product_images', ['is_cover' => 0], 'product_id = :pid', ['pid' => $pid]);
+        $sort = (int) $db->fetchColumn(
+            'SELECT COALESCE(MAX(sort_order), -1) + 1 FROM product_images WHERE product_id = ?',
+            [$pid]
+        );
+        $db->insert('product_images', [
+            'product_id' => $pid,
+            'filename' => $meta['filename'],
+            'original_name' => $meta['original_name'],
+            'mime_type' => $meta['mime_type'],
+            'file_size' => $meta['file_size'],
+            'sort_order' => $sort,
+            'is_cover' => 1,
+            'alt_text' => null,
+        ]);
+        $filename = $meta['filename'];
+        $this->json([
+            'success' => true,
+            'url' => productImageUrl($pid, $filename),
+        ]);
+    }
+
     public function reorderImages(string $id): void
     {
         $pid = (int) $id;

@@ -84,6 +84,7 @@
     <link rel="stylesheet" href="<?= e(url('/assets/css/app.css')) ?>">
     <script>
         window.APP_BASE_URL = <?= json_encode(defined('BASE_URL_PATH') ? BASE_URL_PATH : (defined('BASE_URL') ? BASE_URL : ''), JSON_UNESCAPED_SLASHES) ?>;
+        window.PRODUCT_IMAGE_PUBLIC_BASE = <?= json_encode(productImagePublicBaseUrl(), JSON_UNESCAPED_SLASHES) ?>;
     </script>
 </head>
 <body class="bg-lo-bg text-lo-text antialiased" x-data="{ sidebarOpen: false, deleteModal: { open: false, formId: '', itemName: 'este registro' }, openDeleteModal(formId, itemName){ this.deleteModal.formId=formId; this.deleteModal.itemName=itemName || 'este registro'; this.deleteModal.open=true; this.$nextTick(() => window.rebuildLucideIcons && window.rebuildLucideIcons()); } }">
@@ -120,6 +121,7 @@ try {
             <p class="px-3 pt-4 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Catálogo</p>
             <a href="<?= e(url('/categorias')) ?>" class="<?= $itemBase ?> <?= isActive('/categorias') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="tags" class="h-4 w-4"></i><span>Categorías</span></a>
             <a href="<?= e(url('/productos')) ?>" class="<?= $itemBase ?> <?= isActive('/productos') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="package" class="h-4 w-4"></i><span>Productos</span></a>
+            <a href="<?= e(url('/catalogo-visual')) ?>" class="<?= $itemBase ?> <?= isActive('/catalogo-visual') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?> pl-6"><i data-lucide="layout-grid" class="h-4 w-4"></i><span>Vista visual</span></a>
             <a href="<?= e(url('/stock-actual')) ?>" class="<?= $itemBase ?> <?= isActive('/stock-actual') && !isActive('/stock/proyeccion') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="warehouse" class="h-4 w-4"></i><span>Stock actual</span></a>
             <a href="<?= e(url('/stock/proyeccion')) ?>" class="<?= $itemBase ?> <?= isActive('/stock/proyeccion') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?> pl-6"><i data-lucide="trending-up" class="h-4 w-4"></i><span>Proyección compra</span></a>
             <p class="px-3 pt-4 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Comercial</p>
