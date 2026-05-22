@@ -42,7 +42,7 @@ $mlStatusLabel = static function (string $status): string {
 
 ?>
 
-<div class="space-y-5" x-data="{ syncConfirm: false, deleteConfirm: false, deleteListingId: null }">
+<div class="space-y-5" x-data="{ syncConfirm: false, deleteConfirm: false, deleteListingId: null, pauseConfirm: false, pauseListingId: null }">
 
     <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 
@@ -458,13 +458,11 @@ $mlStatusLabel = static function (string $status): string {
 
                                     </form>
 
-                                    <form method="post" action="<?= e(url('/mercadolibre/listings/' . $id . '/pausar')) ?>" class="inline">
-
-                                        <?= csrfField() ?>
-
-                                        <button type="submit" class="text-amber-700 hover:underline text-xs font-semibold">Pausar</button>
-
-                                    </form>
+                                    <button
+                                        type="button"
+                                        class="text-amber-700 hover:underline text-xs font-semibold"
+                                        @click="pauseListingId = <?= $id ?>; pauseConfirm = true"
+                                    >Pausar</button>
 
                                     <?php if ($permalink !== ''): ?>
 
@@ -548,6 +546,10 @@ $mlStatusLabel = static function (string $status): string {
 
 
 
+    <form id="ml-pause-listing-form" method="post" action="#" class="hidden">
+        <?= csrfField() ?>
+    </form>
+
     <form id="ml-delete-listing-form" method="post" action="#" class="hidden">
 
         <?= csrfField() ?>
@@ -578,13 +580,32 @@ $mlStatusLabel = static function (string $status): string {
 
 
 
+    <div x-show="pauseConfirm" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" @keydown.escape.window="pauseConfirm = false">
+        <div class="w-full max-w-md rounded-2xl bg-white border border-lo-border shadow-xl p-5" @click.outside="pauseConfirm = false">
+            <h4 class="text-base font-semibold text-slate-900">Pausar publicación</h4>
+            <p class="mt-2 text-sm text-slate-600">¿Pausar esta publicación? La publicación quedará invisible temporalmente pero mantendrá su historial.</p>
+            <div class="mt-5 flex justify-end gap-2">
+                <button type="button" @click="pauseConfirm = false" class="px-4 py-2 rounded-lg border border-lo-border text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
+                <button
+                    type="button"
+                    class="px-4 py-2 rounded-lg bg-amber-600 text-sm font-semibold text-white hover:bg-amber-700"
+                    @click="
+                        if (pauseListingId) {
+                            const f = document.getElementById('ml-pause-listing-form');
+                            f.action = '<?= e(url('/mercadolibre/listings/')) ?>/' + pauseListingId + '/pausar';
+                            f.submit();
+                        }
+                        pauseConfirm = false;
+                    "
+                >Pausar</button>
+            </div>
+        </div>
+    </div>
+
     <div x-show="deleteConfirm" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" @keydown.escape.window="deleteConfirm = false">
-
         <div class="w-full max-w-md rounded-2xl bg-white border border-lo-border shadow-xl p-5" @click.outside="deleteConfirm = false">
-
             <h4 class="text-base font-semibold text-slate-900">Eliminar listing</h4>
-
-            <p class="mt-2 text-sm text-slate-600">¿Eliminar este listing? Si fue publicado en ML, se cerrará y borrará permanentemente.</p>
+            <p class="mt-2 text-sm text-slate-600">¿Eliminar este listing de forma permanente? Esta acción no se puede deshacer. Si la publicación existe en MercadoLibre, se cerrará (<strong>closed</strong>) y se borrará definitivamente — a diferencia de pausar, no podrás reactivarla.</p>
 
             <div class="mt-5 flex justify-end gap-2">
 
