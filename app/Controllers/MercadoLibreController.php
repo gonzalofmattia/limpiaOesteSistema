@@ -1460,6 +1460,7 @@ final class MercadoLibreController extends Controller
             $importedSalesMap = $this->fetchImportedMlSalesMap();
             $tableRows = $this->buildMlOrderTableRows($result['orders']);
             $orderNetDisplay = $this->buildOrderNetDisplayMap($result['orders'], $importedSalesMap);
+            $orderImportErrors = $this->buildOrderImportErrorsMap($result['orders']);
 
             $this->view('mercadolibre/orders', [
                 'title' => 'Órdenes MercadoLibre',
@@ -1468,6 +1469,7 @@ final class MercadoLibreController extends Controller
                 'table_rows' => $tableRows,
                 'imported_sales_map' => $importedSalesMap,
                 'order_net_display' => $orderNetDisplay,
+                'order_import_errors' => $orderImportErrors,
                 'orders_success' => $result['success'],
                 'orders_error' => $result['error'],
                 'offset' => $offset,
@@ -1509,6 +1511,11 @@ final class MercadoLibreController extends Controller
             }
 
             $payload = $this->buildSalePayloadFromMlOrder($fetch['order']);
+            if (isset($payload['error']) && trim((string) $payload['error']) !== '') {
+                flash('error', (string) $payload['error']);
+                redirect('/mercadolibre/ordenes');
+                return;
+            }
             $result = $this->persistSale(null, $payload);
             if ($result['error'] !== null) {
                 flash('error', $result['error']);
@@ -2350,13 +2357,6 @@ final class MercadoLibreController extends Controller
             }
         }
 
-        $mlNetResolved = $this->resolveMlNetAmountFromOrder($order, $mlSaleTotal);
-        $mlNetAmount = $mlNetResolved['amount'];
-        $this->logMlOrderImport(
-            $mlOrderId,
-            'ml_net_amount campo=' . $mlNetResolved['source'] . ' valor=' . number_format($mlNetAmount, 2, '.', '')
-        );
-
         $lines = [];
         foreach ($order['order_items'] ?? [] as $item) {
             if (!is_array($item)) {
@@ -2376,12 +2376,11 @@ final class MercadoLibreController extends Controller
             }
 
             if ($productId <= 0) {
-                $this->logMlOrderImport(
-                    $mlOrderId,
-                    'Item sin match en ml_listings: '
-                    . ($title !== '' ? $title : ($mlItemId !== '' ? $mlItemId : 'ítem desconocido'))
-                );
-                continue;
+                $displayTitle = $title !== '' ? $title : ($mlItemId !== '' ? $mlItemId : 'ítem desconocido');
+                $error = 'No se encontró el producto [' . $displayTitle . '] en el catálogo. Vinculá la publicación ML primero desde Vincular publicaciones existentes.';
+                $this->logMlOrderImport($mlOrderId, $error);
+
+                return ['error' => $error];
             }
 
             $lines[] = [
@@ -2391,6 +2390,20 @@ final class MercadoLibreController extends Controller
                 'unit_price' => $unitPrice,
             ];
         }
+
+        if ($lines === []) {
+            $error = 'La orden no tiene ítems importables.';
+            $this->logMlOrderImport($mlOrderId, $error);
+
+            return ['error' => $error];
+        }
+
+        $mlNetResolved = $this->resolveMlNetAmountFromOrder($order, $mlSaleTotal, $mlOrderId);
+        $mlNetAmount = $mlNetResolved['amount'];
+        $this->logMlOrderImport(
+            $mlOrderId,
+            'ml_net_amount campo=' . $mlNetResolved['source'] . ' valor=' . number_format($mlNetAmount, 2, '.', '')
+        );
 
         return [
             'sale_date' => $saleDate,
@@ -2409,7 +2422,7 @@ final class MercadoLibreController extends Controller
     /**
      * @return array{amount: float, source: string}
      */
-    private function resolveMlNetAmountFromOrder(array $order, ?float $mlSaleTotal = null): array
+    private function resolveMlNetAmountFromOrder(array $order, ?float $mlSaleTotal = null, string $mlOrderId = ''): array
     {
         $payment = null;
         $payments = $order['payments'] ?? [];
@@ -2432,29 +2445,112 @@ final class MercadoLibreController extends Controller
             }
         }
 
-        if ($payment !== null) {
-            $totalPaid = (float) ($payment['total_paid_amount'] ?? 0);
-            if ($totalPaid > 0) {
-                $shipping = (float) ($payment['shipping_cost'] ?? 0);
-                $taxes = (float) ($payment['taxes_amount'] ?? 0);
-                $amount = round($totalPaid - $shipping - $taxes, 2);
+        $paymentId = trim((string) ($payment['id'] ?? ''));
+        if ($paymentId !== '') {
+            $fetch = MercadoLibreService::getPayment($paymentId);
+            if ($fetch['success'] && is_array($fetch['payment'])) {
+                $paymentData = $fetch['payment'];
+                $encoded = json_encode($paymentData, JSON_UNESCAPED_UNICODE);
+                $this->logMlOrderImport(
+                    $mlOrderId,
+                    'payment API endpoint=' . ($fetch['endpoint'] !== '' ? $fetch['endpoint'] : 'desconocido')
+                    . ' payment_id=' . $paymentId
+                    . ' json=' . ($encoded !== false ? $encoded : '{}')
+                );
 
-                return [
-                    'amount' => max(0.0, $amount),
-                    'source' => 'payments[0].total_paid_amount - shipping_cost - taxes_amount',
-                ];
+                $netFromPayment = $this->extractNetAmountFromPayment($paymentData);
+                if ($netFromPayment !== null) {
+                    return [
+                        'amount' => $netFromPayment,
+                        'source' => 'payment API net_received_amount',
+                    ];
+                }
+            } else {
+                $this->logMlOrderImport(
+                    $mlOrderId,
+                    'payment API falló payment_id=' . $paymentId . ' error=' . ($fetch['error'] ?: 'sin detalle')
+                );
             }
         }
 
         if ($mlSaleTotal === null) {
             $mlSaleTotal = round((float) ($order['total_amount'] ?? $order['paid_amount'] ?? 0), 2);
         }
-        $amount = round($mlSaleTotal * 0.88 - 1275, 2);
+        $marketplaceFee = (float) ($order['marketplace_fee'] ?? 0);
+        if ($mlSaleTotal > 0 && $marketplaceFee >= 0) {
+            return [
+                'amount' => max(0.0, round($mlSaleTotal - $marketplaceFee, 2)),
+                'source' => 'total_amount - marketplace_fee (fallback)',
+            ];
+        }
 
         return [
-            'amount' => max(0.0, $amount),
-            'source' => 'estimado (total*0.88-1275)',
+            'amount' => 0.0,
+            'source' => 'sin datos de neto',
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $payment
+     */
+    private function extractNetAmountFromPayment(array $payment): ?float
+    {
+        if (isset($payment['net_received_amount']) && is_numeric($payment['net_received_amount'])) {
+            $amount = round((float) $payment['net_received_amount'], 2);
+            if ($amount >= 0) {
+                return $amount;
+            }
+        }
+
+        $transactionAmount = (float) ($payment['transaction_amount'] ?? 0);
+        $marketplaceFee = (float) ($payment['marketplace_fee'] ?? 0);
+        if ($transactionAmount > 0) {
+            return max(0.0, round($transactionAmount - $marketplaceFee, 2));
+        }
+
+        return null;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $orders
+     * @return array<string, string>
+     */
+    private function buildOrderImportErrorsMap(array $orders): array
+    {
+        $db = Database::getInstance();
+        $errors = [];
+
+        foreach ($orders as $order) {
+            if (!is_array($order)) {
+                continue;
+            }
+            $orderId = trim((string) ($order['id'] ?? ''));
+            if ($orderId === '') {
+                continue;
+            }
+
+            foreach ($order['order_items'] ?? [] as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+                $mlItemId = trim((string) ($item['item']['id'] ?? $item['item_id'] ?? ''));
+                $title = trim((string) ($item['item']['title'] ?? $item['title'] ?? ''));
+                $productId = 0;
+                if ($mlItemId !== '') {
+                    $productId = (int) $db->fetchColumn(
+                        'SELECT product_id FROM ml_listings WHERE ml_item_id = ? LIMIT 1',
+                        [$mlItemId]
+                    );
+                }
+                if ($productId <= 0) {
+                    $displayTitle = $title !== '' ? $title : ($mlItemId !== '' ? $mlItemId : 'ítem desconocido');
+                    $errors[$orderId] = 'No se encontró el producto [' . $displayTitle . '] en el catálogo. Vinculá la publicación ML primero desde Vincular publicaciones existentes.';
+                    break;
+                }
+            }
+        }
+
+        return $errors;
     }
 
     private function logMlOrderImport(string $mlOrderId, string $message): void
@@ -2562,7 +2658,11 @@ final class MercadoLibreController extends Controller
             }
 
             $mlSaleTotal = round((float) ($order['total_amount'] ?? $order['paid_amount'] ?? 0), 2);
-            $resolved = $this->resolveMlNetAmountFromOrder($order, $mlSaleTotal > 0 ? $mlSaleTotal : null);
+            $resolved = $this->resolveMlNetAmountFromOrder(
+                $order,
+                $mlSaleTotal > 0 ? $mlSaleTotal : null,
+                $orderId
+            );
             $display[$orderId] = [
                 'amount' => $resolved['amount'],
                 'source' => $resolved['source'],

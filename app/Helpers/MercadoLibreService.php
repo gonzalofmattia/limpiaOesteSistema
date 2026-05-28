@@ -637,6 +637,51 @@ final class MercadoLibreService
         }
     }
 
+    /**
+     * @return array{success: bool, payment: array<string, mixed>|null, error: string, endpoint: string}
+     */
+    public static function getPayment(string $paymentId): array
+    {
+        $paymentId = trim($paymentId);
+        if ($paymentId === '') {
+            return [
+                'success' => false,
+                'payment' => null,
+                'error' => 'ID de pago inválido.',
+                'endpoint' => '',
+            ];
+        }
+
+        $lastError = 'No se pudo obtener el pago.';
+        foreach (['/collections/', '/payments/'] as $prefix) {
+            try {
+                $result = self::apiRequest('GET', $prefix . rawurlencode($paymentId), null, true);
+                if ($result['success'] && is_array($result['data'])) {
+                    return [
+                        'success' => true,
+                        'payment' => $result['data'],
+                        'error' => '',
+                        'endpoint' => $prefix,
+                    ];
+                }
+                if ($result['error'] !== '') {
+                    $lastError = $result['error'];
+                }
+                self::logError('getPayment', "payment_id={$paymentId} endpoint={$prefix}", $result['http_code'], $lastError);
+            } catch (\Throwable $e) {
+                $lastError = $e->getMessage();
+                self::logError('getPayment', "payment_id={$paymentId} endpoint={$prefix}", 0, $lastError);
+            }
+        }
+
+        return [
+            'success' => false,
+            'payment' => null,
+            'error' => $lastError,
+            'endpoint' => '',
+        ];
+    }
+
     public static function fetchUserEmail(int $userId): string
     {
         if ($userId <= 0) {

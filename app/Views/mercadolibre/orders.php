@@ -1,7 +1,9 @@
 <?php
 $tableRows = is_array($table_rows ?? null) ? $table_rows : [];
 $importedSalesMap = is_array($imported_sales_map ?? null) ? $imported_sales_map : [];
-$orderNetDisplay = is_array($order_net_display ?? null) ? $order_net_display : [];$connected = !empty($connected);
+$orderNetDisplay = is_array($order_net_display ?? null) ? $order_net_display : [];
+$orderImportErrors = is_array($order_import_errors ?? null) ? $order_import_errors : [];
+$connected = !empty($connected);
 $ordersSuccess = !empty($orders_success);
 $ordersError = trim((string) ($orders_error ?? ''));
 $offset = max(0, (int) ($offset ?? 0));
@@ -205,6 +207,7 @@ $itemLineTotal = static function (?array $item): float {
                         $importedSale = $orderId !== '' ? ($importedSalesMap[$orderId] ?? null) : null;
                         $importedQuoteId = is_array($importedSale) ? (int) ($importedSale['id'] ?? 0) : 0;
                         $isImported = $importedQuoteId > 0;
+                        $importError = $orderId !== '' ? trim((string) ($orderImportErrors[$orderId] ?? '')) : '';
                         $netInfo = $orderId !== '' ? ($orderNetDisplay[$orderId] ?? null) : null;
                         $payStatus = $mlPaymentStatus($order);                        $shipStatus = $mlShippingStatus($order);
                         ?>
@@ -246,6 +249,9 @@ $itemLineTotal = static function (?array $item): float {
                                         <a href="<?= e(url('/ventas-ml/' . $importedQuoteId)) ?>" class="inline-flex px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 hover:bg-green-200">
                                             Importado
                                         </a>
+                                    <?php elseif ($importError !== ''): ?>
+                                        <span class="inline-flex px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">Sin vincular</span>
+                                        <p class="mt-1 max-w-xs text-xs text-red-700"><?= e($importError) ?></p>
                                     <?php else: ?>
                                         <span class="inline-flex px-2 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">Pendiente</span>
                                     <?php endif; ?>
@@ -255,6 +261,8 @@ $itemLineTotal = static function (?array $item): float {
                                 <?php if ($isFirstItem && $orderId !== ''): ?>
                                     <?php if ($isImported): ?>
                                         <a href="<?= e(url('/ventas-ml/' . $importedQuoteId)) ?>" class="text-xs font-semibold text-lo-blue hover:underline">Ver venta ML</a>
+                                    <?php elseif ($importError !== ''): ?>
+                                        <span class="text-xs text-red-700">No importable</span>
                                     <?php else: ?>
                                         <form method="post" action="<?= e(url('/mercadolibre/ordenes/' . rawurlencode($orderId) . '/importar')) ?>" class="inline">
                                             <?= csrfField() ?>
