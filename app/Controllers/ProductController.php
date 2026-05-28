@@ -197,6 +197,8 @@ final class ProductController extends Controller
             'product' => null,
             'categories' => $categories,
             'product_images' => [],
+            'store_categories' => $db->fetchAll('SELECT * FROM store_categories WHERE is_active = 1 ORDER BY sort_order'),
+            'product_store_category_ids' => [],
         ]);
     }
 
@@ -265,6 +267,11 @@ final class ProductController extends Controller
             'product' => $product,
             'categories' => $categories,
             'product_images' => $productImages,
+            'store_categories' => $db->fetchAll('SELECT * FROM store_categories WHERE is_active = 1 ORDER BY sort_order'),
+            'product_store_category_ids' => array_column(
+                $db->fetchAll('SELECT store_category_id FROM product_store_categories WHERE product_id = ?', [(int) $id]),
+                'store_category_id'
+            ),
         ]);
     }
 
@@ -286,7 +293,23 @@ final class ProductController extends Controller
             redirect('/productos/' . $id . '/editar');
         }
         unset($data['errors']);
+        $data['is_featured'] = isset($_POST['is_featured']) ? 1 : 0;
+        $data['is_new'] = isset($_POST['is_new']) ? 1 : 0;
         $db->update('products', $data, 'id = :id', ['id' => (int) $id]);
+
+        // Sincronizar categorías de tienda
+        $db->query('DELETE FROM product_store_categories WHERE product_id = ?', [(int) $id]);
+        $storeCatIds = $_POST['store_category_ids'] ?? [];
+        foreach ($storeCatIds as $scId) {
+            $scId = (int) $scId;
+            if ($scId > 0) {
+                $db->query(
+                    'INSERT IGNORE INTO product_store_categories (product_id, store_category_id) VALUES (?, ?)',
+                    [(int) $id, $scId]
+                );
+            }
+        }
+
         flash('success', 'Producto actualizado.');
         redirect('/productos');
     }
@@ -1594,6 +1617,7 @@ final class ProductController extends Controller
             'pallet_info' => $this->emptyToNull($this->input('pallet_info', '')),
             'is_active' => $this->input('is_active') ? 1 : 0,
             'is_featured' => $this->input('is_featured') ? 1 : 0,
+            'is_new' => $this->input('is_new') ? 1 : 0,
             'is_published' => $this->input('is_published') ? 1 : 0,
             'sort_order' => (int) $this->input('sort_order', 0),
             'notes' => $this->emptyToNull($this->input('notes', '')),

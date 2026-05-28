@@ -360,13 +360,56 @@ window.__productFormCfg = {
                     <label class="inline-flex items-center gap-2 text-sm">
                         <input type="checkbox" name="is_active" value="1" <?= !isset($p['is_active']) || $p['is_active'] ? 'checked' : '' ?>> Activo
                     </label>
-                    <label class="inline-flex items-center gap-2 text-sm">
-                        <input type="checkbox" name="is_featured" value="1" <?= !empty($p['is_featured']) ? 'checked' : '' ?>> Destacado
-                    </label>
                 </div>
                 <div class="sm:col-span-2">
                     <label class="block text-sm font-medium text-gray-700 mb-1">Notas internas</label>
                     <textarea name="notes" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"><?= e($p['notes'] ?? '') ?></textarea>
+                </div>
+            </div>
+        </section>
+
+        <?php /* Flags de tienda */ ?>
+        <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+            <h2 class="text-sm font-semibold text-gray-800 border-b border-gray-100 pb-2 mb-4">Tienda online</h2>
+            <div class="grid sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="inline-flex items-start gap-2 text-sm">
+                        <input type="checkbox" name="is_featured" id="is_featured" value="1"
+                            class="mt-0.5 rounded border-gray-300 text-[#1a6b3c] focus:ring-[#1a6b3c]"
+                            <?= !empty($p['is_featured']) ? 'checked' : '' ?>>
+                        <span>
+                            <strong class="font-medium text-gray-800">Destacado</strong>
+                            <small class="block text-xs text-gray-500 mt-0.5">Aparece en el carrusel "Destacados" de la home</small>
+                        </span>
+                    </label>
+                </div>
+                <div>
+                    <label class="inline-flex items-start gap-2 text-sm">
+                        <input type="checkbox" name="is_new" id="is_new" value="1"
+                            class="mt-0.5 rounded border-gray-300 text-[#1a6b3c] focus:ring-[#1a6b3c]"
+                            <?= !empty($p['is_new']) ? 'checked' : '' ?>>
+                        <span>
+                            <strong class="font-medium text-gray-800">Nuevo</strong>
+                            <small class="block text-xs text-gray-500 mt-0.5">Aparece en el carrusel "Nuevos" de la home</small>
+                        </span>
+                    </label>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Categorías de tienda</label>
+                <small class="block text-xs text-gray-500 mb-2">Un producto puede aparecer en múltiples categorías de la tienda.</small>
+                <div class="grid sm:grid-cols-2 md:grid-cols-3 gap-2">
+                    <?php foreach ($store_categories ?? [] as $sc): ?>
+                    <label class="inline-flex items-center gap-2 text-sm">
+                        <input class="rounded border-gray-300 text-[#1a6b3c] focus:ring-[#1a6b3c]" type="checkbox"
+                            name="store_category_ids[]"
+                            id="sc_<?= (int) $sc['id'] ?>"
+                            value="<?= (int) $sc['id'] ?>"
+                            <?= in_array($sc['id'], $product_store_category_ids ?? [], false) ? 'checked' : '' ?>>
+                        <span><?= e($sc['name']) ?></span>
+                    </label>
+                    <?php endforeach; ?>
                 </div>
             </div>
         </section>

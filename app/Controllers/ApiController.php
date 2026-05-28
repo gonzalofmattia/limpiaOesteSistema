@@ -625,4 +625,204 @@ final class ApiController extends Controller
 
         return (float) $s;
     }
+
+    public function catalogFeatured(): void
+    {
+        $db = Database::getInstance();
+        $rows = $db->fetchAll(
+            'SELECT p.*,
+                    COALESCE(pc.slug, c.slug) AS category_effective_slug,
+                    c.name AS category_leaf_name,
+                    pc.name AS category_parent_name,
+                    c.default_discount, c.default_markup AS category_default_markup,
+                    c.markup_override AS category_markup_override,
+                    c.markup_locked AS category_markup_locked,
+                    c.markup_minorista AS category_markup_minorista,
+                    pc.default_discount AS parent_discount,
+                    pc.default_markup AS parent_default_markup,
+                    pc.markup_override AS parent_markup_override,
+                    pc.markup_locked AS parent_markup_locked,
+                    pc.markup_minorista AS parent_markup_minorista,
+                    cov.id AS cover_image_id,
+                    cov.filename AS cover_filename,
+                    cov.alt_text AS cover_alt_text
+             FROM products p
+             JOIN categories c ON c.id = p.category_id
+             LEFT JOIN categories pc ON c.parent_id = pc.id
+             LEFT JOIN product_images cov ON cov.id = (
+                 SELECT pi.id FROM product_images pi
+                 WHERE pi.product_id = p.id AND pi.is_cover = 1
+                 ORDER BY pi.sort_order ASC, pi.id ASC LIMIT 1
+             )
+             WHERE p.is_published = 1 AND p.is_active = 1 AND p.is_featured = 1
+               AND EXISTS (SELECT 1 FROM product_images pi2 WHERE pi2.product_id = p.id AND pi2.is_cover = 1)
+             ORDER BY p.sort_order ASC, p.name ASC
+             LIMIT 20'
+        );
+        $products = [];
+        foreach ($rows as $row) {
+            $products[] = $this->catalogProductPayload($row, false);
+        }
+        $this->json(['products' => $products]);
+    }
+
+    public function catalogNew(): void
+    {
+        $db = Database::getInstance();
+        $rows = $db->fetchAll(
+            'SELECT p.*,
+                    COALESCE(pc.slug, c.slug) AS category_effective_slug,
+                    c.name AS category_leaf_name,
+                    pc.name AS category_parent_name,
+                    c.default_discount, c.default_markup AS category_default_markup,
+                    c.markup_override AS category_markup_override,
+                    c.markup_locked AS category_markup_locked,
+                    c.markup_minorista AS category_markup_minorista,
+                    pc.default_discount AS parent_discount,
+                    pc.default_markup AS parent_default_markup,
+                    pc.markup_override AS parent_markup_override,
+                    pc.markup_locked AS parent_markup_locked,
+                    pc.markup_minorista AS parent_markup_minorista,
+                    cov.id AS cover_image_id,
+                    cov.filename AS cover_filename,
+                    cov.alt_text AS cover_alt_text
+             FROM products p
+             JOIN categories c ON c.id = p.category_id
+             LEFT JOIN categories pc ON c.parent_id = pc.id
+             LEFT JOIN product_images cov ON cov.id = (
+                 SELECT pi.id FROM product_images pi
+                 WHERE pi.product_id = p.id AND pi.is_cover = 1
+                 ORDER BY pi.sort_order ASC, pi.id ASC LIMIT 1
+             )
+             WHERE p.is_published = 1 AND p.is_active = 1 AND p.is_new = 1
+               AND EXISTS (SELECT 1 FROM product_images pi2 WHERE pi2.product_id = p.id AND pi2.is_cover = 1)
+             ORDER BY p.sort_order ASC, p.name ASC
+             LIMIT 20'
+        );
+        $products = [];
+        foreach ($rows as $row) {
+            $products[] = $this->catalogProductPayload($row, false);
+        }
+        $this->json(['products' => $products]);
+    }
+
+    public function catalogBestsellers(): void
+    {
+        $db = Database::getInstance();
+        $rows = $db->fetchAll(
+            'SELECT p.*,
+                    COALESCE(pc.slug, c.slug) AS category_effective_slug,
+                    c.name AS category_leaf_name,
+                    pc.name AS category_parent_name,
+                    c.default_discount, c.default_markup AS category_default_markup,
+                    c.markup_override AS category_markup_override,
+                    c.markup_locked AS category_markup_locked,
+                    c.markup_minorista AS category_markup_minorista,
+                    pc.default_discount AS parent_discount,
+                    pc.default_markup AS parent_default_markup,
+                    pc.markup_override AS parent_markup_override,
+                    pc.markup_locked AS parent_markup_locked,
+                    pc.markup_minorista AS parent_markup_minorista,
+                    cov.id AS cover_image_id,
+                    cov.filename AS cover_filename,
+                    cov.alt_text AS cover_alt_text,
+                    bestsellers.total_sold
+             FROM (
+                 SELECT qi.product_id, SUM(qi.quantity) AS total_sold
+                 FROM quote_items qi
+                 JOIN quotes q ON q.id = qi.quote_id
+                 WHERE qi.product_id IS NOT NULL
+                   AND q.status IN (\'accepted\', \'delivered\')
+                   AND q.created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+                 GROUP BY qi.product_id
+                 ORDER BY total_sold DESC
+                 LIMIT 12
+             ) bestsellers
+             JOIN products p ON p.id = bestsellers.product_id
+             JOIN categories c ON c.id = p.category_id
+             LEFT JOIN categories pc ON c.parent_id = pc.id
+             LEFT JOIN product_images cov ON cov.id = (
+                 SELECT pi.id FROM product_images pi
+                 WHERE pi.product_id = p.id AND pi.is_cover = 1
+                 ORDER BY pi.sort_order ASC, pi.id ASC LIMIT 1
+             )
+             WHERE p.is_published = 1 AND p.is_active = 1
+               AND EXISTS (SELECT 1 FROM product_images pi2 WHERE pi2.product_id = p.id AND pi2.is_cover = 1)
+             ORDER BY bestsellers.total_sold DESC'
+        );
+        $products = [];
+        foreach ($rows as $row) {
+            $products[] = $this->catalogProductPayload($row, false);
+        }
+        $this->json(['products' => $products]);
+    }
+
+    public function catalogStoreCategories(): void
+    {
+        $db = Database::getInstance();
+        $categories = $db->fetchAll(
+            'SELECT sc.*, COUNT(psc.product_id) AS product_count
+             FROM store_categories sc
+             LEFT JOIN product_store_categories psc ON psc.store_category_id = sc.id
+             LEFT JOIN products p ON p.id = psc.product_id AND p.is_published = 1 AND p.is_active = 1
+             WHERE sc.is_active = 1
+             GROUP BY sc.id
+             ORDER BY sc.sort_order'
+        );
+        $this->json(['categories' => $categories]);
+    }
+
+    public function catalogByStoreCategory(string $slug): void
+    {
+        $db = Database::getInstance();
+        $storeCategory = $db->fetch(
+            'SELECT * FROM store_categories WHERE slug = ? AND is_active = 1',
+            [$slug]
+        );
+        if (!$storeCategory) {
+            http_response_code(404);
+            $this->json(['error' => 'Categoría no encontrada']);
+            return;
+        }
+        $rows = $db->fetchAll(
+            'SELECT p.*,
+                    COALESCE(pc.slug, c.slug) AS category_effective_slug,
+                    c.name AS category_leaf_name,
+                    pc.name AS category_parent_name,
+                    c.default_discount, c.default_markup AS category_default_markup,
+                    c.markup_override AS category_markup_override,
+                    c.markup_locked AS category_markup_locked,
+                    c.markup_minorista AS category_markup_minorista,
+                    pc.default_discount AS parent_discount,
+                    pc.default_markup AS parent_default_markup,
+                    pc.markup_override AS parent_markup_override,
+                    pc.markup_locked AS parent_markup_locked,
+                    pc.markup_minorista AS parent_markup_minorista,
+                    cov.id AS cover_image_id,
+                    cov.filename AS cover_filename,
+                    cov.alt_text AS cover_alt_text
+             FROM products p
+             JOIN categories c ON c.id = p.category_id
+             LEFT JOIN categories pc ON c.parent_id = pc.id
+             LEFT JOIN product_images cov ON cov.id = (
+                 SELECT pi.id FROM product_images pi
+                 WHERE pi.product_id = p.id AND pi.is_cover = 1
+                 ORDER BY pi.sort_order ASC, pi.id ASC LIMIT 1
+             )
+             JOIN product_store_categories psc ON psc.product_id = p.id
+             WHERE p.is_published = 1 AND p.is_active = 1
+               AND psc.store_category_id = ?
+               AND EXISTS (SELECT 1 FROM product_images pi2 WHERE pi2.product_id = p.id AND pi2.is_cover = 1)
+             ORDER BY p.sort_order ASC, p.name ASC',
+            [(int) $storeCategory['id']]
+        );
+        $products = [];
+        foreach ($rows as $row) {
+            $products[] = $this->catalogProductPayload($row, false);
+        }
+        $this->json([
+            'category' => $storeCategory,
+            'products' => $products,
+        ]);
+    }
 }
