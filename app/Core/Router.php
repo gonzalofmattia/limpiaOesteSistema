@@ -102,6 +102,10 @@ final class Router
             return '[a-zA-Z0-9._\-]+';
         }
 
+        if ($name === 'order_number') {
+            return '[A-Za-z0-9\-]+';
+        }
+
         return '[0-9]+';
     }
 }
