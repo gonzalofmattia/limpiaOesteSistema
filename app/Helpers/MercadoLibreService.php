@@ -734,6 +734,7 @@ final class MercadoLibreService
             $data = $result['data'];
             $grouped = [];
             $orderIndex = [];
+            $anakasliaDiagEntries = [];
             if (is_array($data['results'] ?? null)) {
                 foreach ($data['results'] as $orderRef) {
                     $order = null;
@@ -751,6 +752,11 @@ final class MercadoLibreService
                     }
                     if (!is_array($order)) {
                         continue;
+                    }
+
+                    if (self::isAnakasliaOrderOn20260528($order)) {
+                        $anakasliaDiagEntries[] = self::buildAnakasliaOrderDiagnosisEntry($orderRef, $order);
+                        self::logAnakasliaOrderDiagnosisEntry($offset, $orderRef, $order);
                     }
 
                     $orderId = trim((string) ($order['id'] ?? ''));
@@ -776,6 +782,10 @@ final class MercadoLibreService
                     $orderIndex[$orderId] = count($grouped);
                     $grouped[] = $entry;
                 }
+            }
+
+            if ($anakasliaDiagEntries !== []) {
+                self::logAnakasliaOrdersDiagnosisSummary($offset, $anakasliaDiagEntries);
             }
 
             return [
@@ -2415,6 +2425,132 @@ final class MercadoLibreService
         );
 
         @error_log($line . PHP_EOL, 3, $logDir . '/ml_errors.log');
+    }
+
+    /**
+     * @param array<string, mixed> $order
+     */
+    private static function isAnakasliaOrderOn20260528(array $order): bool
+    {
+        $buyer = strtoupper(trim((string) ($order['buyer']['nickname'] ?? '')));
+        if ($buyer !== 'ANAKASLIA') {
+            return false;
+        }
+
+        foreach (['date_created', 'date_closed'] as $field) {
+            $raw = trim((string) ($order[$field] ?? ''));
+            if ($raw === '') {
+                continue;
+            }
+            try {
+                $dt = new \DateTimeImmutable($raw);
+                if ($dt->format('Y-m-d') === '2026-05-28') {
+                    return true;
+                }
+            } catch (\Throwable) {
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array{
+     *     order_id: string,
+     *     search_ref_type: string,
+     *     search_ref: string,
+     *     order_items_count: int,
+     *     buyer_nickname: string,
+     *     date_created: string
+     * }
+     */
+    private static function buildAnakasliaOrderDiagnosisEntry(mixed $orderRef, array $order): array
+    {
+        $orderId = trim((string) ($order['id'] ?? ''));
+        $items = $order['order_items'] ?? [];
+
+        return [
+            'order_id' => $orderId,
+            'search_ref_type' => is_array($orderRef) ? 'object' : 'id',
+            'search_ref' => is_array($orderRef)
+                ? (string) json_encode($orderRef, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+                : trim((string) $orderRef),
+            'order_items_count' => is_array($items) ? count($items) : 0,
+            'buyer_nickname' => trim((string) ($order['buyer']['nickname'] ?? '')),
+            'date_created' => trim((string) ($order['date_created'] ?? '')),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $order
+     */
+    private static function logAnakasliaOrderDiagnosisEntry(int $offset, mixed $orderRef, array $order): void
+    {
+        $entry = self::buildAnakasliaOrderDiagnosisEntry($orderRef, $order);
+        $rawJson = (string) json_encode($order, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        self::logInfo(
+            'getOrders',
+            'offset=' . $offset . ' order_id=' . $entry['order_id'],
+            'DIAG ANAKASLIA 2026-05-28 entrada: search_ref_type=' . $entry['search_ref_type']
+            . ' search_ref=' . $entry['search_ref']
+            . ' order_id=' . $entry['order_id']
+            . ' order_items_count=' . $entry['order_items_count']
+            . ' buyer=' . $entry['buyer_nickname']
+            . ' date_created=' . $entry['date_created']
+        );
+
+        self::logInfo(
+            'getOrders',
+            'offset=' . $offset . ' order_id=' . $entry['order_id'],
+            'DIAG ANAKASLIA 2026-05-28 raw_json=' . $rawJson
+        );
+    }
+
+    /**
+     * @param list<array{
+     *     order_id: string,
+     *     search_ref_type: string,
+     *     search_ref: string,
+     *     order_items_count: int,
+     *     buyer_nickname: string,
+     *     date_created: string
+     * }> $entries
+     */
+    private static function logAnakasliaOrdersDiagnosisSummary(int $offset, array $entries): void
+    {
+        $orderIds = array_values(array_unique(array_map(
+            static fn (array $entry): string => $entry['order_id'],
+            $entries
+        )));
+
+        $summary = [
+            'buyer' => 'ANAKASLIA',
+            'date' => '2026-05-28',
+            'search_entries_count' => count($entries),
+            'distinct_order_ids_count' => count($orderIds),
+            'distinct_order_ids' => $orderIds,
+            'entries' => array_map(
+                static fn (array $entry): array => [
+                    'order_id' => $entry['order_id'],
+                    'search_ref_type' => $entry['search_ref_type'],
+                    'search_ref' => $entry['search_ref'],
+                    'order_items_count' => $entry['order_items_count'],
+                ],
+                $entries
+            ),
+            'interpretation' => count($entries) === 1 && ($entries[0]['order_items_count'] ?? 0) > 1
+                ? 'ML devolvió 1 entrada en search con múltiples order_items'
+                : (count($orderIds) === count($entries) && count($entries) > 1
+                    ? 'ML devolvió ' . count($entries) . ' entradas en search con order_id distinto cada una'
+                    : 'Ver entradas individuales arriba'),
+        ];
+
+        self::logInfo(
+            'getOrders',
+            'offset=' . $offset,
+            'DIAG ANAKASLIA 2026-05-28 RESUMEN: ' . (string) json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+        );
     }
 
     private static function truncate(string $text, int $max): string
