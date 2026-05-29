@@ -7,7 +7,7 @@ namespace App\Helpers;
 use App\Models\Database;
 
 /**
- * Análisis de precios competitivos en MercadoLibre vía búsqueda autenticada OAuth.
+ * Análisis de precios competitivos en MercadoLibre vía búsqueda por categoría (OAuth).
  */
 final class MlPriceIntelligence
 {
@@ -19,6 +19,8 @@ final class MlPriceIntelligence
     private const STATUS_CHEAP = 'Estás caro';
     private const STATUS_RAISE = 'Podés subir';
     private const SEARCH_LOG_LIMIT = 5;
+    private const CATEGORY_SEARCH_LIMIT = 20;
+    private const COMPETITOR_PICK_LIMIT = 5;
 
     /** @var list<string> Misma lista que SeiqImageScraper::MATCH_ABBREVIATIONS */
     private const MATCH_ABBREVIATIONS = [
@@ -95,13 +97,13 @@ final class MlPriceIntelligence
 
         $productId = (int) ($listing['product_id'] ?? 0);
         $currentPrice = round((float) ($listing['price'] ?? 0), 2);
-        $productName = trim((string) ($listing['product_name'] ?? ''));
         $mlItemId = trim((string) ($listing['ml_item_id'] ?? ''));
 
         $cost = self::resolveProductCost($productId);
         $minPrice = $cost > 0 ? self::calculateMinAcceptablePrice($cost) : 0.0;
 
-        if ($productName === '') {
+        $categoryId = self::resolveListingCategoryId($listing);
+        if ($categoryId === '') {
             $result = self::buildAnalysisResult(
                 $currentPrice,
                 $minPrice,
@@ -109,14 +111,22 @@ final class MlPriceIntelligence
                 0.0,
                 self::STATUS_OK,
                 [],
-                'Falta nombre de producto.'
+                'No se pudo determinar categoría ML.',
+                0.0,
+                ''
             );
             self::saveCache($listingId, $result);
 
             return $result;
         }
 
-        $search = self::searchCompetitors($productName, $mlUserId, $mlItemId, $listingId);
+        $search = self::searchCompetitorsByCategory(
+            $categoryId,
+            $mlUserId,
+            $mlItemId,
+            $listingId,
+            $currentPrice
+        );
         if (!$search['success']) {
             $result = self::buildAnalysisResult(
                 $currentPrice,
@@ -127,7 +137,7 @@ final class MlPriceIntelligence
                 [],
                 $search['error'],
                 0.0,
-                $search['search_query'] ?? ''
+                $search['search_label'] ?? ''
             );
             self::saveCache($listingId, $result);
 
@@ -160,11 +170,31 @@ final class MlPriceIntelligence
             $competitors,
             null,
             $cost,
-            $search['search_query'] ?? ''
+            $search['search_label'] ?? ''
         );
         self::saveCache($listingId, $result);
 
         return $result;
+    }
+
+    public static function resolveListingCategoryId(array $listing): string
+    {
+        $categoryId = trim((string) ($listing['ml_category_id'] ?? ''));
+        if ($categoryId !== '') {
+            return $categoryId;
+        }
+
+        $title = trim((string) ($listing['title'] ?? ''));
+        if ($title === '') {
+            $title = trim((string) ($listing['product_name'] ?? ''));
+        }
+        if ($title === '') {
+            return '';
+        }
+
+        $predicted = MercadoLibreService::predictCategory($title);
+
+        return $predicted !== null ? trim($predicted) : '';
     }
 
     public static function buildSearchQuery(string $productName): string
@@ -211,26 +241,28 @@ final class MlPriceIntelligence
      * @return array{
      *   success: bool,
      *   error: string,
-     *   search_query: string,
+     *   search_label: string,
      *   raw_results_count: int,
      *   competitors: list<array<string, mixed>>
      * }
      */
-    public static function searchCompetitors(
-        string $productName,
+    public static function searchCompetitorsByCategory(
+        string $categoryId,
         string $mlUserId,
         string $excludeItemId = '',
-        int $listingId = 0
+        int $listingId = 0,
+        float $currentPrice = 0.0
     ): array {
         $siteId = trim((string) (setting('ml_site_id', 'MLA') ?? 'MLA'));
         if ($siteId === '') {
             $siteId = 'MLA';
         }
 
-        $searchQuery = self::buildSearchQuery($productName);
+        $categoryId = trim($categoryId);
+        $searchLabel = 'category=' . $categoryId;
         $query = http_build_query([
-            'q' => $searchQuery,
-            'limit' => 10,
+            'category' => $categoryId,
+            'limit' => self::CATEGORY_SEARCH_LIMIT,
         ]);
         $url = self::API_BASE . '/sites/' . rawurlencode($siteId) . '/search?' . $query;
 
@@ -238,12 +270,12 @@ final class MlPriceIntelligence
             $accessToken = MercadoLibreTokenManager::getValidAccessToken();
         } catch (\Throwable $e) {
             $error = 'No se pudo obtener token ML: ' . $e->getMessage();
-            self::logSearchIfNeeded($listingId, $searchQuery, false, 0, 0, 0, $error);
+            self::logSearchIfNeeded($listingId, $searchLabel, false, 0, 0, 0, $error);
 
             return [
                 'success' => false,
                 'error' => $error,
-                'search_query' => $searchQuery,
+                'search_label' => $searchLabel,
                 'raw_results_count' => 0,
                 'competitors' => [],
             ];
@@ -253,7 +285,7 @@ final class MlPriceIntelligence
         if (!$response['success']) {
             self::logSearchIfNeeded(
                 $listingId,
-                $searchQuery,
+                $searchLabel,
                 false,
                 (int) ($response['http_code'] ?? 0),
                 0,
@@ -264,7 +296,7 @@ final class MlPriceIntelligence
             return [
                 'success' => false,
                 'error' => $response['error'],
-                'search_query' => $searchQuery,
+                'search_label' => $searchLabel,
                 'raw_results_count' => 0,
                 'competitors' => [],
             ];
@@ -273,7 +305,7 @@ final class MlPriceIntelligence
         $data = $response['data'];
         $results = is_array($data['results'] ?? null) ? $data['results'] : [];
         $rawCount = count($results);
-        $competitors = [];
+        $candidates = [];
         $ownUserId = trim($mlUserId);
 
         foreach ($results as $item) {
@@ -301,37 +333,62 @@ final class MlPriceIntelligence
                 continue;
             }
 
-            $competitors[] = [
+            $candidates[] = [
                 'item_id' => $itemId,
                 'title' => trim((string) ($item['title'] ?? '')),
                 'price' => round($price, 2),
                 'sold_quantity' => (int) ($item['sold_quantity'] ?? 0),
                 'seller_reputation' => self::formatSellerReputation($seller),
+                'seller_nickname' => trim((string) ($seller['nickname'] ?? '')),
                 'permalink' => trim((string) ($item['permalink'] ?? '')),
             ];
-
-            if (count($competitors) >= 5) {
-                break;
-            }
         }
+
+        $competitors = self::pickClosestByPrice($candidates, $currentPrice, self::COMPETITOR_PICK_LIMIT);
 
         self::logSearchIfNeeded(
             $listingId,
-            $searchQuery,
+            $searchLabel,
             true,
             (int) ($response['http_code'] ?? 200),
             $rawCount,
             count($competitors),
-            'ok'
+            'ok candidates=' . count($candidates)
         );
 
         return [
             'success' => true,
             'error' => '',
-            'search_query' => $searchQuery,
+            'search_label' => $searchLabel,
             'raw_results_count' => $rawCount,
             'competitors' => $competitors,
         ];
+    }
+
+    /**
+     * @param list<array<string, mixed>> $candidates
+     * @return list<array<string, mixed>>
+     */
+    private static function pickClosestByPrice(array $candidates, float $currentPrice, int $limit): array
+    {
+        if ($candidates === []) {
+            return [];
+        }
+
+        usort($candidates, static function (array $a, array $b) use ($currentPrice): int {
+            $priceA = (float) ($a['price'] ?? 0);
+            $priceB = (float) ($b['price'] ?? 0);
+            $diffA = abs($priceA - $currentPrice);
+            $diffB = abs($priceB - $currentPrice);
+
+            if ($diffA === $diffB) {
+                return $priceA <=> $priceB;
+            }
+
+            return $diffA <=> $diffB;
+        });
+
+        return array_slice($candidates, 0, $limit);
     }
 
     /** @return array<string, mixed>|null */
@@ -523,9 +580,9 @@ final class MlPriceIntelligence
         );
 
         if ($success) {
-            self::logInfo('searchCompetitors', $context, $message);
+            self::logInfo('searchByCategory', $context, $message);
         } else {
-            self::logError('searchCompetitors', $context, $httpCode, $message);
+            self::logError('searchByCategory', $context, $httpCode, $message);
         }
     }
 
