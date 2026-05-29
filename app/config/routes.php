@@ -106,6 +106,7 @@ return [
     ['GET', 'mercadolibre/listings/nueva', 'MercadoLibreController@newListing', []],
     ['POST', 'mercadolibre/listings', 'MercadoLibreController@storeListing', []],
     ['POST', 'mercadolibre/listings/sync-all', 'MercadoLibreController@syncAll', []],
+    ['POST', 'mercadolibre/listings/actualizar-cantidad', 'MercadoLibreController@bulkUpdateQuantityExecute', []],
     ['GET', 'mercadolibre/listings/{id}/editar', 'MercadoLibreController@editListing', []],
     ['POST', 'mercadolibre/listings/{id}', 'MercadoLibreController@updateListing', []],
     ['POST', 'mercadolibre/listings/{id}/publicar', 'MercadoLibreController@publishListing', []],

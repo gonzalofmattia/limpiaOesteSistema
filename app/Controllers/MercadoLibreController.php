@@ -1615,6 +1615,206 @@ final class MercadoLibreController extends Controller
         redirect('/mercadolibre');
     }
 
+    public function bulkUpdateQuantityExecute(): void
+    {
+        if (!verifyCsrf()) {
+            http_response_code(419);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['success' => false, 'error' => 'CSRF'], JSON_UNESCAPED_UNICODE);
+
+            return;
+        }
+
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+
+        @ob_end_clean();
+        header('Content-Type: application/x-ndjson; charset=utf-8');
+        header('Cache-Control: no-cache, no-store');
+        header('X-Accel-Buffering: no');
+        ini_set('output_buffering', 'off');
+        ini_set('zlib.output_compression', '0');
+        set_time_limit(300);
+
+        $emit = static function (array $payload): void {
+            echo json_encode($payload, JSON_UNESCAPED_UNICODE) . "\n";
+            if (function_exists('flush')) {
+                flush();
+            }
+        };
+
+        try {
+            if (!MercadoLibreTokenManager::isConnected()) {
+                $emit(['type' => 'error', 'error' => 'Cuenta ML no conectada.']);
+                return;
+            }
+
+            $rawIds = $this->input('listing_ids', '[]');
+            $decodedIds = is_string($rawIds) ? json_decode($rawIds, true) : $rawIds;
+            if (!is_array($decodedIds)) {
+                $emit(['type' => 'error', 'error' => 'Lista de listings inválida.']);
+                return;
+            }
+
+            $listingIds = [];
+            foreach ($decodedIds as $id) {
+                $lid = (int) $id;
+                if ($lid > 0) {
+                    $listingIds[] = $lid;
+                }
+            }
+            $listingIds = array_values(array_unique($listingIds));
+
+            if ($listingIds === []) {
+                $emit(['type' => 'error', 'error' => 'No hay listings seleccionados.']);
+                return;
+            }
+
+            $quantity = max(1, (int) $this->input('available_quantity', 1));
+
+            $db = Database::getInstance();
+            $total = count($listingIds);
+            $ok = 0;
+            $fail = 0;
+
+            $emit([
+                'type' => 'start',
+                'total' => $total,
+                'quantity' => $quantity,
+            ]);
+
+            foreach ($listingIds as $index => $listingId) {
+                if ($index > 0) {
+                    usleep(300000);
+                }
+
+                $listingTitle = '';
+                $productName = '';
+                try {
+                    $listing = $db->fetch(
+                        'SELECT l.*, p.name AS product_name
+                         FROM ml_listings l
+                         LEFT JOIN products p ON p.id = l.product_id
+                         WHERE l.id = ?',
+                        [$listingId]
+                    );
+
+                    if (!$listing) {
+                        $fail++;
+                        $emit([
+                            'type' => 'progress',
+                            'index' => $index + 1,
+                            'total' => $total,
+                            'listing_id' => $listingId,
+                            'listing_title' => '',
+                            'product_name' => '',
+                            'status' => 'error',
+                            'message' => 'Listing no encontrado.',
+                            'quantity' => $quantity,
+                        ]);
+                        continue;
+                    }
+
+                    $listingTitle = trim((string) ($listing['title'] ?? ''));
+                    $productName = trim((string) ($listing['product_name'] ?? ''));
+                    $mlItemId = trim((string) ($listing['ml_item_id'] ?? ''));
+
+                    $db->update(
+                        'ml_listings',
+                        ['available_quantity_override' => $quantity],
+                        'id = :id',
+                        ['id' => $listingId]
+                    );
+
+                    if ($mlItemId === '') {
+                        $ok++;
+                        $emit([
+                            'type' => 'progress',
+                            'index' => $index + 1,
+                            'total' => $total,
+                            'listing_id' => $listingId,
+                            'listing_title' => $listingTitle,
+                            'product_name' => $productName,
+                            'status' => 'ok',
+                            'message' => 'Cantidad guardada (sin sync ML: borrador).',
+                            'quantity' => $quantity,
+                        ]);
+                        continue;
+                    }
+
+                    $result = MercadoLibreService::syncItemQuantity($listingId);
+                    if (!empty($result['ml_not_found'])) {
+                        $fail++;
+                        $emit([
+                            'type' => 'progress',
+                            'index' => $index + 1,
+                            'total' => $total,
+                            'listing_id' => $listingId,
+                            'listing_title' => $listingTitle,
+                            'product_name' => $productName,
+                            'status' => 'error',
+                            'message' => 'Ítem inexistente en ML; listing marcado como cerrado.',
+                            'quantity' => $quantity,
+                        ]);
+                        continue;
+                    }
+
+                    if ($result['success']) {
+                        $ok++;
+                        $emit([
+                            'type' => 'progress',
+                            'index' => $index + 1,
+                            'total' => $total,
+                            'listing_id' => $listingId,
+                            'listing_title' => $listingTitle,
+                            'product_name' => $productName,
+                            'status' => 'ok',
+                            'message' => 'Cantidad actualizada en ML.',
+                            'quantity' => $quantity,
+                        ]);
+                        continue;
+                    }
+
+                    $fail++;
+                    $emit([
+                        'type' => 'progress',
+                        'index' => $index + 1,
+                        'total' => $total,
+                        'listing_id' => $listingId,
+                        'listing_title' => $listingTitle,
+                        'product_name' => $productName,
+                        'status' => 'error',
+                        'message' => $result['error'] ?: 'Error al sincronizar con ML.',
+                        'quantity' => $quantity,
+                    ]);
+                } catch (\Throwable $e) {
+                    $fail++;
+                    $emit([
+                        'type' => 'progress',
+                        'index' => $index + 1,
+                        'total' => $total,
+                        'listing_id' => $listingId,
+                        'listing_title' => $listingTitle,
+                        'product_name' => $productName,
+                        'status' => 'error',
+                        'message' => $e->getMessage(),
+                        'quantity' => $quantity,
+                    ]);
+                }
+            }
+
+            $emit([
+                'type' => 'done',
+                'ok' => $ok,
+                'errors' => $fail,
+                'quantity' => $quantity,
+            ]);
+        } catch (\Throwable $e) {
+            $emit(['type' => 'error', 'error' => $e->getMessage()]);
+        }
+    }
+
     public function orders(): void
     {
         try {

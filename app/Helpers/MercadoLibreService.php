@@ -511,6 +511,68 @@ final class MercadoLibreService
         }
     }
 
+    /**
+     * Re-sincroniza solo la cantidad disponible del ítem en ML.
+     *
+     * @return array{success: bool, ml_item_id: string, error: string, ml_not_found?: bool}
+     */
+    public static function syncItemQuantity(int $listingId): array
+    {
+        $fail = static fn (string $msg, int $httpCode = 0, ?int $productId = null, ?string $mlItemId = ''): array => self::failSync(
+            $listingId,
+            $productId,
+            $mlItemId ?? '',
+            $msg,
+            $httpCode
+        );
+
+        try {
+            $listing = self::fetchListing($listingId);
+            if ($listing === null) {
+                return $fail('Listing no encontrado.');
+            }
+
+            $productId = (int) ($listing['product_id'] ?? 0);
+            $mlItemId = trim((string) ($listing['ml_item_id'] ?? ''));
+            if ($mlItemId === '') {
+                return $fail('El listing aún no fue publicado en ML.', 0, $productId > 0 ? $productId : null);
+            }
+
+            $quantity = self::resolveQuantity($listing);
+
+            $result = self::apiRequest(
+                'PUT',
+                '/items/' . rawurlencode($mlItemId),
+                ['available_quantity' => $quantity],
+                true
+            );
+            if (!$result['success']) {
+                if ($result['http_code'] === 404) {
+                    return self::markListingClosedMlNotFound(
+                        $listingId,
+                        $mlItemId,
+                        $productId > 0 ? $productId : null
+                    );
+                }
+
+                return $fail($result['error'], $result['http_code'], $productId > 0 ? $productId : null, $mlItemId);
+            }
+
+            self::updateListing($listingId, [
+                'last_synced_at' => date('Y-m-d H:i:s'),
+                'last_sync_error' => null,
+            ], 'syncItemQuantity');
+
+            return [
+                'success' => true,
+                'ml_item_id' => $mlItemId,
+                'error' => '',
+            ];
+        } catch (\Throwable $e) {
+            return $fail($e->getMessage());
+        }
+    }
+
     public static function pauseItem(string $mlItemId): bool
     {
         $mlItemId = trim($mlItemId);
