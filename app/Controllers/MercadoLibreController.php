@@ -10,6 +10,7 @@ use App\Helpers\Env;
 use App\Helpers\MercadoLibreService;
 use App\Helpers\MercadoLibreTokenManager;
 use App\Helpers\MlImageImporter;
+use App\Helpers\MlPriceIntelligence;
 use App\Helpers\SeiqImageScraper;
 use App\Helpers\PricingEngine;
 use App\Helpers\QuoteLinePricing;
@@ -769,6 +770,172 @@ final class MercadoLibreController extends Controller
         $scraper->run(static function (array $event) use ($emit): void {
             $emit($event);
         });
+    }
+
+    public function priceCompetition(): void
+    {
+        try {
+            $listings = MlPriceIntelligence::fetchActiveListings();
+            $mlUserId = trim((string) (setting('ml_user_id', '') ?? ''));
+            $rows = [];
+
+            foreach ($listings as $listing) {
+                $listingId = (int) ($listing['id'] ?? 0);
+                $analysis = MlPriceIntelligence::loadCache($listingId);
+                $rows[] = [
+                    'listing' => $listing,
+                    'analysis' => $analysis,
+                ];
+            }
+
+            $this->view('mercadolibre/precios_competencia', [
+                'title' => 'Análisis de precios competitivos',
+                'rows' => $rows,
+                'ml_user_id' => $mlUserId,
+                'connected' => MercadoLibreTokenManager::isConnected(),
+            ]);
+        } catch (\Throwable $e) {
+            flash('error', 'No se pudo cargar el análisis de precios: ' . $e->getMessage());
+            redirect('/mercadolibre');
+        }
+    }
+
+    public function priceCompetitionAnalyzeAll(): void
+    {
+        if (!verifyCsrf()) {
+            http_response_code(419);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['success' => false, 'error' => 'CSRF'], JSON_UNESCAPED_UNICODE);
+
+            return;
+        }
+
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+
+        header('Content-Type: application/x-ndjson; charset=utf-8');
+        header('Cache-Control: no-cache, no-store');
+        header('X-Accel-Buffering: no');
+        ini_set('output_buffering', 'off');
+        ini_set('zlib.output_compression', '0');
+        set_time_limit(600);
+
+        $emit = static function (array $payload): void {
+            echo json_encode($payload, JSON_UNESCAPED_UNICODE) . "\n";
+            if (function_exists('flush')) {
+                flush();
+            }
+        };
+
+        try {
+            $mlUserId = trim((string) (setting('ml_user_id', '') ?? ''));
+            $listings = MlPriceIntelligence::fetchActiveListings();
+            $total = count($listings);
+
+            $emit(['type' => 'start', 'total' => $total]);
+
+            foreach ($listings as $index => $listing) {
+                $listingId = (int) ($listing['id'] ?? 0);
+                $analysis = MlPriceIntelligence::analyzeListing($listing, $mlUserId, true);
+
+                $emit([
+                    'type' => 'progress',
+                    'index' => $index + 1,
+                    'total' => $total,
+                    'listing_id' => $listingId,
+                    'product_name' => (string) ($listing['product_name'] ?? ''),
+                    'analysis' => $analysis,
+                ]);
+
+                if ($index < $total - 1) {
+                    sleep(1);
+                }
+            }
+
+            $emit(['type' => 'done', 'total' => $total]);
+        } catch (\Throwable $e) {
+            $emit(['type' => 'error', 'error' => $e->getMessage()]);
+        }
+    }
+
+    public function priceCompetitionApply(int $id): void
+    {
+        if (!verifyCsrf()) {
+            $this->json(['success' => false, 'error' => 'Token inválido.'], 419);
+
+            return;
+        }
+
+        try {
+            $listingId = (int) $id;
+            if ($listingId <= 0) {
+                $this->json(['success' => false, 'error' => 'Listing inválido.'], 400);
+
+                return;
+            }
+
+            $result = MlPriceIntelligence::applySuggestedPrice($listingId);
+            $this->json([
+                'success' => $result['success'],
+                'error' => $result['error'],
+                'new_price' => $result['new_price'],
+            ], $result['success'] ? 200 : 422);
+        } catch (\Throwable $e) {
+            $this->json(['success' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function priceCompetitionApplyAll(): void
+    {
+        if (!verifyCsrf()) {
+            $this->json(['success' => false, 'error' => 'Token inválido.'], 419);
+
+            return;
+        }
+
+        set_time_limit(300);
+
+        try {
+            $listings = MlPriceIntelligence::fetchActiveListings();
+            $applied = 0;
+            $skipped = 0;
+            $failed = 0;
+            $errors = [];
+
+            foreach ($listings as $listing) {
+                $listingId = (int) ($listing['id'] ?? 0);
+                if ($listingId <= 0) {
+                    continue;
+                }
+
+                $cached = MlPriceIntelligence::loadCache($listingId);
+                if ($cached === null || ($cached['status'] ?? '') !== MlPriceIntelligence::statusRaiseLabel()) {
+                    $skipped++;
+                    continue;
+                }
+
+                $result = MlPriceIntelligence::applySuggestedPrice($listingId);
+                if ($result['success']) {
+                    $applied++;
+                    continue;
+                }
+
+                $failed++;
+                $errors[] = (string) ($listing['product_name'] ?? ('#' . $listingId))
+                    . ': ' . ($result['error'] ?: 'Error desconocido');
+            }
+
+            $this->json([
+                'success' => $failed === 0,
+                'applied' => $applied,
+                'skipped' => $skipped,
+                'failed' => $failed,
+                'errors' => $errors,
+            ]);
+        } catch (\Throwable $e) {
+            $this->json(['success' => false, 'error' => $e->getMessage()], 500);
+        }
     }
 
     public function linkExisting(): void

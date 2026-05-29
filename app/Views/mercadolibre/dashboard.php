@@ -32,6 +32,11 @@ $mlUserId = trim((string) ($ml_user_id ?? ''));
                 <i data-lucide="image-down" class="h-4 w-4"></i>Importar imágenes
             </a>
             <?php if ($connected): ?>
+                <a href="<?= e(url('/mercadolibre/precios-competencia')) ?>" class="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100">
+                    <i data-lucide="trending-up" class="h-4 w-4"></i>Análisis de precios
+                </a>
+            <?php endif; ?>
+            <?php if ($connected): ?>
                 <form method="post" action="<?= e(url('/mercadolibre/desconectar')) ?>" class="inline">
                     <?= csrfField() ?>
                     <button type="submit" class="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-100">
