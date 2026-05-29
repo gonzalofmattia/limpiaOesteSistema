@@ -1458,7 +1458,6 @@ final class MercadoLibreController extends Controller
             $offset = max(0, (int) $this->query('offset', 0));
             $result = MercadoLibreService::getOrders($offset);
             $importedSalesMap = $this->fetchImportedMlSalesMap();
-            $tableRows = $this->buildMlOrderTableRows($result['orders']);
             $orderNetDisplay = $this->buildOrderNetDisplayMap($result['orders'], $importedSalesMap);
             $orderImportErrors = $this->buildOrderImportErrorsMap($result['orders']);
 
@@ -1466,7 +1465,6 @@ final class MercadoLibreController extends Controller
                 'title' => 'Órdenes MercadoLibre',
                 'connected' => MercadoLibreTokenManager::isConnected(),
                 'orders' => $result['orders'],
-                'table_rows' => $tableRows,
                 'imported_sales_map' => $importedSalesMap,
                 'order_net_display' => $orderNetDisplay,
                 'order_import_errors' => $orderImportErrors,
@@ -2344,10 +2342,7 @@ final class MercadoLibreController extends Controller
         $mlSaleTotal = round((float) ($order['total_amount'] ?? $order['paid_amount'] ?? 0), 2);
         if ($mlSaleTotal <= 0) {
             $itemsSum = 0.0;
-            foreach ($order['order_items'] ?? [] as $row) {
-                if (!is_array($row)) {
-                    continue;
-                }
+            foreach ($this->mlOrderLineItems($order) as $row) {
                 $qty = max(1, (int) ($row['quantity'] ?? 1));
                 $unit = (float) ($row['unit_price'] ?? $row['full_unit_price'] ?? 0);
                 $itemsSum += round($unit * $qty, 2);
@@ -2358,10 +2353,7 @@ final class MercadoLibreController extends Controller
         }
 
         $lines = [];
-        foreach ($order['order_items'] ?? [] as $item) {
-            if (!is_array($item)) {
-                continue;
-            }
+        foreach ($this->mlOrderLineItems($order) as $item) {
             $mlItemId = trim((string) ($item['item']['id'] ?? $item['item_id'] ?? ''));
             $title = trim((string) ($item['item']['title'] ?? $item['title'] ?? ''));
             $quantity = max(1, (int) ($item['quantity'] ?? 1));
@@ -2529,10 +2521,7 @@ final class MercadoLibreController extends Controller
                 continue;
             }
 
-            foreach ($order['order_items'] ?? [] as $item) {
-                if (!is_array($item)) {
-                    continue;
-                }
+            foreach ($this->mlOrderLineItems($order) as $item) {
                 $mlItemId = trim((string) ($item['item']['id'] ?? $item['item_id'] ?? ''));
                 $title = trim((string) ($item['item']['title'] ?? $item['title'] ?? ''));
                 $productId = 0;
@@ -2674,43 +2663,23 @@ final class MercadoLibreController extends Controller
     }
 
     /**
-     * @param list<array<string, mixed>> $orders
-     * @return list<array{order: array<string, mixed>, item: array<string, mixed>|null, order_id: string, is_first_item: bool}>
+     * @return list<array<string, mixed>>
      */
-    private function buildMlOrderTableRows(array $orders): array
+    private function mlOrderLineItems(array $order): array
     {
-        $rows = [];
-        foreach ($orders as $order) {
-            if (!is_array($order)) {
-                continue;
-            }
-            $orderId = trim((string) ($order['id'] ?? ''));
-            $items = $order['order_items'] ?? [];
-            if (!is_array($items) || $items === []) {
-                $rows[] = [
-                    'order' => $order,
-                    'item' => null,
-                    'order_id' => $orderId,
-                    'is_first_item' => true,
-                ];
-                continue;
-            }
-            $first = true;
-            foreach ($items as $item) {
-                if (!is_array($item)) {
-                    continue;
-                }
-                $rows[] = [
-                    'order' => $order,
-                    'item' => $item,
-                    'order_id' => $orderId,
-                    'is_first_item' => $first,
-                ];
-                $first = false;
+        $raw = $order['items'] ?? $order['order_items'] ?? [];
+        if (!is_array($raw)) {
+            return [];
+        }
+
+        $items = [];
+        foreach ($raw as $item) {
+            if (is_array($item)) {
+                $items[] = $item;
             }
         }
 
-        return $rows;
+        return $items;
     }
 
     private function findMlSaleByMlOrderId(Database $db, string $mlOrderId): ?int

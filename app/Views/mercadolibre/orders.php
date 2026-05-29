@@ -1,5 +1,5 @@
 <?php
-$tableRows = is_array($table_rows ?? null) ? $table_rows : [];
+$orders = is_array($orders ?? null) ? $orders : [];
 $importedSalesMap = is_array($imported_sales_map ?? null) ? $imported_sales_map : [];
 $orderNetDisplay = is_array($order_net_display ?? null) ? $order_net_display : [];
 $orderImportErrors = is_array($order_import_errors ?? null) ? $order_import_errors : [];
@@ -7,7 +7,7 @@ $connected = !empty($connected);
 $ordersSuccess = !empty($orders_success);
 $ordersError = trim((string) ($orders_error ?? ''));
 $offset = max(0, (int) ($offset ?? 0));
-$orderCount = count(is_array($orders ?? null) ? $orders : []);
+$orderCount = count($orders);
 
 $orderDate = static function (array $order): string {
     $raw = (string) ($order['date_created'] ?? $order['date_closed'] ?? '');
@@ -109,43 +109,52 @@ $shippingLabel = static function (string $status): string {
     };
 };
 
-$itemTitle = static function (?array $item): string {
-    if ($item === null) {
-        return '—';
+$orderLineItems = static function (array $order): array {
+    $raw = $order['items'] ?? $order['order_items'] ?? [];
+    if (!is_array($raw)) {
+        return [];
     }
+    $items = [];
+    foreach ($raw as $item) {
+        if (is_array($item)) {
+            $items[] = $item;
+        }
+    }
+
+    return $items;
+};
+
+$itemTitle = static function (array $item): string {
     $title = trim((string) ($item['item']['title'] ?? $item['title'] ?? ''));
 
     return $title !== '' ? $title : '—';
 };
 
-$itemQuantity = static function (?array $item): int {
-    if ($item === null) {
-        return 0;
-    }
-
+$itemQuantity = static function (array $item): int {
     return max(1, (int) ($item['quantity'] ?? 1));
 };
 
-$itemUnitPrice = static function (?array $item): float {
-    if ($item === null) {
-        return 0.0;
-    }
+$itemUnitPrice = static function (array $item): float {
     $price = (float) ($item['unit_price'] ?? $item['full_unit_price'] ?? 0);
 
     return $price > 0 ? $price : 0.0;
 };
 
-$itemLineTotal = static function (?array $item): float {
-    if ($item === null) {
-        return 0.0;
+$orderTotal = static function (array $order) use ($orderLineItems, $itemQuantity, $itemUnitPrice): float {
+    $total = (float) ($order['total_amount'] ?? $order['paid_amount'] ?? 0);
+    if ($total > 0) {
+        return round($total, 2);
     }
-    $qty = max(1, (int) ($item['quantity'] ?? 1));
-    $unit = (float) ($item['unit_price'] ?? $item['full_unit_price'] ?? 0);
-    if ($unit <= 0) {
-        return (float) ($item['sale_fee'] ?? 0);
+    $sum = 0.0;
+    foreach ($orderLineItems($order) as $item) {
+        $qty = $itemQuantity($item);
+        $unit = $itemUnitPrice($item);
+        if ($unit > 0) {
+            $sum += round($unit * $qty, 2);
+        }
     }
 
-    return round($unit * $qty, 2);
+    return round($sum, 2);
 };
 ?>
 <div class="space-y-5">
@@ -184,81 +193,86 @@ $itemLineTotal = static function (?array $item): float {
                     <tr>
                         <th class="text-left px-4 py-3">Fecha</th>
                         <th class="text-left px-4 py-3">Comprador</th>
-                        <th class="text-left px-4 py-3">Producto</th>
-                        <th class="text-right px-4 py-3">Cant.</th>
-                        <th class="text-right px-4 py-3">Precio unit.</th>
+                        <th class="text-left px-4 py-3">Productos</th>
                         <th class="text-right px-4 py-3">Total</th>
                         <th class="text-right px-4 py-3">Neto ML</th>
-                        <th class="text-left px-4 py-3">Pago</th>                        <th class="text-left px-4 py-3">Envío</th>
+                        <th class="text-left px-4 py-3">Pago</th>
+                        <th class="text-left px-4 py-3">Envío</th>
                         <th class="text-left px-4 py-3">En sistema</th>
                         <th class="text-right px-4 py-3">Acciones</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
-                    <?php foreach ($tableRows as $row): ?>
+                    <?php foreach ($orders as $order): ?>
                         <?php
-                        if (!is_array($row)) {
+                        if (!is_array($order)) {
                             continue;
                         }
-                        $order = is_array($row['order'] ?? null) ? $row['order'] : [];
-                        $item = is_array($row['item'] ?? null) ? $row['item'] : null;
-                        $orderId = trim((string) ($row['order_id'] ?? ''));
-                        $isFirstItem = !empty($row['is_first_item']);
+                        $orderId = trim((string) ($order['id'] ?? ''));
+                        $lineItems = $orderLineItems($order);
                         $importedSale = $orderId !== '' ? ($importedSalesMap[$orderId] ?? null) : null;
                         $importedQuoteId = is_array($importedSale) ? (int) ($importedSale['id'] ?? 0) : 0;
                         $isImported = $importedQuoteId > 0;
                         $importError = $orderId !== '' ? trim((string) ($orderImportErrors[$orderId] ?? '')) : '';
                         $netInfo = $orderId !== '' ? ($orderNetDisplay[$orderId] ?? null) : null;
-                        $payStatus = $mlPaymentStatus($order);                        $shipStatus = $mlShippingStatus($order);
+                        $payStatus = $mlPaymentStatus($order);
+                        $shipStatus = $mlShippingStatus($order);
                         ?>
                         <tr class="hover:bg-gray-50">
-                            <td class="px-4 py-3 text-slate-600 whitespace-nowrap">
-                                <?= $isFirstItem ? e($orderDate($order)) : '' ?>
+                            <td class="px-4 py-3 text-slate-600 whitespace-nowrap"><?= e($orderDate($order)) ?></td>
+                            <td class="px-4 py-3 font-medium text-slate-800"><?= e($orderBuyer($order)) ?></td>
+                            <td class="px-4 py-3 text-slate-700">
+                                <?php if ($lineItems === []): ?>
+                                    <span class="text-slate-400">—</span>
+                                <?php else: ?>
+                                    <ul class="space-y-1.5">
+                                        <?php foreach ($lineItems as $item): ?>
+                                            <li class="leading-snug">
+                                                <span class="font-medium"><?= e($itemTitle($item)) ?></span>
+                                                <span class="text-slate-500">
+                                                    · <?= (int) $itemQuantity($item) ?> u.
+                                                    · <?= formatPrice($itemUnitPrice($item)) ?> c/u
+                                                </span>
+                                            </li>
+                                        <?php endforeach; ?>
+                                    </ul>
+                                <?php endif; ?>
                             </td>
-                            <td class="px-4 py-3 font-medium text-slate-800">
-                                <?= $isFirstItem ? e($orderBuyer($order)) : '' ?>
-                            </td>
-                            <td class="px-4 py-3 text-slate-700"><?= e($itemTitle($item)) ?></td>
-                            <td class="px-4 py-3 text-right"><?= $item !== null ? (int) $itemQuantity($item) : '—' ?></td>
-                            <td class="px-4 py-3 text-right"><?= $item !== null ? formatPrice($itemUnitPrice($item)) : '—' ?></td>
-                            <td class="px-4 py-3 text-right font-medium"><?= $item !== null ? formatPrice($itemLineTotal($item)) : '—' ?></td>
+                            <td class="px-4 py-3 text-right font-medium"><?= formatPrice($orderTotal($order)) ?></td>
                             <td class="px-4 py-3 text-right text-slate-700">
-                                <?php if ($isFirstItem && is_array($netInfo)): ?>
+                                <?php if (is_array($netInfo)): ?>
                                     <span class="font-medium"><?= formatPrice((float) ($netInfo['amount'] ?? 0)) ?></span>
                                     <?php if (!empty($netInfo['from_system'])): ?>
                                         <span class="block text-[10px] text-green-700 font-semibold uppercase tracking-wide">En sistema</span>
                                     <?php endif; ?>
-                                <?php endif; ?>
-                            </td>
-                            <td class="px-4 py-3">                                <?php if ($isFirstItem): ?>
-                                    <span class="inline-flex px-2 py-1 rounded-full text-xs font-semibold <?= e($paymentBadgeClass($payStatus)) ?>">
-                                        <?= e($paymentLabel($payStatus)) ?>
-                                    </span>
+                                <?php else: ?>
+                                    —
                                 <?php endif; ?>
                             </td>
                             <td class="px-4 py-3">
-                                <?php if ($isFirstItem): ?>
-                                    <span class="inline-flex px-2 py-1 rounded-full text-xs font-semibold <?= e($shippingBadgeClass($shipStatus)) ?>">
-                                        <?= e($shippingLabel($shipStatus)) ?>
-                                    </span>
-                                <?php endif; ?>
+                                <span class="inline-flex px-2 py-1 rounded-full text-xs font-semibold <?= e($paymentBadgeClass($payStatus)) ?>">
+                                    <?= e($paymentLabel($payStatus)) ?>
+                                </span>
                             </td>
                             <td class="px-4 py-3">
-                                <?php if ($isFirstItem): ?>
-                                    <?php if ($isImported): ?>
-                                        <a href="<?= e(url('/ventas-ml/' . $importedQuoteId)) ?>" class="inline-flex px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 hover:bg-green-200">
-                                            Importado
-                                        </a>
-                                    <?php elseif ($importError !== ''): ?>
-                                        <span class="inline-flex px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">Sin vincular</span>
-                                        <p class="mt-1 max-w-xs text-xs text-red-700"><?= e($importError) ?></p>
-                                    <?php else: ?>
-                                        <span class="inline-flex px-2 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">Pendiente</span>
-                                    <?php endif; ?>
+                                <span class="inline-flex px-2 py-1 rounded-full text-xs font-semibold <?= e($shippingBadgeClass($shipStatus)) ?>">
+                                    <?= e($shippingLabel($shipStatus)) ?>
+                                </span>
+                            </td>
+                            <td class="px-4 py-3">
+                                <?php if ($isImported): ?>
+                                    <a href="<?= e(url('/ventas-ml/' . $importedQuoteId)) ?>" class="inline-flex px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 hover:bg-green-200">
+                                        Importado
+                                    </a>
+                                <?php elseif ($importError !== ''): ?>
+                                    <span class="inline-flex px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">Sin vincular</span>
+                                    <p class="mt-1 max-w-xs text-xs text-red-700"><?= e($importError) ?></p>
+                                <?php else: ?>
+                                    <span class="inline-flex px-2 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">Pendiente</span>
                                 <?php endif; ?>
                             </td>
                             <td class="px-4 py-3 text-right">
-                                <?php if ($isFirstItem && $orderId !== ''): ?>
+                                <?php if ($orderId !== ''): ?>
                                     <?php if ($isImported): ?>
                                         <a href="<?= e(url('/ventas-ml/' . $importedQuoteId)) ?>" class="text-xs font-semibold text-lo-blue hover:underline">Ver venta ML</a>
                                     <?php elseif ($importError !== ''): ?>
@@ -276,17 +290,19 @@ $itemLineTotal = static function (?array $item): float {
                             </td>
                         </tr>
                     <?php endforeach; ?>
-                    <?php if ($tableRows === [] && $ordersSuccess): ?>
+                    <?php if ($orders === [] && $ordersSuccess): ?>
                         <tr>
-                            <td colspan="11" class="px-4 py-10 text-center text-slate-500">
+                            <td colspan="9" class="px-4 py-10 text-center text-slate-500">
                                 No hay órdenes en los últimos 30 días.
-                            </td>                        </tr>
+                            </td>
+                        </tr>
                     <?php endif; ?>
-                    <?php if ($tableRows === [] && !$ordersSuccess && $ordersError === ''): ?>
+                    <?php if ($orders === [] && !$ordersSuccess && $ordersError === ''): ?>
                         <tr>
-                            <td colspan="11" class="px-4 py-10 text-center text-slate-500">
+                            <td colspan="9" class="px-4 py-10 text-center text-slate-500">
                                 Sin datos de órdenes por el momento.
-                            </td>                        </tr>
+                            </td>
+                        </tr>
                     <?php endif; ?>
                 </tbody>
             </table>

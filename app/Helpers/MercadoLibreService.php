@@ -732,27 +732,55 @@ final class MercadoLibreService
             }
 
             $data = $result['data'];
-            $orders = [];
+            $grouped = [];
+            $orderIndex = [];
             if (is_array($data['results'] ?? null)) {
                 foreach ($data['results'] as $orderRef) {
+                    $order = null;
                     if (is_array($orderRef)) {
-                        $orders[] = $orderRef;
+                        $order = $orderRef;
+                    } else {
+                        $orderId = trim((string) $orderRef);
+                        if ($orderId === '') {
+                            continue;
+                        }
+                        $detail = self::apiRequest('GET', '/orders/' . rawurlencode($orderId), null, true);
+                        if ($detail['success'] && is_array($detail['data'])) {
+                            $order = $detail['data'];
+                        }
+                    }
+                    if (!is_array($order)) {
                         continue;
                     }
-                    $orderId = trim((string) $orderRef);
+
+                    $orderId = trim((string) ($order['id'] ?? ''));
                     if ($orderId === '') {
                         continue;
                     }
-                    $detail = self::apiRequest('GET', '/orders/' . rawurlencode($orderId), null, true);
-                    if ($detail['success'] && is_array($detail['data'])) {
-                        $orders[] = $detail['data'];
+
+                    $lineItems = [];
+                    foreach ($order['order_items'] ?? [] as $item) {
+                        if (is_array($item)) {
+                            $lineItems[] = $item;
+                        }
                     }
+
+                    if (isset($orderIndex[$orderId])) {
+                        $idx = $orderIndex[$orderId];
+                        $grouped[$idx]['items'] = array_merge($grouped[$idx]['items'], $lineItems);
+                        continue;
+                    }
+
+                    $entry = $order;
+                    $entry['items'] = $lineItems;
+                    $orderIndex[$orderId] = count($grouped);
+                    $grouped[] = $entry;
                 }
             }
 
             return [
                 'success' => true,
-                'orders' => $orders,
+                'orders' => $grouped,
                 'error' => '',
             ];
         } catch (\Throwable $e) {
