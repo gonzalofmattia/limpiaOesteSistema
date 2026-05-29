@@ -18,6 +18,19 @@ final class MlPriceIntelligence
     private const STATUS_OK = 'Precio OK';
     private const STATUS_CHEAP = 'Estás caro';
     private const STATUS_RAISE = 'Podés subir';
+    private const SEARCH_LOG_LIMIT = 3;
+
+    /** @var list<string> Misma lista que SeiqImageScraper::MATCH_ABBREVIATIONS */
+    private const MATCH_ABBREVIATIONS = [
+        'desengras.',
+        'limp.',
+        'limpiad.',
+        'desinfec.',
+        'gr.',
+        'gral.',
+    ];
+
+    private static int $loggedSearchCount = 0;
 
     /** @return list<array<string, mixed>> */
     public static function fetchActiveListings(): array
@@ -42,6 +55,29 @@ final class MlPriceIntelligence
         );
     }
 
+    public static function clearAllCache(): int
+    {
+        $dir = self::cacheDir();
+        if (!is_dir($dir)) {
+            return 0;
+        }
+
+        $deleted = 0;
+        $files = glob($dir . '/ml_price_intel_*.json') ?: [];
+        foreach ($files as $file) {
+            if (is_file($file) && @unlink($file)) {
+                $deleted++;
+            }
+        }
+
+        return $deleted;
+    }
+
+    public static function resetSearchLogCounter(): void
+    {
+        self::$loggedSearchCount = 0;
+    }
+
     /** @param array<string, mixed> $listing */
     public static function analyzeListing(array $listing, string $mlUserId, bool $forceRefresh = false): array
     {
@@ -59,14 +95,13 @@ final class MlPriceIntelligence
 
         $productId = (int) ($listing['product_id'] ?? 0);
         $currentPrice = round((float) ($listing['price'] ?? 0), 2);
-        $title = trim((string) ($listing['title'] ?? ''));
-        $categoryId = trim((string) ($listing['ml_category_id'] ?? ''));
+        $productName = trim((string) ($listing['product_name'] ?? ''));
         $mlItemId = trim((string) ($listing['ml_item_id'] ?? ''));
 
         $cost = self::resolveProductCost($productId);
         $minPrice = $cost > 0 ? self::calculateMinAcceptablePrice($cost) : 0.0;
 
-        if ($title === '' || $categoryId === '') {
+        if ($productName === '') {
             $result = self::buildAnalysisResult(
                 $currentPrice,
                 $minPrice,
@@ -74,14 +109,14 @@ final class MlPriceIntelligence
                 0.0,
                 self::STATUS_OK,
                 [],
-                'Faltan título o categoría ML.'
+                'Falta nombre de producto.'
             );
             self::saveCache($listingId, $result);
 
             return $result;
         }
 
-        $search = self::searchCompetitors($title, $categoryId, $mlUserId, $mlItemId);
+        $search = self::searchCompetitors($productName, $mlUserId, $mlItemId, $listingId);
         if (!$search['success']) {
             $result = self::buildAnalysisResult(
                 $currentPrice,
@@ -90,7 +125,9 @@ final class MlPriceIntelligence
                 0.0,
                 self::STATUS_OK,
                 [],
-                $search['error']
+                $search['error'],
+                0.0,
+                $search['search_query'] ?? ''
             );
             self::saveCache($listingId, $result);
 
@@ -122,11 +159,26 @@ final class MlPriceIntelligence
             $status,
             $competitors,
             null,
-            $cost
+            $cost,
+            $search['search_query'] ?? ''
         );
         self::saveCache($listingId, $result);
 
         return $result;
+    }
+
+    public static function buildSearchQuery(string $productName): string
+    {
+        $term = self::normalizeProductNameForSearch($productName);
+        if ($term === '') {
+            return 'seiq';
+        }
+
+        if (preg_match('/\bseiq\b/u', $term) === 1) {
+            return $term;
+        }
+
+        return $term . ' seiq';
     }
 
     public static function calculateMinAcceptablePrice(float $cost): float
@@ -155,32 +207,47 @@ final class MlPriceIntelligence
         return self::STATUS_OK;
     }
 
-    /** @return array{success: bool, error: string, competitors: list<array<string, mixed>>} */
+    /**
+     * @return array{
+     *   success: bool,
+     *   error: string,
+     *   search_query: string,
+     *   raw_results_count: int,
+     *   competitors: list<array<string, mixed>>
+     * }
+     */
     public static function searchCompetitors(
-        string $title,
-        string $categoryId,
+        string $productName,
         string $mlUserId,
-        string $excludeItemId = ''
+        string $excludeItemId = '',
+        int $listingId = 0
     ): array {
         $siteId = trim((string) (setting('ml_site_id', 'MLA') ?? 'MLA'));
         if ($siteId === '') {
             $siteId = 'MLA';
         }
 
+        $searchQuery = self::buildSearchQuery($productName);
         $query = http_build_query([
-            'q' => $title,
-            'category' => $categoryId,
+            'q' => $searchQuery,
             'limit' => 10,
         ]);
         $url = self::API_BASE . '/sites/' . rawurlencode($siteId) . '/search?' . $query;
 
         $response = self::httpGet($url);
         if (!$response['success']) {
-            return ['success' => false, 'error' => $response['error'], 'competitors' => []];
+            return [
+                'success' => false,
+                'error' => $response['error'],
+                'search_query' => $searchQuery,
+                'raw_results_count' => 0,
+                'competitors' => [],
+            ];
         }
 
         $data = $response['data'];
         $results = is_array($data['results'] ?? null) ? $data['results'] : [];
+        $rawCount = count($results);
         $competitors = [];
         $ownUserId = trim($mlUserId);
 
@@ -204,13 +271,6 @@ final class MlPriceIntelligence
                 continue;
             }
 
-            $condition = is_array($item['condition'] ?? null)
-                ? (string) ($item['condition']['id'] ?? '')
-                : (string) ($item['condition'] ?? '');
-            if ($condition !== 'new') {
-                continue;
-            }
-
             $price = (float) ($item['price'] ?? 0);
             if ($price <= 0) {
                 continue;
@@ -230,7 +290,15 @@ final class MlPriceIntelligence
             }
         }
 
-        return ['success' => true, 'error' => '', 'competitors' => $competitors];
+        self::logSearchIfNeeded($listingId, $searchQuery, $rawCount, count($competitors));
+
+        return [
+            'success' => true,
+            'error' => '',
+            'search_query' => $searchQuery,
+            'raw_results_count' => $rawCount,
+            'competitors' => $competitors,
+        ];
     }
 
     /** @return array<string, mixed>|null */
@@ -329,6 +397,25 @@ final class MlPriceIntelligence
         return self::STATUS_RAISE;
     }
 
+    private static function normalizeProductNameForSearch(string $value): string
+    {
+        $value = html_entity_decode(trim($value), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $value = preg_replace('/\([^)]*\)/u', '', $value) ?? $value;
+        $value = preg_replace('/\bp\s*\/\s*/iu', ' ', $value) ?? $value;
+        $value = preg_replace('/\bc\s*\/\s*/iu', ' ', $value) ?? $value;
+
+        $value = mb_strtolower($value, 'UTF-8');
+
+        foreach (self::MATCH_ABBREVIATIONS as $abbr) {
+            $value = str_replace($abbr, ' ', $value);
+        }
+
+        $value = preg_replace('/[^\p{L}\p{N}\s]/u', ' ', $value) ?? $value;
+        $value = preg_replace('/\s+/u', ' ', $value) ?? $value;
+
+        return trim($value);
+    }
+
     private static function resolveProductCost(int $productId): float
     {
         if ($productId <= 0) {
@@ -355,7 +442,8 @@ final class MlPriceIntelligence
         string $status,
         array $competitors,
         ?string $error = null,
-        float $cost = 0.0
+        float $cost = 0.0,
+        string $searchQuery = ''
     ): array {
         return [
             'current_price' => $currentPrice,
@@ -366,6 +454,7 @@ final class MlPriceIntelligence
             'status' => $status,
             'competitors_count' => count($competitors),
             'competitors' => $competitors,
+            'search_query' => $searchQuery,
             'error' => $error,
         ];
     }
@@ -374,6 +463,39 @@ final class MlPriceIntelligence
     private static function emptyAnalysis(string $error): array
     {
         return self::buildAnalysisResult(0.0, 0.0, 0.0, 0.0, self::STATUS_OK, [], $error);
+    }
+
+    private static function logSearchIfNeeded(int $listingId, string $query, int $rawCount, int $filteredCount): void
+    {
+        if (self::$loggedSearchCount >= self::SEARCH_LOG_LIMIT) {
+            return;
+        }
+
+        self::$loggedSearchCount++;
+        self::logInfo(
+            'searchCompetitors',
+            'listing_id=' . ($listingId > 0 ? (string) $listingId : 'n/a'),
+            sprintf('query="%s" raw_results=%d filtered=%d', $query, $rawCount, $filteredCount)
+        );
+    }
+
+    private static function logInfo(string $method, string $context, string $message): void
+    {
+        $logDir = self::cacheDir();
+        $logDir = dirname($logDir) . '/logs';
+        if (!is_dir($logDir)) {
+            @mkdir($logDir, 0775, true);
+        }
+
+        $line = sprintf(
+            '[%s] INFO %s %s: %s',
+            date('Y-m-d H:i:s'),
+            $method,
+            $context,
+            str_replace(["\r", "\n"], ' ', $message)
+        );
+
+        @error_log($line . PHP_EOL, 3, $logDir . '/ml_errors.log');
     }
 
     /** @param array<string, mixed> $seller */

@@ -829,6 +829,9 @@ final class MercadoLibreController extends Controller
         };
 
         try {
+            MlPriceIntelligence::clearAllCache();
+            MlPriceIntelligence::resetSearchLogCounter();
+
             $mlUserId = trim((string) (setting('ml_user_id', '') ?? ''));
             $listings = MlPriceIntelligence::fetchActiveListings();
             $total = count($listings);
