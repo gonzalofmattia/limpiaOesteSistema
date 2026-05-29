@@ -7,7 +7,7 @@ namespace App\Helpers;
 use App\Models\Database;
 
 /**
- * Análisis de precios competitivos en MercadoLibre vía búsqueda pública.
+ * Análisis de precios competitivos en MercadoLibre vía búsqueda autenticada OAuth.
  */
 final class MlPriceIntelligence
 {
@@ -18,7 +18,7 @@ final class MlPriceIntelligence
     private const STATUS_OK = 'Precio OK';
     private const STATUS_CHEAP = 'Estás caro';
     private const STATUS_RAISE = 'Podés subir';
-    private const SEARCH_LOG_LIMIT = 3;
+    private const SEARCH_LOG_LIMIT = 5;
 
     /** @var list<string> Misma lista que SeiqImageScraper::MATCH_ABBREVIATIONS */
     private const MATCH_ABBREVIATIONS = [
@@ -234,8 +234,33 @@ final class MlPriceIntelligence
         ]);
         $url = self::API_BASE . '/sites/' . rawurlencode($siteId) . '/search?' . $query;
 
-        $response = self::httpGet($url);
+        try {
+            $accessToken = MercadoLibreTokenManager::getValidAccessToken();
+        } catch (\Throwable $e) {
+            $error = 'No se pudo obtener token ML: ' . $e->getMessage();
+            self::logSearchIfNeeded($listingId, $searchQuery, false, 0, 0, 0, $error);
+
+            return [
+                'success' => false,
+                'error' => $error,
+                'search_query' => $searchQuery,
+                'raw_results_count' => 0,
+                'competitors' => [],
+            ];
+        }
+
+        $response = self::httpGet($url, $accessToken);
         if (!$response['success']) {
+            self::logSearchIfNeeded(
+                $listingId,
+                $searchQuery,
+                false,
+                (int) ($response['http_code'] ?? 0),
+                0,
+                0,
+                $response['error']
+            );
+
             return [
                 'success' => false,
                 'error' => $response['error'],
@@ -290,7 +315,15 @@ final class MlPriceIntelligence
             }
         }
 
-        self::logSearchIfNeeded($listingId, $searchQuery, $rawCount, count($competitors));
+        self::logSearchIfNeeded(
+            $listingId,
+            $searchQuery,
+            true,
+            (int) ($response['http_code'] ?? 200),
+            $rawCount,
+            count($competitors),
+            'ok'
+        );
 
         return [
             'success' => true,
@@ -465,28 +498,56 @@ final class MlPriceIntelligence
         return self::buildAnalysisResult(0.0, 0.0, 0.0, 0.0, self::STATUS_OK, [], $error);
     }
 
-    private static function logSearchIfNeeded(int $listingId, string $query, int $rawCount, int $filteredCount): void
-    {
+    private static function logSearchIfNeeded(
+        int $listingId,
+        string $query,
+        bool $success,
+        int $httpCode,
+        int $rawCount,
+        int $filteredCount,
+        string $detail
+    ): void {
         if (self::$loggedSearchCount >= self::SEARCH_LOG_LIMIT) {
             return;
         }
 
         self::$loggedSearchCount++;
-        self::logInfo(
-            'searchCompetitors',
-            'listing_id=' . ($listingId > 0 ? (string) $listingId : 'n/a'),
-            sprintf('query="%s" raw_results=%d filtered=%d', $query, $rawCount, $filteredCount)
+        $context = 'listing_id=' . ($listingId > 0 ? (string) $listingId : 'n/a');
+        $message = sprintf(
+            'query="%s" http=%d raw_results=%d filtered=%d detail=%s',
+            $query,
+            $httpCode,
+            $rawCount,
+            $filteredCount,
+            str_replace(["\r", "\n"], ' ', $detail)
         );
+
+        if ($success) {
+            self::logInfo('searchCompetitors', $context, $message);
+        } else {
+            self::logError('searchCompetitors', $context, $httpCode, $message);
+        }
+    }
+
+    private static function logError(string $method, string $context, int $httpCode, string $message): void
+    {
+        $logDir = self::logsDir();
+        $codePart = $httpCode > 0 ? (string) $httpCode : 'ERR';
+        $line = sprintf(
+            '[%s] ERROR %s %s: %s - %s',
+            date('Y-m-d H:i:s'),
+            $method,
+            $context,
+            $codePart,
+            str_replace(["\r", "\n"], ' ', $message)
+        );
+
+        error_log($line . PHP_EOL, 3, $logDir . '/ml_errors.log');
     }
 
     private static function logInfo(string $method, string $context, string $message): void
     {
-        $logDir = self::cacheDir();
-        $logDir = dirname($logDir) . '/logs';
-        if (!is_dir($logDir)) {
-            @mkdir($logDir, 0775, true);
-        }
-
+        $logDir = self::logsDir();
         $line = sprintf(
             '[%s] INFO %s %s: %s',
             date('Y-m-d H:i:s'),
@@ -495,7 +556,7 @@ final class MlPriceIntelligence
             str_replace(["\r", "\n"], ' ', $message)
         );
 
-        @error_log($line . PHP_EOL, 3, $logDir . '/ml_errors.log');
+        error_log($line . PHP_EOL, 3, $logDir . '/ml_errors.log');
     }
 
     /** @param array<string, mixed> $seller */
@@ -516,18 +577,21 @@ final class MlPriceIntelligence
         return $parts !== [] ? implode(' · ', $parts) : '—';
     }
 
-    /** @return array{success: bool, error: string, data: array<string, mixed>|null} */
-    private static function httpGet(string $url): array
+    /** @return array{success: bool, error: string, http_code: int, data: array<string, mixed>|null} */
+    private static function httpGet(string $url, string $accessToken): array
     {
         $ch = curl_init($url);
         if ($ch === false) {
-            return ['success' => false, 'error' => 'No se pudo inicializar la conexión.', 'data' => null];
+            return ['success' => false, 'error' => 'No se pudo inicializar la conexión.', 'http_code' => 0, 'data' => null];
         }
 
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => 30,
-            CURLOPT_HTTPHEADER => ['Accept: application/json'],
+            CURLOPT_HTTPHEADER => [
+                'Accept: application/json',
+                'Authorization: Bearer ' . $accessToken,
+            ],
             CURLOPT_USERAGENT => 'LimpiaOeste-ML-PriceIntel/1.0',
         ]);
 
@@ -537,20 +601,42 @@ final class MlPriceIntelligence
         curl_close($ch);
 
         if ($body === false || $curlError !== '') {
-            return ['success' => false, 'error' => 'Error de red: ' . $curlError, 'data' => null];
+            return [
+                'success' => false,
+                'error' => 'Error de red: ' . ($curlError !== '' ? $curlError : 'sin respuesta'),
+                'http_code' => $httpCode,
+                'data' => null,
+            ];
         }
 
         if ($httpCode >= 400) {
-            return ['success' => false, 'error' => "API ML respondió HTTP {$httpCode}.", 'data' => null];
+            return [
+                'success' => false,
+                'error' => "API ML respondió HTTP {$httpCode}.",
+                'http_code' => $httpCode,
+                'data' => null,
+            ];
         }
 
         /** @var array<string, mixed>|null $decoded */
         $decoded = json_decode((string) $body, true);
         if (!is_array($decoded)) {
-            return ['success' => false, 'error' => 'Respuesta inválida de ML.', 'data' => null];
+            return ['success' => false, 'error' => 'Respuesta inválida de ML.', 'http_code' => $httpCode, 'data' => null];
         }
 
-        return ['success' => true, 'error' => '', 'data' => $decoded];
+        return ['success' => true, 'error' => '', 'http_code' => $httpCode, 'data' => $decoded];
+    }
+
+    private static function logsDir(): string
+    {
+        $logDir = defined('STORAGE_PATH')
+            ? rtrim((string) STORAGE_PATH, '/') . '/logs'
+            : dirname(__DIR__, 2) . '/storage/logs';
+        if (!is_dir($logDir)) {
+            @mkdir($logDir, 0775, true);
+        }
+
+        return $logDir;
     }
 
     private static function cacheDir(): string
