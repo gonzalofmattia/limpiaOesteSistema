@@ -1458,6 +1458,19 @@ final class MercadoLibreController extends Controller
             $offset = max(0, (int) $this->query('offset', 0));
             $result = MercadoLibreService::getOrders($offset);
             $importedSalesMap = $this->fetchImportedMlSalesMap();
+            foreach ($result['orders'] as $orderRow) {
+                if (!is_array($orderRow)) {
+                    continue;
+                }
+                $displayId = trim((string) ($orderRow['id'] ?? ''));
+                if ($displayId === '') {
+                    continue;
+                }
+                $imported = $this->findImportedSaleForOrder($orderRow, $importedSalesMap);
+                if ($imported !== null) {
+                    $importedSalesMap[$displayId] = $imported;
+                }
+            }
             $orderNetDisplay = $this->buildOrderNetDisplayMap($result['orders'], $importedSalesMap);
             $orderImportErrors = $this->buildOrderImportErrorsMap($result['orders']);
 
@@ -1509,7 +1522,7 @@ final class MercadoLibreController extends Controller
             }
 
             $importId = trim((string) ($order['id'] ?? $orderId));
-            $existing = $this->findMlSaleByMlOrderId($db, $importId);
+            $existing = $this->findMlSaleByMlOrderId($db, $importId, $order);
             if ($existing !== null) {
                 redirect('/ventas-ml/' . $existing);
                 return;
@@ -2681,9 +2694,10 @@ final class MercadoLibreController extends Controller
                 continue;
             }
 
-            if (isset($importedSalesMap[$orderId]) && $importedSalesMap[$orderId]['ml_net_amount'] !== null) {
+            $importedSale = $this->findImportedSaleForOrder($order, $importedSalesMap);
+            if ($importedSale !== null && $importedSale['ml_net_amount'] !== null) {
                 $display[$orderId] = [
-                    'amount' => (float) $importedSalesMap[$orderId]['ml_net_amount'],
+                    'amount' => (float) $importedSale['ml_net_amount'],
                     'source' => 'sistema (venta ML importada)',
                     'from_system' => true,
                 ];
@@ -2749,43 +2763,129 @@ final class MercadoLibreController extends Controller
         return $items;
     }
 
-    private function findMlSaleByMlOrderId(Database $db, string $mlOrderId): ?int
+    /**
+     * @param array<string, array{id: int, ml_net_amount: float|null, ml_sale_total: float|null}> $importedSalesMap
+     * @return array{id: int, ml_net_amount: float|null, ml_sale_total: float|null}|null
+     */
+    private function findImportedSaleForOrder(array $order, array $importedSalesMap): ?array
+    {
+        foreach ($this->mlOrderImportLookupIds($order) as $lookupId) {
+            if (isset($importedSalesMap[$lookupId])) {
+                return $importedSalesMap[$lookupId];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function mlOrderImportLookupIds(array $order): array
+    {
+        $ids = [];
+
+        $primary = trim((string) ($order['id'] ?? ''));
+        if ($primary !== '') {
+            $ids[] = $primary;
+        }
+
+        $packId = MercadoLibreService::normalizePackId($order['pack_id'] ?? null);
+        if ($packId !== '') {
+            $ids[] = $packId;
+        }
+
+        foreach ($order['pack_order_ids'] ?? [] as $memberOrderId) {
+            $memberOrderId = trim((string) $memberOrderId);
+            if ($memberOrderId !== '') {
+                $ids[] = $memberOrderId;
+            }
+        }
+
+        foreach ($order['pack_member_orders'] ?? [] as $member) {
+            if (!is_array($member)) {
+                continue;
+            }
+            $memberOrderId = trim((string) ($member['id'] ?? ''));
+            if ($memberOrderId !== '') {
+                $ids[] = $memberOrderId;
+            }
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function buildMlOrderImportLookupIds(string $mlOrderId, ?array $orderContext = null): array
+    {
+        $ids = [];
+        $mlOrderId = trim($mlOrderId);
+        if ($mlOrderId !== '') {
+            $ids[] = $mlOrderId;
+        }
+
+        if ($orderContext !== null) {
+            $ids = array_merge($ids, $this->mlOrderImportLookupIds($orderContext));
+        } else {
+            $packOrders = MercadoLibreService::fetchOrdersByPackId($mlOrderId);
+            if ($packOrders !== []) {
+                $packId = MercadoLibreService::normalizePackId($mlOrderId);
+                if ($packId !== '') {
+                    $ids[] = $packId;
+                }
+                foreach ($packOrders as $packOrder) {
+                    if (!is_array($packOrder)) {
+                        continue;
+                    }
+                    $memberOrderId = trim((string) ($packOrder['id'] ?? ''));
+                    if ($memberOrderId !== '') {
+                        $ids[] = $memberOrderId;
+                    }
+                }
+            } else {
+                $fetch = MercadoLibreService::getOrder($mlOrderId);
+                if ($fetch['success'] && is_array($fetch['order'])) {
+                    $ids = array_merge($ids, $this->mlOrderImportLookupIds($fetch['order']));
+                    $packId = MercadoLibreService::normalizePackId($fetch['order']['pack_id'] ?? null);
+                    if ($packId !== '') {
+                        $packOrders = MercadoLibreService::fetchOrdersByPackId($packId);
+                        foreach ($packOrders as $packOrder) {
+                            if (!is_array($packOrder)) {
+                                continue;
+                            }
+                            $memberOrderId = trim((string) ($packOrder['id'] ?? ''));
+                            if ($memberOrderId !== '') {
+                                $ids[] = $memberOrderId;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return array_values(array_unique(array_filter($ids, static fn (string $id): bool => $id !== '')));
+    }
+
+    private function findMlSaleByMlOrderId(Database $db, string $mlOrderId, ?array $orderContext = null): ?int
     {
         if (!$this->quotesHasMlOrderIdColumn($db)) {
             return null;
         }
 
-        $mlOrderId = trim($mlOrderId);
-        if ($mlOrderId === '') {
+        $lookupIds = $this->buildMlOrderImportLookupIds($mlOrderId, $orderContext);
+        if ($lookupIds === []) {
             return null;
         }
 
+        $placeholders = implode(',', array_fill(0, count($lookupIds), '?'));
         $row = $db->fetch(
             'SELECT id FROM quotes
-             WHERE ml_order_id = ? AND COALESCE(is_mercadolibre, 0) = 1
+             WHERE ml_order_id IN (' . $placeholders . ')
+               AND COALESCE(is_mercadolibre, 0) = 1
              LIMIT 1',
-            [$mlOrderId]
-        );
-
-        if ($row) {
-            return (int) ($row['id'] ?? 0);
-        }
-
-        $fetch = MercadoLibreService::getOrder($mlOrderId);
-        if (!$fetch['success'] || !is_array($fetch['order'])) {
-            return null;
-        }
-
-        $packId = MercadoLibreService::normalizePackId($fetch['order']['pack_id'] ?? null);
-        if ($packId === '' || $packId === $mlOrderId) {
-            return null;
-        }
-
-        $row = $db->fetch(
-            'SELECT id FROM quotes
-             WHERE ml_order_id = ? AND COALESCE(is_mercadolibre, 0) = 1
-             LIMIT 1',
-            [$packId]
+            $lookupIds
         );
 
         return $row ? (int) ($row['id'] ?? 0) : null;
