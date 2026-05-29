@@ -1501,14 +1501,21 @@ final class MercadoLibreController extends Controller
                 return;
             }
 
-            $fetch = MercadoLibreService::getOrder($orderId);
-            if (!$fetch['success'] || !is_array($fetch['order'])) {
-                flash('error', 'No se pudo obtener la orden de ML: ' . ($fetch['error'] ?: 'error desconocido'));
+            $order = MercadoLibreService::resolveOrderForImport($orderId);
+            if ($order === null || $order === []) {
+                flash('error', 'No se pudo obtener la orden o pack de ML.');
                 redirect('/mercadolibre/ordenes');
                 return;
             }
 
-            $payload = $this->buildSalePayloadFromMlOrder($fetch['order']);
+            $importId = trim((string) ($order['id'] ?? $orderId));
+            $existing = $this->findMlSaleByMlOrderId($db, $importId);
+            if ($existing !== null) {
+                redirect('/ventas-ml/' . $existing);
+                return;
+            }
+
+            $payload = $this->buildSalePayloadFromMlOrder($order);
             if (isset($payload['error']) && trim((string) $payload['error']) !== '') {
                 flash('error', (string) $payload['error']);
                 redirect('/mercadolibre/ordenes');
@@ -1521,7 +1528,8 @@ final class MercadoLibreController extends Controller
                 return;
             }
 
-            flash('success', 'Venta ML importada desde la orden #' . $orderId . '.');
+            $label = !empty($order['is_pack_group']) ? ('pack #' . $importId) : ('orden #' . $importId);
+            flash('success', 'Venta ML importada desde ' . $label . '.');
             redirect('/ventas-ml/' . (int) $result['id']);
         } catch (\Throwable $e) {
             flash('error', 'No se pudo importar la orden: ' . $e->getMessage());
@@ -2328,7 +2336,12 @@ final class MercadoLibreController extends Controller
     private function buildSalePayloadFromMlOrder(array $order): array
     {
         $db = Database::getInstance();
+        $isPackGroup = !empty($order['is_pack_group']);
         $mlOrderId = trim((string) ($order['id'] ?? ''));
+        $packId = MercadoLibreService::normalizePackId($order['pack_id'] ?? null);
+        if ($isPackGroup && $packId !== '') {
+            $mlOrderId = $packId;
+        }
 
         $orderDate = trim((string) ($order['date_created'] ?? $order['date_closed'] ?? ''));
         $saleDate = date('Y-m-d');
@@ -2390,12 +2403,43 @@ final class MercadoLibreController extends Controller
             return ['error' => $error];
         }
 
-        $mlNetResolved = $this->resolveMlNetAmountFromOrder($order, $mlSaleTotal, $mlOrderId);
-        $mlNetAmount = $mlNetResolved['amount'];
-        $this->logMlOrderImport(
-            $mlOrderId,
-            'ml_net_amount campo=' . $mlNetResolved['source'] . ' valor=' . number_format($mlNetAmount, 2, '.', '')
-        );
+        if ($isPackGroup && is_array($order['pack_member_orders'] ?? null)) {
+            $mlNetAmount = 0.0;
+            foreach ($order['pack_member_orders'] as $member) {
+                if (!is_array($member)) {
+                    continue;
+                }
+                $memberId = trim((string) ($member['id'] ?? ''));
+                $memberTotal = round((float) ($member['total_amount'] ?? $member['paid_amount'] ?? 0), 2);
+                $resolved = $this->resolveMlNetAmountFromOrder(
+                    $member,
+                    $memberTotal > 0 ? $memberTotal : null,
+                    $memberId
+                );
+                $mlNetAmount += $resolved['amount'];
+            }
+            $mlNetAmount = round($mlNetAmount, 2);
+            $this->logMlOrderImport(
+                $mlOrderId,
+                'ml_net_amount pack suma=' . number_format($mlNetAmount, 2, '.', '')
+                . ' ordenes=' . count($order['pack_member_orders'])
+            );
+        } else {
+            $mlNetResolved = $this->resolveMlNetAmountFromOrder($order, $mlSaleTotal, $mlOrderId);
+            $mlNetAmount = $mlNetResolved['amount'];
+            $this->logMlOrderImport(
+                $mlOrderId,
+                'ml_net_amount campo=' . $mlNetResolved['source'] . ' valor=' . number_format($mlNetAmount, 2, '.', '')
+            );
+        }
+
+        $packOrderIds = is_array($order['pack_order_ids'] ?? null) ? $order['pack_order_ids'] : [];
+        $notes = $isPackGroup
+            ? ('Importada desde pack MercadoLibre #' . $mlOrderId
+                . ($packOrderIds !== [] ? (' (órdenes: ' . implode(', ', $packOrderIds) . ')') : ''))
+            : ($mlOrderId !== ''
+                ? ('Importada desde orden MercadoLibre #' . $mlOrderId)
+                : 'Importada desde MercadoLibre');
 
         return [
             'sale_date' => $saleDate,
@@ -2403,10 +2447,10 @@ final class MercadoLibreController extends Controller
             'ml_net_amount' => $mlNetAmount,
             'items' => $lines,
             'ml_order_id' => $mlOrderId,
-            'title' => $mlOrderId !== '' ? ('Orden ML #' . $mlOrderId) : 'Venta MercadoLibre',
-            'notes' => $mlOrderId !== ''
-                ? ('Importada desde orden MercadoLibre #' . $mlOrderId)
-                : 'Importada desde MercadoLibre',
+            'title' => $isPackGroup
+                ? ('Pack ML #' . $mlOrderId)
+                : ($mlOrderId !== '' ? ('Orden ML #' . $mlOrderId) : 'Venta MercadoLibre'),
+            'notes' => $notes,
             'price_field_used' => 'ml_order',
         ];
     }
@@ -2646,6 +2690,29 @@ final class MercadoLibreController extends Controller
                 continue;
             }
 
+            if (!empty($order['is_pack_group']) && is_array($order['pack_member_orders'] ?? null)) {
+                $netSum = 0.0;
+                foreach ($order['pack_member_orders'] as $member) {
+                    if (!is_array($member)) {
+                        continue;
+                    }
+                    $memberId = trim((string) ($member['id'] ?? ''));
+                    $memberTotal = round((float) ($member['total_amount'] ?? $member['paid_amount'] ?? 0), 2);
+                    $resolved = $this->resolveMlNetAmountFromOrder(
+                        $member,
+                        $memberTotal > 0 ? $memberTotal : null,
+                        $memberId
+                    );
+                    $netSum += $resolved['amount'];
+                }
+                $display[$orderId] = [
+                    'amount' => round($netSum, 2),
+                    'source' => 'suma netos pack (' . count($order['pack_member_orders']) . ' órdenes)',
+                    'from_system' => false,
+                ];
+                continue;
+            }
+
             $mlSaleTotal = round((float) ($order['total_amount'] ?? $order['paid_amount'] ?? 0), 2);
             $resolved = $this->resolveMlNetAmountFromOrder(
                 $order,
@@ -2688,11 +2755,37 @@ final class MercadoLibreController extends Controller
             return null;
         }
 
+        $mlOrderId = trim($mlOrderId);
+        if ($mlOrderId === '') {
+            return null;
+        }
+
         $row = $db->fetch(
             'SELECT id FROM quotes
              WHERE ml_order_id = ? AND COALESCE(is_mercadolibre, 0) = 1
              LIMIT 1',
             [$mlOrderId]
+        );
+
+        if ($row) {
+            return (int) ($row['id'] ?? 0);
+        }
+
+        $fetch = MercadoLibreService::getOrder($mlOrderId);
+        if (!$fetch['success'] || !is_array($fetch['order'])) {
+            return null;
+        }
+
+        $packId = MercadoLibreService::normalizePackId($fetch['order']['pack_id'] ?? null);
+        if ($packId === '' || $packId === $mlOrderId) {
+            return null;
+        }
+
+        $row = $db->fetch(
+            'SELECT id FROM quotes
+             WHERE ml_order_id = ? AND COALESCE(is_mercadolibre, 0) = 1
+             LIMIT 1',
+            [$packId]
         );
 
         return $row ? (int) ($row['id'] ?? 0) : null;

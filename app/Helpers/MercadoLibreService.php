@@ -733,23 +733,11 @@ final class MercadoLibreService
 
             $data = $result['data'];
             $grouped = [];
-            $orderIndex = [];
+            $groupIndex = [];
             $anakasliaDiagEntries = [];
             if (is_array($data['results'] ?? null)) {
                 foreach ($data['results'] as $orderRef) {
-                    $order = null;
-                    if (is_array($orderRef)) {
-                        $order = $orderRef;
-                    } else {
-                        $orderId = trim((string) $orderRef);
-                        if ($orderId === '') {
-                            continue;
-                        }
-                        $detail = self::apiRequest('GET', '/orders/' . rawurlencode($orderId), null, true);
-                        if ($detail['success'] && is_array($detail['data'])) {
-                            $order = $detail['data'];
-                        }
-                    }
+                    $order = self::fetchOrderFromSearchRef($orderRef);
                     if (!is_array($order)) {
                         continue;
                     }
@@ -764,22 +752,28 @@ final class MercadoLibreService
                         continue;
                     }
 
-                    $lineItems = [];
-                    foreach ($order['order_items'] ?? [] as $item) {
-                        if (is_array($item)) {
-                            $lineItems[] = $item;
-                        }
-                    }
+                    $lineItems = self::extractOrderLineItems($order);
+                    $packId = self::normalizePackId($order['pack_id'] ?? null);
+                    $groupKey = $packId !== '' ? 'pack:' . $packId : 'order:' . $orderId;
 
-                    if (isset($orderIndex[$orderId])) {
-                        $idx = $orderIndex[$orderId];
-                        $grouped[$idx]['items'] = array_merge($grouped[$idx]['items'], $lineItems);
+                    if (isset($groupIndex[$groupKey])) {
+                        $idx = $groupIndex[$groupKey];
+                        if ($packId !== '') {
+                            self::mergeOrderIntoPackGroup($grouped[$idx], $order, $lineItems);
+                        } else {
+                            $grouped[$idx]['items'] = array_merge($grouped[$idx]['items'] ?? [], $lineItems);
+                        }
                         continue;
                     }
 
-                    $entry = $order;
-                    $entry['items'] = $lineItems;
-                    $orderIndex[$orderId] = count($grouped);
+                    if ($packId !== '') {
+                        $entry = self::buildPackOrderGroup([$order], $packId);
+                    } else {
+                        $entry = $order;
+                        $entry['items'] = $lineItems;
+                    }
+
+                    $groupIndex[$groupKey] = count($grouped);
                     $grouped[] = $entry;
                 }
             }
@@ -802,6 +796,233 @@ final class MercadoLibreService
                 'error' => $e->getMessage(),
             ];
         }
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public static function fetchOrdersByPackId(string $packId): array
+    {
+        $packId = self::normalizePackId($packId);
+        if ($packId === '') {
+            return [];
+        }
+
+        try {
+            $userId = trim(setting('ml_user_id', '') ?? '');
+            if ($userId === '') {
+                return [];
+            }
+
+            $fromDate = (new \DateTimeImmutable('-30 days'))->format('Y-m-d\T00:00:00.000-03:00');
+            $found = [];
+            $offset = 0;
+            $limit = 50;
+            $maxOffset = 500;
+
+            while ($offset <= $maxOffset) {
+                $path = '/orders/search?seller=' . rawurlencode($userId)
+                    . '&sort=date_desc&offset=' . $offset
+                    . '&limit=' . $limit
+                    . '&order.date_created.from=' . rawurlencode($fromDate);
+
+                $result = self::apiRequest('GET', $path, null, true);
+                if (!$result['success'] || !is_array($result['data']['results'] ?? null)) {
+                    break;
+                }
+
+                $refs = $result['data']['results'];
+                if ($refs === []) {
+                    break;
+                }
+
+                foreach ($refs as $orderRef) {
+                    $order = self::fetchOrderFromSearchRef($orderRef);
+                    if (!is_array($order)) {
+                        continue;
+                    }
+                    if (self::normalizePackId($order['pack_id'] ?? null) !== $packId) {
+                        continue;
+                    }
+                    $orderId = trim((string) ($order['id'] ?? ''));
+                    if ($orderId === '') {
+                        continue;
+                    }
+                    $found[$orderId] = $order;
+                }
+
+                if (count($refs) < $limit) {
+                    break;
+                }
+                $offset += $limit;
+            }
+
+            return array_values($found);
+        } catch (\Throwable $e) {
+            self::logError('fetchOrdersByPackId', "pack_id={$packId}", 0, $e->getMessage());
+
+            return [];
+        }
+    }
+
+    /**
+     * Resuelve una orden individual o un pack completo para importar como venta ML.
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function resolveOrderForImport(string $identifier): ?array
+    {
+        $identifier = trim($identifier);
+        if ($identifier === '') {
+            return null;
+        }
+
+        $packOrders = self::fetchOrdersByPackId($identifier);
+        if ($packOrders !== []) {
+            $group = self::buildPackOrderGroup($packOrders, $identifier);
+
+            return $group !== [] ? $group : null;
+        }
+
+        $fetch = self::getOrder($identifier);
+        if (!$fetch['success'] || !is_array($fetch['order'])) {
+            return null;
+        }
+
+        $order = $fetch['order'];
+        $packId = self::normalizePackId($order['pack_id'] ?? null);
+        if ($packId !== '') {
+            $packOrders = self::fetchOrdersByPackId($packId);
+            if ($packOrders !== []) {
+                $group = self::buildPackOrderGroup($packOrders, $packId);
+
+                return $group !== [] ? $group : null;
+            }
+        }
+
+        $entry = $order;
+        $entry['items'] = self::extractOrderLineItems($order);
+
+        return $entry;
+    }
+
+    public static function normalizePackId(mixed $packId): string
+    {
+        if ($packId === null || $packId === '') {
+            return '';
+        }
+        if (is_int($packId) || is_float($packId)) {
+            return trim((string) $packId);
+        }
+
+        return trim((string) $packId);
+    }
+
+    /**
+     * @param list<array<string, mixed>> $orders
+     * @return array<string, mixed>
+     */
+    public static function buildPackOrderGroup(array $orders, string $packId): array
+    {
+        $packId = self::normalizePackId($packId);
+        if ($packId === '' || $orders === []) {
+            return [];
+        }
+
+        $first = null;
+        $items = [];
+        $packOrderIds = [];
+        $members = [];
+        $total = 0.0;
+
+        foreach ($orders as $order) {
+            if (!is_array($order)) {
+                continue;
+            }
+            if ($first === null) {
+                $first = $order;
+            }
+            $orderId = trim((string) ($order['id'] ?? ''));
+            if ($orderId !== '') {
+                $packOrderIds[] = $orderId;
+            }
+            $members[] = $order;
+            $items = array_merge($items, self::extractOrderLineItems($order));
+            $total += round((float) ($order['total_amount'] ?? $order['paid_amount'] ?? 0), 2);
+        }
+
+        if ($first === null) {
+            return [];
+        }
+
+        $entry = $first;
+        $entry['id'] = $packId;
+        $entry['pack_id'] = $packId;
+        $entry['is_pack_group'] = true;
+        $entry['items'] = $items;
+        $entry['pack_order_ids'] = array_values(array_unique($packOrderIds));
+        $entry['pack_member_orders'] = $members;
+        $entry['total_amount'] = round($total, 2);
+        $entry['paid_amount'] = $entry['total_amount'];
+
+        return $entry;
+    }
+
+    /**
+     * @param array<string, mixed> $entry
+     * @param list<array<string, mixed>> $lineItems
+     */
+    private static function mergeOrderIntoPackGroup(array &$entry, array $order, array $lineItems): void
+    {
+        $orderId = trim((string) ($order['id'] ?? ''));
+        $entry['items'] = array_merge($entry['items'] ?? [], $lineItems);
+        if ($orderId !== '') {
+            $entry['pack_order_ids'] = array_values(array_unique(array_merge(
+                $entry['pack_order_ids'] ?? [],
+                [$orderId]
+            )));
+        }
+        $entry['pack_member_orders'] = array_merge($entry['pack_member_orders'] ?? [], [$order]);
+        $orderTotal = round((float) ($order['total_amount'] ?? $order['paid_amount'] ?? 0), 2);
+        $entry['total_amount'] = round((float) ($entry['total_amount'] ?? 0) + $orderTotal, 2);
+        $entry['paid_amount'] = $entry['total_amount'];
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private static function extractOrderLineItems(array $order): array
+    {
+        $items = [];
+        foreach ($order['order_items'] ?? [] as $item) {
+            if (is_array($item)) {
+                $items[] = $item;
+            }
+        }
+
+        return $items;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private static function fetchOrderFromSearchRef(mixed $orderRef): ?array
+    {
+        if (is_array($orderRef)) {
+            return $orderRef;
+        }
+
+        $orderId = trim((string) $orderRef);
+        if ($orderId === '') {
+            return null;
+        }
+
+        $detail = self::apiRequest('GET', '/orders/' . rawurlencode($orderId), null, true);
+        if ($detail['success'] && is_array($detail['data'])) {
+            return $detail['data'];
+        }
+
+        return null;
     }
 
     /**
