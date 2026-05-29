@@ -14,6 +14,7 @@ $cfg = [
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#1565C0">
     <title><?= e($title ?? 'Presupuesto rápido') ?> — LIMPIA OESTE</title>
+    <link rel="icon" type="image/png" href="<?= e(url('/favicon.png')) ?>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
