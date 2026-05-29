@@ -205,9 +205,9 @@ final class MlPriceIntelligence
             }
 
             $condition = is_array($item['condition'] ?? null)
-                ? (string) ($item['condition']['id'] ?? $item['condition'])
+                ? (string) ($item['condition']['id'] ?? '')
                 : (string) ($item['condition'] ?? '');
-            if ($condition !== '' && $condition !== 'new') {
+            if ($condition !== 'new') {
                 continue;
             }
 
