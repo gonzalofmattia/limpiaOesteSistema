@@ -7,7 +7,8 @@ namespace App\Helpers;
 use App\Models\Database;
 
 /**
- * Análisis de precios competitivos en MercadoLibre vía búsqueda por categoría (OAuth).
+ * Análisis de precios competitivos en MercadoLibre.
+ * La búsqueda en ML se hace desde el navegador; el servidor persiste y calcula precios.
  */
 final class MlPriceIntelligence
 {
@@ -78,6 +79,121 @@ final class MlPriceIntelligence
     public static function resetSearchLogCounter(): void
     {
         self::$loggedSearchCount = 0;
+    }
+
+    /** @return array<string, mixed>|null */
+    public static function fetchListingById(int $listingId): ?array
+    {
+        if ($listingId <= 0) {
+            return null;
+        }
+
+        $row = Database::getInstance()->fetch(
+            'SELECT l.id, l.product_id, l.ml_item_id, l.title, l.price, l.ml_category_id,
+                    l.ml_thumbnail, l.ml_permalink, l.status,
+                    p.name AS product_name, p.code AS product_code
+             FROM ml_listings l
+             INNER JOIN products p ON p.id = l.product_id AND p.is_active = 1
+             WHERE l.id = ? AND l.status = ?',
+            [$listingId, 'active']
+        );
+
+        return is_array($row) ? $row : null;
+    }
+
+    /**
+     * Recibe competidores obtenidos en el navegador, calcula precio sugerido y guarda caché.
+     *
+     * @param list<array<string, mixed>> $rawCompetitors
+     * @return array{success: bool, error: string, analysis: array<string, mixed>|null}
+     */
+    public static function saveCompetitorsFromBrowser(int $listingId, array $rawCompetitors, string $searchQuery = ''): array
+    {
+        $listing = self::fetchListingById($listingId);
+        if ($listing === null) {
+            return ['success' => false, 'error' => 'Listing no encontrado o inactivo.', 'analysis' => null];
+        }
+
+        $productId = (int) ($listing['product_id'] ?? 0);
+        $currentPrice = round((float) ($listing['price'] ?? 0), 2);
+        $cost = self::resolveProductCost($productId);
+        $minPrice = $cost > 0 ? self::calculateMinAcceptablePrice($cost) : 0.0;
+        $competitors = self::normalizeBrowserCompetitors($rawCompetitors);
+
+        $avgPrice = 0.0;
+        if ($competitors !== []) {
+            $sum = 0.0;
+            foreach ($competitors as $c) {
+                $sum += (float) ($c['price'] ?? 0);
+            }
+            $avgPrice = round($sum / count($competitors), 2);
+        }
+
+        $suggestedPrice = $avgPrice > 0 ? max($avgPrice, $minPrice) : 0.0;
+        if ($suggestedPrice > 0) {
+            $suggestedPrice = round($suggestedPrice, 2);
+        }
+
+        $status = self::determineStatus($currentPrice, $avgPrice);
+
+        if ($searchQuery === '') {
+            $searchQuery = self::buildSearchQuery((string) ($listing['product_name'] ?? ''));
+        }
+
+        $result = self::buildAnalysisResult(
+            $currentPrice,
+            $minPrice,
+            $avgPrice,
+            $suggestedPrice,
+            $status,
+            $competitors,
+            null,
+            $cost,
+            $searchQuery
+        );
+        self::saveCache($listingId, $result);
+
+        return ['success' => true, 'error' => '', 'analysis' => $result];
+    }
+
+    /**
+     * @param list<array<string, mixed>> $raw
+     * @return list<array<string, mixed>>
+     */
+    private static function normalizeBrowserCompetitors(array $raw): array
+    {
+        $out = [];
+        foreach ($raw as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $seller = is_array($item['seller'] ?? null) ? $item['seller'] : [];
+            $price = (float) ($item['price'] ?? 0);
+            if ($price <= 0) {
+                continue;
+            }
+
+            $itemId = trim((string) ($item['item_id'] ?? $item['id'] ?? ''));
+            if ($itemId === '') {
+                continue;
+            }
+
+            $reputation = $item['seller_reputation'] ?? null;
+            $out[] = [
+                'item_id' => $itemId,
+                'title' => trim((string) ($item['title'] ?? '')),
+                'price' => round($price, 2),
+                'sold_quantity' => (int) ($item['sold_quantity'] ?? 0),
+                'seller_reputation' => is_string($reputation) && $reputation !== ''
+                    ? $reputation
+                    : self::formatSellerReputation($seller),
+                'seller_nickname' => trim((string) ($item['seller_nickname'] ?? $seller['nickname'] ?? '')),
+                'permalink' => trim((string) ($item['permalink'] ?? '')),
+            ];
+        }
+
+        return array_slice($out, 0, self::COMPETITOR_PICK_LIMIT);
     }
 
     /** @param array<string, mixed> $listing */

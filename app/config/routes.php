@@ -124,6 +124,7 @@ return [
     ['POST', 'mercadolibre/precios-competencia/analizar-todos', 'MercadoLibreController@priceCompetitionAnalyzeAll', []],
     ['POST', 'mercadolibre/precios-competencia/aplicar-todos', 'MercadoLibreController@priceCompetitionApplyAll', []],
     ['POST', 'mercadolibre/precios-competencia/{id}/aplicar', 'MercadoLibreController@priceCompetitionApply', []],
+    ['POST', 'mercadolibre/precios-competencia/{id}/guardar-competidores', 'MercadoLibreController@priceCompetitionSaveCompetitors', []],
     ['GET', 'api/ml/precio-preview', 'MercadoLibreController@pricePreview', ['public' => true]],
     ['POST', 'api/ml/generar-descripcion', 'MercadoLibreController@generateDescription', ['public' => true]],
     ['POST', 'api/ml/guardar-descripcion-producto', 'MercadoLibreController@saveProductCatalogDescription', []],

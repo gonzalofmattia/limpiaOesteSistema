@@ -4,15 +4,17 @@ $csrf = csrfToken();
 $analyzeUrl = url('/mercadolibre/precios-competencia/analizar-todos');
 $applyAllUrl = url('/mercadolibre/precios-competencia/aplicar-todos');
 $applyBaseUrl = url('/mercadolibre/precios-competencia');
+$mlUserId = trim((string) ($ml_user_id ?? ''));
 $rowsJson = json_encode($rows, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
 ?>
-<div class="space-y-6" x-data="mlPriceIntel(<?= e($rowsJson ?: '[]') ?>, '<?= e($csrf) ?>', '<?= e($analyzeUrl) ?>', '<?= e($applyAllUrl) ?>', '<?= e($applyBaseUrl) ?>')">
+<div class="space-y-6" x-data="mlPriceIntel(<?= e($rowsJson ?: '[]') ?>, '<?= e($csrf) ?>', '<?= e($analyzeUrl) ?>', '<?= e($applyAllUrl) ?>', '<?= e($applyBaseUrl) ?>', '<?= e($mlUserId) ?>')">
     <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
             <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">MercadoLibre</p>
             <h2 class="text-xl font-semibold text-slate-900">Análisis de precios competitivos</h2>
             <p class="mt-1 text-sm text-slate-600">
-                Compará tus listings activos contra la competencia en ML. Los resultados se cachean 24 horas.
+                La búsqueda en ML se ejecuta desde tu navegador (el servidor de Ferozo no puede consultar la API de búsqueda).
+                Los resultados se guardan en caché 24 horas.
             </p>
         </div>
         <a href="<?= e(url('/mercadolibre')) ?>" class="inline-flex items-center gap-2 rounded-lg border border-lo-border bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
@@ -75,6 +77,9 @@ $rowsJson = json_encode($rows, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_
                         <td class="px-4 py-2.5">
                             <p class="font-medium text-slate-900" x-text="item.listing.product_name || '—'"></p>
                             <p class="text-xs text-slate-500 mt-0.5 line-clamp-1" x-text="item.listing.title || ''"></p>
+                            <p x-show="item.search_query" class="text-xs text-slate-400 mt-0.5">
+                                Búsqueda: <span x-text="item.search_query"></span>
+                            </p>
                         </td>
                         <td class="px-4 py-2.5 text-right font-medium" x-text="fmt(item.analysis?.current_price ?? item.listing.price)"></td>
                         <td class="px-4 py-2.5 text-right text-slate-600" x-text="fmt(item.analysis?.min_acceptable_price)"></td>
@@ -88,6 +93,13 @@ $rowsJson = json_encode($rows, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_
                         <td class="px-4 py-2.5 text-center text-slate-600" x-text="item.analysis ? (item.analysis.competitors_count ?? 0) : '—'"></td>
                         <td class="px-4 py-2.5">
                             <div class="flex flex-wrap justify-end gap-1.5">
+                                <button type="button"
+                                        @click="searchCompetitors(item)"
+                                        class="inline-flex items-center gap-1 rounded border border-lo-blue bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-lo-blue hover:bg-blue-100 disabled:opacity-50"
+                                        :disabled="searchingId === item.listing.id || analyzing">
+                                    <i data-lucide="search" class="h-3.5 w-3.5" :class="searchingId === item.listing.id ? 'animate-spin' : ''"></i>
+                                    <span x-text="searchingId === item.listing.id ? 'Buscando…' : 'Buscar competidores'"></span>
+                                </button>
                                 <button type="button"
                                         @click="toggleExpand(item.listing.id)"
                                         class="inline-flex items-center gap-1 rounded border border-lo-border bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
@@ -144,14 +156,19 @@ $rowsJson = json_encode($rows, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_
 </div>
 
 <script>
-function mlPriceIntel(initialRows, csrf, analyzeUrl, applyAllUrl, applyBaseUrl) {
+function mlPriceIntel(initialRows, csrf, analyzeUrl, applyAllUrl, applyBaseUrl, mlUserId) {
+    const ML_SEARCH_BASE = 'https://api.mercadolibre.com/sites/MLA/search';
+
     return {
         items: initialRows.map(r => ({
             listing: r.listing,
             analysis: r.analysis || null,
+            search_query: r.search_query || '',
         })),
+        mlUserId: mlUserId || '',
         expanded: {},
         analyzing: false,
+        searchingId: null,
         applyingAll: false,
         applyingId: null,
         progressDone: 0,
@@ -189,6 +206,91 @@ function mlPriceIntel(initialRows, csrf, analyzeUrl, applyAllUrl, applyBaseUrl) 
             return this.items.find(i => i.listing.id === listingId);
         },
 
+        sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        },
+
+        filterCompetitors(results, mlItemId) {
+            const ownId = String(this.mlUserId || '');
+            const excludeItem = String(mlItemId || '');
+
+            return (results || [])
+                .filter(item => {
+                    const sellerId = String(item.seller?.id ?? '');
+                    if (ownId !== '' && sellerId === ownId) return false;
+                    if (excludeItem !== '' && String(item.id ?? '') === excludeItem) return false;
+                    return item.buying_mode === 'buy_it_now';
+                })
+                .slice(0, 5);
+        },
+
+        async fetchMlSearch(query) {
+            const url = ML_SEARCH_BASE + '?q=' + encodeURIComponent(query) + '&limit=10';
+            const res = await fetch(url);
+            if (!res.ok) {
+                throw new Error('MercadoLibre respondió HTTP ' + res.status);
+            }
+            return res.json();
+        },
+
+        async saveCompetitors(listingId, competidores, searchQuery) {
+            const res = await fetch(applyBaseUrl + '/' + listingId + '/guardar-competidores', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-Token': csrf,
+                },
+                body: JSON.stringify({
+                    listing_id: listingId,
+                    competidores,
+                    search_query: searchQuery,
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error(data.error || 'No se pudieron guardar los competidores.');
+            }
+            return data;
+        },
+
+        async runSearchForItem(item) {
+            const listingId = item.listing.id;
+            const query = (item.search_query || '').trim();
+            if (!query) {
+                throw new Error('Sin término de búsqueda para ' + (item.listing.product_name || listingId));
+            }
+
+            const data = await this.fetchMlSearch(query);
+            const competidores = this.filterCompetitors(data.results, item.listing.ml_item_id);
+            const saved = await this.saveCompetitors(listingId, competidores, query);
+            if (saved.analysis) {
+                item.analysis = saved.analysis;
+            }
+
+            return { competidores, analysis: saved.analysis };
+        },
+
+        async searchCompetitors(item) {
+            if (this.searchingId || this.analyzing) return;
+
+            const listingId = item.listing.id;
+            this.searchingId = listingId;
+            this.message = '';
+            this.messageError = false;
+
+            try {
+                const result = await this.runSearchForItem(item);
+                this.message = 'Competidores encontrados: ' + result.competidores.length + '.';
+            } catch (e) {
+                this.message = e.message || 'Error al buscar competidores.';
+                this.messageError = true;
+            } finally {
+                this.searchingId = null;
+                if (window.lucide) lucide.createIcons();
+            }
+        },
+
         async analyzeAll() {
             if (this.analyzing) return;
             this.analyzing = true;
@@ -197,56 +299,44 @@ function mlPriceIntel(initialRows, csrf, analyzeUrl, applyAllUrl, applyBaseUrl) 
             this.progressDone = 0;
             this.progressTotal = this.items.length;
 
+            let errors = 0;
+
             try {
-                const res = await fetch(analyzeUrl, {
+                const clearRes = await fetch(analyzeUrl, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                        'Accept': 'application/x-ndjson',
-                    },
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body: '_csrf=' + encodeURIComponent(csrf),
                 });
-
-                if (!res.ok) {
-                    throw new Error('Error HTTP ' + res.status);
+                const clearData = await clearRes.json();
+                if (!clearRes.ok || !clearData.success) {
+                    throw new Error(clearData.error || 'No se pudo limpiar la caché.');
                 }
 
-                const reader = res.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = '';
-
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    buffer += decoder.decode(value, { stream: true });
-                    const lines = buffer.split('\n');
-                    buffer = lines.pop() || '';
-
-                    for (const line of lines) {
-                        if (!line.trim()) continue;
-                        let evt;
-                        try { evt = JSON.parse(line); } catch { continue; }
-
-                        if (evt.type === 'start') {
-                            this.progressTotal = evt.total || this.items.length;
-                        } else if (evt.type === 'progress') {
-                            this.progressDone = evt.index || 0;
-                            const row = this.findItem(evt.listing_id);
-                            if (row && evt.analysis) {
-                                row.analysis = evt.analysis;
-                            }
-                        } else if (evt.type === 'error') {
-                            throw new Error(evt.error || 'Error en análisis');
-                        } else if (evt.type === 'done') {
-                            this.message = 'Análisis completado para ' + (evt.total || this.progressTotal) + ' listings.';
-                        }
+                for (let i = 0; i < this.items.length; i++) {
+                    const item = this.items[i];
+                    this.searchingId = item.listing.id;
+                    try {
+                        await this.runSearchForItem(item);
+                    } catch (e) {
+                        errors++;
+                        console.warn('Listing ' + item.listing.id + ':', e);
+                    }
+                    this.searchingId = null;
+                    this.progressDone = i + 1;
+                    if (i < this.items.length - 1) {
+                        await this.sleep(1000);
                     }
                 }
+
+                this.message = 'Análisis completado para ' + this.items.length + ' listings.'
+                    + (errors > 0 ? ' (' + errors + ' con error).' : '');
+                this.messageError = errors > 0;
             } catch (e) {
                 this.message = e.message || 'Error al analizar.';
                 this.messageError = true;
             } finally {
                 this.analyzing = false;
+                this.searchingId = null;
                 if (window.lucide) lucide.createIcons();
             }
         },

@@ -785,6 +785,7 @@ final class MercadoLibreController extends Controller
                 $rows[] = [
                     'listing' => $listing,
                     'analysis' => $analysis,
+                    'search_query' => MlPriceIntelligence::buildSearchQuery((string) ($listing['product_name'] ?? '')),
                 ];
             }
 
@@ -803,62 +804,54 @@ final class MercadoLibreController extends Controller
     public function priceCompetitionAnalyzeAll(): void
     {
         if (!verifyCsrf()) {
-            http_response_code(419);
-            header('Content-Type: application/json; charset=utf-8');
-            echo json_encode(['success' => false, 'error' => 'CSRF'], JSON_UNESCAPED_UNICODE);
+            $this->json(['success' => false, 'error' => 'Token inválido.'], 419);
 
             return;
         }
 
-        while (ob_get_level() > 0) {
-            ob_end_clean();
+        try {
+            $cleared = MlPriceIntelligence::clearAllCache();
+            $this->json(['success' => true, 'cleared' => $cleared]);
+        } catch (\Throwable $e) {
+            $this->json(['success' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function priceCompetitionSaveCompetitors(int $id): void
+    {
+        if (!verifyCsrf()) {
+            $this->json(['success' => false, 'error' => 'Token inválido.'], 419);
+
+            return;
         }
 
-        header('Content-Type: application/x-ndjson; charset=utf-8');
-        header('Cache-Control: no-cache, no-store');
-        header('X-Accel-Buffering: no');
-        ini_set('output_buffering', 'off');
-        ini_set('zlib.output_compression', '0');
-        set_time_limit(600);
+        $listingId = (int) $id;
+        if ($listingId <= 0) {
+            $this->json(['success' => false, 'error' => 'Listing inválido.'], 400);
 
-        $emit = static function (array $payload): void {
-            echo json_encode($payload, JSON_UNESCAPED_UNICODE) . "\n";
-            if (function_exists('flush')) {
-                flush();
-            }
-        };
+            return;
+        }
+
+        /** @var array<string, mixed>|null $body */
+        $body = json_decode((string) file_get_contents('php://input'), true);
+        if (!is_array($body)) {
+            $this->json(['success' => false, 'error' => 'JSON inválido.'], 400);
+
+            return;
+        }
+
+        $competitors = is_array($body['competidores'] ?? null) ? $body['competidores'] : [];
+        $searchQuery = trim((string) ($body['search_query'] ?? ''));
 
         try {
-            MlPriceIntelligence::clearAllCache();
-            MlPriceIntelligence::resetSearchLogCounter();
-
-            $mlUserId = trim((string) (setting('ml_user_id', '') ?? ''));
-            $listings = MlPriceIntelligence::fetchActiveListings();
-            $total = count($listings);
-
-            $emit(['type' => 'start', 'total' => $total]);
-
-            foreach ($listings as $index => $listing) {
-                $listingId = (int) ($listing['id'] ?? 0);
-                $analysis = MlPriceIntelligence::analyzeListing($listing, $mlUserId, true);
-
-                $emit([
-                    'type' => 'progress',
-                    'index' => $index + 1,
-                    'total' => $total,
-                    'listing_id' => $listingId,
-                    'product_name' => (string) ($listing['product_name'] ?? ''),
-                    'analysis' => $analysis,
-                ]);
-
-                if ($index < $total - 1) {
-                    sleep(1);
-                }
-            }
-
-            $emit(['type' => 'done', 'total' => $total]);
+            $result = MlPriceIntelligence::saveCompetitorsFromBrowser($listingId, $competitors, $searchQuery);
+            $this->json([
+                'success' => $result['success'],
+                'error' => $result['error'],
+                'analysis' => $result['analysis'],
+            ], $result['success'] ? 200 : 422);
         } catch (\Throwable $e) {
-            $emit(['type' => 'error', 'error' => $e->getMessage()]);
+            $this->json(['success' => false, 'error' => $e->getMessage()], 500);
         }
     }
 
