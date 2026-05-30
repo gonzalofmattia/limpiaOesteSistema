@@ -543,14 +543,22 @@ final class ApiController extends Controller
     {
         $pid = (int) $row['id'];
         $effSlug = strtolower((string) ($row['category_effective_slug'] ?? ''));
-        $resolved = QuoteLinePricing::resolveListaForQuote($row, $effSlug, 'caja');
-        $lista = $resolved['lista_seiq'];
         $mayorOv = self::optionalMarkupOverride('catalog_markup_mayorista');
         $minorOv = self::optionalMarkupOverride('catalog_markup_minorista');
-        $calcMayor = PricingEngine::calculateWithListaSeiq($lista, $row, $mayorOv, false);
-        $calcMinor = $minorOv !== null
-            ? PricingEngine::calculateWithListaSeiq($lista, $row, $minorOv, false)
-            : $calcMayor;
+        // Tienda web: precios por unidad (minorista y mayorista), no por caja.
+        $resolvedCaja = QuoteLinePricing::resolveListaForQuote($row, $effSlug, 'caja');
+        $calcCajaMayor = PricingEngine::calculateWithListaSeiq($resolvedCaja['lista_seiq'], $row, $mayorOv, false);
+        $calcCajaMinor = $minorOv !== null
+            ? PricingEngine::calculateWithListaSeiq($resolvedCaja['lista_seiq'], $row, $minorOv, false)
+            : $calcCajaMayor;
+        $unitMayor = QuoteLinePricing::priceListUnitAndPack($row, $effSlug, $mayorOv, false, $calcCajaMayor);
+        $unitMinor = QuoteLinePricing::priceListUnitAndPack(
+            $row,
+            $effSlug,
+            $minorOv ?? $mayorOv,
+            false,
+            $calcCajaMinor
+        );
         $parent = trim((string) ($row['category_parent_name'] ?? ''));
         $leaf = trim((string) ($row['category_leaf_name'] ?? ''));
         if ($parent !== '') {
@@ -591,8 +599,8 @@ final class ApiController extends Controller
             'equivalence' => $this->nullIfEmpty($row['equivalence'] ?? null),
             'cover_image' => $cover,
             'prices' => [
-                'mayorista' => $calcMayor['precio_venta'],
-                'minorista' => $calcMinor['precio_venta'],
+                'mayorista' => $unitMayor['individual_venta'],
+                'minorista' => $unitMinor['individual_venta'],
             ],
         ];
         if ($detail) {
