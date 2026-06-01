@@ -544,23 +544,19 @@ final class ApiController extends Controller
         $pid = (int) $row['id'];
         $effSlug = strtolower((string) ($row['category_effective_slug'] ?? ''));
         $mayorOv = self::optionalMarkupOverride('catalog_markup_mayorista');
-        $minorOv = self::optionalMarkupOverride('catalog_markup_minorista');
+        $minorMarkup = self::resolveCatalogMinoristaMarkup();
         // Tienda web: siempre precio de 1 unidad (minorista/mayorista), nunca el total del pack/caja.
         $resolvedUnit = QuoteLinePricing::resolveListaForQuote($row, $effSlug, 'unidad');
         $listaUnit = (float) $resolvedUnit['lista_seiq'];
         if ($listaUnit > 0) {
             $calcMayor = PricingEngine::calculateWithListaSeiq($listaUnit, $row, $mayorOv, false);
-            $calcMinor = $minorOv !== null
-                ? PricingEngine::calculateWithListaSeiq($listaUnit, $row, $minorOv, false)
-                : $calcMayor;
+            $calcMinor = PricingEngine::calculateWithListaSeiq($listaUnit, $row, $minorMarkup, false);
             $mayorPrice = (float) $calcMayor['precio_venta'];
             $minorPrice = (float) $calcMinor['precio_venta'];
         } else {
             $resolvedCaja = QuoteLinePricing::resolveListaForQuote($row, $effSlug, 'caja');
             $calcCajaMayor = PricingEngine::calculateWithListaSeiq($resolvedCaja['lista_seiq'], $row, $mayorOv, false);
-            $calcCajaMinor = $minorOv !== null
-                ? PricingEngine::calculateWithListaSeiq($resolvedCaja['lista_seiq'], $row, $minorOv, false)
-                : $calcCajaMayor;
+            $calcCajaMinor = PricingEngine::calculateWithListaSeiq($resolvedCaja['lista_seiq'], $row, $minorMarkup, false);
             $unitsInPack = max(1, (int) ($row['units_per_box'] ?? 1));
             $mayorPrice = round((float) $calcCajaMayor['precio_venta'] / $unitsInPack, 2);
             $minorPrice = round((float) $calcCajaMinor['precio_venta'] / $unitsInPack, 2);
@@ -638,6 +634,17 @@ final class ApiController extends Controller
         }
 
         return (float) $s;
+    }
+
+    /** Markup % para precios minorista del catálogo web (default 90, igual que listas minorista). */
+    private static function resolveCatalogMinoristaMarkup(): float
+    {
+        $ov = self::optionalMarkupOverride('catalog_markup_minorista');
+        if ($ov !== null) {
+            return $ov;
+        }
+
+        return 90.0;
     }
 
     public function catalogFeatured(): void
