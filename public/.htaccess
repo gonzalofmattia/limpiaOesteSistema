@@ -1,17 +1,11 @@
-# CORS para la tienda en limpiaoeste.com.ar
-Header always set Access-Control-Allow-Origin "https://limpiaoeste.com.ar"
-Header always set Access-Control-Allow-Methods "GET, OPTIONS"
-Header always set Access-Control-Allow-Headers "Content-Type"
+# CORS para la tienda
+Header always set Access-Control-Allow-Origin "*"
+Header always set Access-Control-Allow-Methods "GET, POST, OPTIONS"
+Header always set Access-Control-Allow-Headers "Content-Type, Authorization"
 
-# En desarrollo local también permitir localhost y limpiaOeste.test
-<IfModule mod_setenvif.c>
-  SetEnvIf Origin "http://localhost:5173" CORS_ORIGIN=http://localhost:5173
-  SetEnvIf Origin "http://localhost:5174" CORS_ORIGIN=http://localhost:5174
-  SetEnvIf Origin "http://localhost:5175" CORS_ORIGIN=http://localhost:5175
-  SetEnvIf Origin "http://localhost:5176" CORS_ORIGIN=http://localhost:5176
-  SetEnvIf Origin "http://limpiaOeste.test" CORS_ORIGIN=http://limpiaOeste.test
-  Header always set Access-Control-Allow-Origin "%{CORS_ORIGIN}e" env=CORS_ORIGIN
-</IfModule>
+# Responder OK a preflight OPTIONS
+RewriteCond %{REQUEST_METHOD} OPTIONS
+RewriteRule ^(.*)$ $1 [R=200,L]
 
 RewriteEngine On
 

@@ -7,6 +7,7 @@ namespace App\Controllers;
 use App\Core\Controller;
 use App\Helpers\ClientMarkupResolver;
 use App\Helpers\CategoryHierarchy;
+use App\Helpers\Env;
 use App\Helpers\ImageUploader;
 use App\Helpers\PricingEngine;
 use App\Helpers\QuoteLinePricing;
@@ -845,5 +846,240 @@ final class ApiController extends Controller
             'category' => $storeCategory,
             'products' => $products,
         ]);
+    }
+
+    /**
+     * POST api/catalogo/buscar
+     * Búsqueda híbrida: local primero, Claude si no hay resultados suficientes
+     * Body JSON: { "q": "string" }
+     */
+    public function search(): void
+    {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            http_response_code(405);
+            $this->json(['error' => 'Método no permitido']);
+            return;
+        }
+
+        $body = json_decode(file_get_contents('php://input'), true);
+        $q = trim($body['q'] ?? '');
+
+        if (strlen($q) < 2) {
+            $this->json(['results' => [], 'mode' => 'empty']);
+            return;
+        }
+
+        $db = Database::getInstance();
+
+        $localResults = $this->localSearch($db, $q);
+
+        if (count($localResults) >= 2) {
+            $this->json([
+                'results' => $localResults,
+                'mode' => 'local',
+                'query' => $q,
+            ]);
+            return;
+        }
+
+        $aiResults = $this->claudeSearch($db, $q);
+        $this->json([
+            'results' => $aiResults['products'],
+            'mode' => 'ai',
+            'query' => $q,
+            'ai_message' => $aiResults['message'] ?? null,
+        ]);
+    }
+
+    private function localSearch(Database $db, string $q): array
+    {
+        $like = '%' . $q . '%';
+        $rows = $db->fetchAll(
+            'SELECT p.*,
+                    COALESCE(pc.slug, c.slug) AS category_effective_slug,
+                    c.name AS category_leaf_name,
+                    pc.name AS category_parent_name,
+                    c.default_discount, c.default_markup AS category_default_markup,
+                    c.markup_override AS category_markup_override,
+                    c.markup_locked AS category_markup_locked,
+                    c.markup_minorista AS category_markup_minorista,
+                    pc.default_discount AS parent_discount,
+                    pc.default_markup AS parent_default_markup,
+                    pc.markup_override AS parent_markup_override,
+                    pc.markup_locked AS parent_markup_locked,
+                    pc.markup_minorista AS parent_markup_minorista,
+                    cov.id AS cover_image_id,
+                    cov.filename AS cover_filename,
+                    cov.alt_text AS cover_alt_text
+             FROM products p
+             JOIN categories c ON c.id = p.category_id
+             LEFT JOIN categories pc ON c.parent_id = pc.id
+             LEFT JOIN product_images cov ON cov.id = (
+                 SELECT pi.id FROM product_images pi
+                 WHERE pi.product_id = p.id AND pi.is_cover = 1
+                 ORDER BY pi.sort_order ASC, pi.id ASC LIMIT 1
+             )
+             WHERE p.is_published = 1 AND p.is_active = 1
+               AND COALESCE(pc.slug, c.slug) <> \'alimenticia\'
+               AND EXISTS (SELECT 1 FROM product_images pi2 WHERE pi2.product_id = p.id AND pi2.is_cover = 1)
+               AND (
+                   p.name LIKE ?
+                   OR p.short_description LIKE ?
+                   OR c.name LIKE ?
+                   OR pc.name LIKE ?
+               )
+             ORDER BY
+               CASE WHEN p.name LIKE ? THEN 0 ELSE 1 END,
+               p.sort_order ASC, p.name ASC
+             LIMIT 12',
+            [$like, $like, $like, $like, $like]
+        );
+
+        $results = [];
+        foreach ($rows as $row) {
+            $results[] = $this->catalogProductPayload($row, false);
+        }
+        return $results;
+    }
+
+    private function claudeSearch(Database $db, string $q): array
+    {
+        $rows = $db->fetchAll(
+            'SELECT p.id, p.name, p.slug, p.short_description,
+                    c.name AS category, pc.name AS parent_category
+             FROM products p
+             JOIN categories c ON c.id = p.category_id
+             LEFT JOIN categories pc ON c.parent_id = pc.id
+             WHERE p.is_published = 1 AND p.is_active = 1
+               AND COALESCE(pc.slug, c.slug) <> \'alimenticia\'
+             ORDER BY p.sort_order ASC, p.name ASC'
+        );
+
+        $catalogText = '';
+        foreach ($rows as $row) {
+            $cat = $row['parent_category'] ? "{$row['parent_category']} > {$row['category']}" : $row['category'];
+            $desc = $row['short_description'] ? substr($row['short_description'], 0, 100) : '';
+            $catalogText .= "ID:{$row['id']} | {$row['name']} | {$cat} | {$desc}\n";
+        }
+
+        $prompt = <<<PROMPT
+Sos un asistente de ventas de Limpia Oeste, distribuidor de productos de limpieza e higiene profesional.
+
+El cliente escribió: "{$q}"
+
+Acá está el catálogo disponible (formato: ID | Nombre | Categoría | Descripción breve):
+{$catalogText}
+
+Tu tarea:
+1. Identificá qué productos del catálogo son más relevantes para la consulta del cliente
+2. Devolvé SOLO un JSON válido con este formato exacto, sin texto adicional, sin markdown:
+{"message":"Una frase corta y amigable explicando qué encontraste (máx 80 caracteres)","product_ids":[id1,id2,id3,id4,id5]}
+
+Reglas:
+- Devolvé entre 2 y 6 IDs de productos relevantes
+- Si la consulta no tiene nada que ver con limpieza, devolvé: {"message":"No encontramos productos para esa búsqueda","product_ids":[]}
+- Solo IDs que existan en el catálogo
+- El mensaje debe ser en español rioplatense, directo y útil
+- SOLO JSON, nada más
+PROMPT;
+
+        $apiKey = trim(Env::get('ANTHROPIC_API_KEY'));
+        if ($apiKey === '') {
+            return ['products' => [], 'message' => 'No encontramos productos para esa búsqueda'];
+        }
+
+        $postBody = json_encode([
+            'model' => 'claude-haiku-4-5-20251001',
+            'max_tokens' => 256,
+            'messages' => [
+                ['role' => 'user', 'content' => $prompt],
+            ],
+        ], JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE);
+
+        if ($postBody === false) {
+            return ['products' => [], 'message' => 'No encontramos productos para esa búsqueda'];
+        }
+
+        $ch = curl_init('https://api.anthropic.com/v1/messages');
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'x-api-key: ' . $apiKey,
+                'anthropic-version: 2023-06-01',
+            ],
+            CURLOPT_POSTFIELDS => $postBody,
+            CURLOPT_TIMEOUT => 15,
+        ]);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if (!$response || $httpCode !== 200) {
+            return ['products' => [], 'message' => 'No encontramos productos para esa búsqueda'];
+        }
+
+        $data = json_decode($response, true);
+        $text = $data['content'][0]['text'] ?? '{}';
+
+        $text = preg_replace('/```json|```/', '', $text);
+        $parsed = json_decode(trim($text), true);
+
+        if (!$parsed || empty($parsed['product_ids'])) {
+            return ['products' => [], 'message' => $parsed['message'] ?? null];
+        }
+
+        $ids = array_map('intval', $parsed['product_ids']);
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+
+        $productRows = $db->fetchAll(
+            "SELECT p.*,
+                    COALESCE(pc.slug, c.slug) AS category_effective_slug,
+                    c.name AS category_leaf_name,
+                    pc.name AS category_parent_name,
+                    c.default_discount, c.default_markup AS category_default_markup,
+                    c.markup_override AS category_markup_override,
+                    c.markup_locked AS category_markup_locked,
+                    c.markup_minorista AS category_markup_minorista,
+                    pc.default_discount AS parent_discount,
+                    pc.default_markup AS parent_default_markup,
+                    pc.markup_override AS parent_markup_override,
+                    pc.markup_locked AS parent_markup_locked,
+                    pc.markup_minorista AS parent_markup_minorista,
+                    cov.id AS cover_image_id,
+                    cov.filename AS cover_filename,
+                    cov.alt_text AS cover_alt_text
+             FROM products p
+             JOIN categories c ON c.id = p.category_id
+             LEFT JOIN categories pc ON c.parent_id = pc.id
+             LEFT JOIN product_images cov ON cov.id = (
+                 SELECT pi.id FROM product_images pi
+                 WHERE pi.product_id = p.id AND pi.is_cover = 1
+                 ORDER BY pi.sort_order ASC, pi.id ASC LIMIT 1
+             )
+             WHERE p.id IN ({$placeholders})
+               AND p.is_published = 1 AND p.is_active = 1
+               AND EXISTS (SELECT 1 FROM product_images pi2 WHERE pi2.product_id = p.id AND pi2.is_cover = 1)",
+            $ids
+        );
+
+        $indexed = [];
+        foreach ($productRows as $row) {
+            $indexed[$row['id']] = $this->catalogProductPayload($row, false);
+        }
+
+        $products = [];
+        foreach ($ids as $id) {
+            if (isset($indexed[$id])) {
+                $products[] = $indexed[$id];
+            }
+        }
+
+        return [
+            'products' => $products,
+            'message' => $parsed['message'] ?? null,
+        ];
     }
 }

@@ -184,6 +184,7 @@ return [
     ['GET', 'api/catalogo/mas-vendidos', 'ApiController@catalogBestsellers', ['public' => true]],
     ['GET', 'api/catalogo/categorias-tienda', 'ApiController@catalogStoreCategories', ['public' => true]],
     ['GET', 'api/catalogo/categoria/{slug}', 'ApiController@catalogByStoreCategory', ['public' => true]],
+    ['POST', 'api/catalogo/buscar', 'ApiController@search', ['public' => true]],
     ['GET', 'producto-imagen/{product_id}/{filename}', 'ApiController@serveProductImage', ['public' => true]],
     ['GET', 'api/productos/{id}/imagen/{img}/thumb', 'ApiController@serveProductThumb', ['public' => true]],
     ['GET', 'api/productos/{id}/imagen/{img}', 'ApiController@serveProductImageById', ['public' => true]],
