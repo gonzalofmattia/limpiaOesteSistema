@@ -545,20 +545,26 @@ final class ApiController extends Controller
         $effSlug = strtolower((string) ($row['category_effective_slug'] ?? ''));
         $mayorOv = self::optionalMarkupOverride('catalog_markup_mayorista');
         $minorOv = self::optionalMarkupOverride('catalog_markup_minorista');
-        // Tienda web: precios por unidad (minorista y mayorista), no por caja/pack.
-        $resolvedCaja = QuoteLinePricing::resolveListaForQuote($row, $effSlug, 'caja');
-        $calcCajaMayor = PricingEngine::calculateWithListaSeiq($resolvedCaja['lista_seiq'], $row, $mayorOv, false);
-        $calcCajaMinor = $minorOv !== null
-            ? PricingEngine::calculateWithListaSeiq($resolvedCaja['lista_seiq'], $row, $minorOv, false)
-            : $calcCajaMayor;
-        $unitMayor = QuoteLinePricing::priceListUnitAndPack($row, $effSlug, $mayorOv, false, $calcCajaMayor);
-        $unitMinor = QuoteLinePricing::priceListUnitAndPack(
-            $row,
-            $effSlug,
-            $minorOv ?? $mayorOv,
-            false,
-            $calcCajaMinor
-        );
+        // Tienda web: siempre precio de 1 unidad (minorista/mayorista), nunca el total del pack/caja.
+        $resolvedUnit = QuoteLinePricing::resolveListaForQuote($row, $effSlug, 'unidad');
+        $listaUnit = (float) $resolvedUnit['lista_seiq'];
+        if ($listaUnit > 0) {
+            $calcMayor = PricingEngine::calculateWithListaSeiq($listaUnit, $row, $mayorOv, false);
+            $calcMinor = $minorOv !== null
+                ? PricingEngine::calculateWithListaSeiq($listaUnit, $row, $minorOv, false)
+                : $calcMayor;
+            $mayorPrice = (float) $calcMayor['precio_venta'];
+            $minorPrice = (float) $calcMinor['precio_venta'];
+        } else {
+            $resolvedCaja = QuoteLinePricing::resolveListaForQuote($row, $effSlug, 'caja');
+            $calcCajaMayor = PricingEngine::calculateWithListaSeiq($resolvedCaja['lista_seiq'], $row, $mayorOv, false);
+            $calcCajaMinor = $minorOv !== null
+                ? PricingEngine::calculateWithListaSeiq($resolvedCaja['lista_seiq'], $row, $minorOv, false)
+                : $calcCajaMayor;
+            $unitsInPack = max(1, (int) ($row['units_per_box'] ?? 1));
+            $mayorPrice = round((float) $calcCajaMayor['precio_venta'] / $unitsInPack, 2);
+            $minorPrice = round((float) $calcCajaMinor['precio_venta'] / $unitsInPack, 2);
+        }
         $parent = trim((string) ($row['category_parent_name'] ?? ''));
         $leaf = trim((string) ($row['category_leaf_name'] ?? ''));
         if ($parent !== '') {
@@ -599,8 +605,8 @@ final class ApiController extends Controller
             'equivalence' => $this->nullIfEmpty($row['equivalence'] ?? null),
             'cover_image' => $cover,
             'prices' => [
-                'mayorista' => $unitMayor['individual_venta'],
-                'minorista' => $unitMinor['individual_venta'],
+                'mayorista' => $mayorPrice,
+                'minorista' => $minorPrice,
             ],
         ];
         if ($detail) {
