@@ -545,7 +545,7 @@ final class ApiController extends Controller
         $effSlug = strtolower((string) ($row['category_effective_slug'] ?? ''));
         $mayorOv = self::optionalMarkupOverride('catalog_markup_mayorista');
         $minorOv = self::optionalMarkupOverride('catalog_markup_minorista');
-        // Tienda web: precios por unidad (minorista y mayorista), no por caja.
+        // Tienda web: precios por unidad (minorista y mayorista), no por caja/pack.
         $resolvedCaja = QuoteLinePricing::resolveListaForQuote($row, $effSlug, 'caja');
         $calcCajaMayor = PricingEngine::calculateWithListaSeiq($resolvedCaja['lista_seiq'], $row, $mayorOv, false);
         $calcCajaMinor = $minorOv !== null
