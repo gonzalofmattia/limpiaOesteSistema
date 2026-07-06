@@ -146,7 +146,7 @@ final class StockMinimumTest extends TestCase
 
     public function testReposicionRouteResponds(): void
     {
-        $baseUrl = 'http://localhost/limpiaOesteSistema/public';
+        $baseUrl = 'http://sistema.limpiaOeste.test';
 
         $possibleRoutes = [
             '/stock-actual/reposicion',

@@ -12,7 +12,7 @@ class CriticalFlowsTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->baseUrl = 'http://localhost/limpiaOesteSistema/public';
+        $this->baseUrl = 'http://sistema.limpiaOeste.test';
 
         $ch = curl_init($this->baseUrl . '/login');
         curl_setopt_array($ch, [

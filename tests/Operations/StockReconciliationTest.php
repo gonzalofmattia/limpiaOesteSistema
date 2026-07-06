@@ -117,7 +117,7 @@ final class StockReconciliationTest extends TestCase
 
     public function testReconcileRouteResponds(): void
     {
-        $baseUrl = 'http://localhost/limpiaOesteSistema/public';
+        $baseUrl = 'http://sistema.limpiaOeste.test';
 
         $possibleRoutes = [
             '/tools/reconciliar-stock',
