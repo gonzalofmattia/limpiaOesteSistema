@@ -308,6 +308,119 @@ final class MlImageImporter
     }
 
     /**
+     * Reemplaza el set de imágenes de un producto por el que tiene actualmente el listing en ML,
+     * en el mismo orden (primera foto ML = portada). Usado por MlSyncEngine cuando el diff de
+     * imágenes resuelve PULL_FROM_ML (imágenes siempre ganan desde ML, nunca se empujan).
+     *
+     * Deduplica por `ml_picture_id`: si una imagen ya existe localmente con ese id, no se
+     * vuelve a descargar, solo se corrige sort_order/is_cover si cambiaron. Las filas locales que
+     * ya no aparecen en el set actual de ML se eliminan (archivo + fila).
+     *
+     * Nota: en el primer pull de un listing ya publicado, las imágenes locales pre-existentes no
+     * tienen `ml_picture_id` (esa columna es nueva) y por lo tanto no matchean nada acá — se
+     * reemplazan por la descarga equivalente desde ML. El resultado visual es el mismo (misma
+     * imagen, ahora con procedencia ML), solo se pierde `alt_text` si lo tenían cargado a mano.
+     *
+     * @param list<array{id: string, secure_url: string}> $mlPictures orden actual en ML; puede
+     *        incluir la imagen de badge ML (buildPictures() la agrega al publicar) — se descarta
+     *        acá por hash de contenido contra el archivo local del badge, nunca se guarda como
+     *        imagen de producto.
+     * @return array{added: int, removed: int, unchanged: int}
+     */
+    public function syncProductImagesFromMl(int $productId, array $mlPictures): array
+    {
+        $badgeHash = $this->localBadgeHash();
+
+        $existing = $this->db->fetchAll(
+            'SELECT id, filename, ml_picture_id FROM product_images WHERE product_id = ? ORDER BY sort_order ASC, id ASC',
+            [$productId]
+        );
+        $existingByMlId = [];
+        foreach ($existing as $row) {
+            $mlId = trim((string) ($row['ml_picture_id'] ?? ''));
+            if ($mlId !== '') {
+                $existingByMlId[$mlId] = $row;
+            }
+        }
+
+        $added = 0;
+        $unchanged = 0;
+        $matchedIds = [];
+        $sortOrder = 0;
+
+        foreach ($mlPictures as $picture) {
+            $mlId = trim((string) ($picture['id'] ?? ''));
+            $url = trim((string) ($picture['secure_url'] ?? ''));
+            if ($mlId === '' || $url === '') {
+                continue;
+            }
+
+            if (isset($existingByMlId[$mlId])) {
+                $row = $existingByMlId[$mlId];
+                $this->db->update(
+                    'product_images',
+                    ['sort_order' => $sortOrder, 'is_cover' => $sortOrder === 0 ? 1 : 0],
+                    'id = :id',
+                    ['id' => (int) $row['id']]
+                );
+                $matchedIds[] = (int) $row['id'];
+                $unchanged++;
+                $sortOrder++;
+                continue;
+            }
+
+            try {
+                $saved = $this->downloadAndSave($productId, $url);
+            } catch (\Throwable) {
+                continue;
+            }
+
+            $contentHash = md5_file($this->uploader->originalPath($productId, $saved['filename'])) ?: null;
+            if ($badgeHash !== null && $contentHash === $badgeHash) {
+                $this->uploader->deleteFiles($productId, $saved['filename']);
+                continue;
+            }
+
+            $imageId = $this->db->insert('product_images', [
+                'product_id' => $productId,
+                'filename' => $saved['filename'],
+                'original_name' => 'ml_import_' . $saved['timestamp'] . '.jpg',
+                'mime_type' => $saved['mime_type'],
+                'file_size' => $saved['file_size'],
+                'source_hash' => $contentHash,
+                'ml_picture_id' => $mlId,
+                'sort_order' => $sortOrder,
+                'is_cover' => $sortOrder === 0 ? 1 : 0,
+                'alt_text' => null,
+            ]);
+            $matchedIds[] = (int) $imageId;
+            $added++;
+            $sortOrder++;
+        }
+
+        $removed = 0;
+        foreach ($existing as $row) {
+            $id = (int) $row['id'];
+            if (in_array($id, $matchedIds, true)) {
+                continue;
+            }
+            $this->uploader->deleteFiles($productId, (string) $row['filename']);
+            $this->db->delete('product_images', 'id = :id', ['id' => $id]);
+            $removed++;
+        }
+
+        return ['added' => $added, 'removed' => $removed, 'unchanged' => $unchanged];
+    }
+
+    private function localBadgeHash(): ?string
+    {
+        $basePath = defined('BASE_PATH') ? rtrim((string) BASE_PATH, '/') : dirname(__DIR__, 2);
+        $path = $basePath . '/public/assets/img/ML.jpg';
+
+        return is_file($path) ? (md5_file($path) ?: null) : null;
+    }
+
+    /**
      * @return array{filename:string, mime_type:string, file_size:int, timestamp:int}
      */
     private function downloadAndSave(int $productId, string $imageUrl): array

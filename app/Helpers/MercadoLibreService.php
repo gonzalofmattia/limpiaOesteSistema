@@ -704,6 +704,214 @@ final class MercadoLibreService
         }
     }
 
+    /**
+     * Re-sincroniza solo el título del ítem en ML. `ml_listings.title` es la fuente de verdad.
+     *
+     * @return array{success: bool, ml_item_id: string, error: string, ml_not_found?: bool}
+     */
+    public static function syncItemTitle(int $listingId): array
+    {
+        $fail = static fn (string $msg, int $httpCode = 0, ?int $productId = null, ?string $mlItemId = ''): array => self::failSync(
+            $listingId,
+            $productId,
+            $mlItemId ?? '',
+            $msg,
+            $httpCode
+        );
+
+        try {
+            $listing = self::fetchListing($listingId);
+            if ($listing === null) {
+                return $fail('Listing no encontrado.');
+            }
+
+            $productId = (int) ($listing['product_id'] ?? 0);
+            $mlItemId = trim((string) ($listing['ml_item_id'] ?? ''));
+            if ($mlItemId === '') {
+                return $fail('El listing aún no fue publicado en ML.', 0, $productId > 0 ? $productId : null);
+            }
+
+            $title = self::truncate(trim((string) ($listing['title'] ?? '')), 60);
+            if ($title === '') {
+                return $fail('El listing no tiene título.', 0, $productId > 0 ? $productId : null, $mlItemId);
+            }
+
+            $result = self::apiRequest('PUT', '/items/' . rawurlencode($mlItemId), ['title' => $title], true);
+            if (!$result['success']) {
+                if ($result['http_code'] === 404) {
+                    return self::markListingClosedMlNotFound($listingId, $mlItemId, $productId > 0 ? $productId : null);
+                }
+
+                return $fail($result['error'], $result['http_code'], $productId > 0 ? $productId : null, $mlItemId);
+            }
+
+            self::updateListing($listingId, [
+                'last_synced_at' => date('Y-m-d H:i:s'),
+                'last_sync_error' => null,
+            ], 'syncItemTitle');
+
+            return [
+                'success' => true,
+                'ml_item_id' => $mlItemId,
+                'error' => '',
+            ];
+        } catch (\Throwable $e) {
+            return $fail($e->getMessage());
+        }
+    }
+
+    /**
+     * Re-sincroniza solo el precio del ítem en ML, sin tocar available_quantity (a diferencia de
+     * syncItem()). Necesario para que el motor de sync pueda resolver precio y stock en
+     * direcciones distintas en la misma corrida sin que uno pise al otro.
+     *
+     * @return array{success: bool, ml_item_id: string, error: string, ml_not_found?: bool}
+     */
+    public static function syncItemPrice(int $listingId): array
+    {
+        $fail = static fn (string $msg, int $httpCode = 0, ?int $productId = null, ?string $mlItemId = ''): array => self::failSync(
+            $listingId,
+            $productId,
+            $mlItemId ?? '',
+            $msg,
+            $httpCode
+        );
+
+        try {
+            $listing = self::fetchListing($listingId);
+            if ($listing === null) {
+                return $fail('Listing no encontrado.');
+            }
+
+            $productId = (int) ($listing['product_id'] ?? 0);
+            $mlItemId = trim((string) ($listing['ml_item_id'] ?? ''));
+            if ($mlItemId === '') {
+                return $fail('El listing aún no fue publicado en ML.', 0, $productId > 0 ? $productId : null);
+            }
+
+            $price = $listing['price'] ?? null;
+            if ($price === null || (float) $price <= 0) {
+                if ($productId > 0) {
+                    $markup = isset($listing['ml_markup']) && $listing['ml_markup'] !== null && $listing['ml_markup'] !== ''
+                        ? (float) $listing['ml_markup']
+                        : null;
+                    $price = self::calculateMlPrice($productId, $markup);
+                }
+            }
+            if ($price === null || (float) $price <= 0) {
+                return $fail('No se pudo determinar el precio a sincronizar.', 0, $productId > 0 ? $productId : null, $mlItemId);
+            }
+
+            $result = self::apiRequest('PUT', '/items/' . rawurlencode($mlItemId), ['price' => round((float) $price, 2)], true);
+            if (!$result['success']) {
+                if ($result['http_code'] === 404) {
+                    return self::markListingClosedMlNotFound($listingId, $mlItemId, $productId > 0 ? $productId : null);
+                }
+
+                return $fail($result['error'], $result['http_code'], $productId > 0 ? $productId : null, $mlItemId);
+            }
+
+            self::updateListing($listingId, [
+                'price' => round((float) $price, 2),
+                'last_synced_at' => date('Y-m-d H:i:s'),
+                'last_sync_error' => null,
+            ], 'syncItemPrice');
+
+            return [
+                'success' => true,
+                'ml_item_id' => $mlItemId,
+                'error' => '',
+            ];
+        } catch (\Throwable $e) {
+            return $fail($e->getMessage());
+        }
+    }
+
+    /**
+     * Re-sincroniza solo la descripción del ítem en ML. Wrapper público de uploadItemDescription()
+     * (hoy solo invocada desde publishItem()) para que el motor de sync pueda re-empujarla sin
+     * pasar por el flujo completo de alta.
+     *
+     * @return array{success: bool, ml_item_id: string, error: string}
+     */
+    public static function syncItemDescription(int $listingId): array
+    {
+        $listing = self::fetchListing($listingId);
+        if ($listing === null) {
+            return ['success' => false, 'ml_item_id' => '', 'error' => 'Listing no encontrado.'];
+        }
+
+        $productId = (int) ($listing['product_id'] ?? 0);
+        $mlItemId = trim((string) ($listing['ml_item_id'] ?? ''));
+        if ($mlItemId === '') {
+            return ['success' => false, 'ml_item_id' => '', 'error' => 'El listing aún no fue publicado en ML.'];
+        }
+        if ($productId <= 0) {
+            return ['success' => false, 'ml_item_id' => $mlItemId, 'error' => 'El listing no tiene producto asociado.'];
+        }
+
+        $product = self::fetchProduct($productId);
+        if ($product === null) {
+            return ['success' => false, 'ml_item_id' => $mlItemId, 'error' => 'Producto no encontrado.'];
+        }
+
+        self::uploadItemDescription($mlItemId, $product);
+        self::updateListing($listingId, [
+            'last_synced_at' => date('Y-m-d H:i:s'),
+        ], 'syncItemDescription');
+
+        return ['success' => true, 'ml_item_id' => $mlItemId, 'error' => ''];
+    }
+
+    /**
+     * Estado actual del ítem en ML normalizado para el motor de sync (MlSyncEngine): un GET de
+     * fetchRawItemsByIds() para título/precio/stock/categoría/status/pictures, más
+     * fetchItemDescriptionText() para la descripción (endpoint separado en la API de ML).
+     *
+     * @return array{
+     *     title: string, price: float, available_quantity: int, status: string,
+     *     category_id: string, permalink: string, description_text: string,
+     *     pictures: list<array{id: string, secure_url: string}>
+     * }|null null si el ítem no existe o el GET falla
+     */
+    public static function fetchCurrentState(string $mlItemId): ?array
+    {
+        $mlItemId = trim($mlItemId);
+        if ($mlItemId === '') {
+            return null;
+        }
+
+        $items = self::fetchRawItemsByIds([$mlItemId]);
+        $item = $items[$mlItemId] ?? null;
+        if ($item === null) {
+            return null;
+        }
+
+        $pictures = [];
+        foreach ((array) ($item['pictures'] ?? []) as $picture) {
+            if (!is_array($picture)) {
+                continue;
+            }
+            $id = trim((string) ($picture['id'] ?? ''));
+            $url = trim((string) ($picture['secure_url'] ?? $picture['url'] ?? ''));
+            if ($id === '' || $url === '') {
+                continue;
+            }
+            $pictures[] = ['id' => $id, 'secure_url' => $url];
+        }
+
+        return [
+            'title' => trim((string) ($item['title'] ?? '')),
+            'price' => (float) ($item['price'] ?? 0),
+            'available_quantity' => (int) ($item['available_quantity'] ?? 0),
+            'status' => trim((string) ($item['status'] ?? '')),
+            'category_id' => trim((string) ($item['category_id'] ?? '')),
+            'permalink' => trim((string) ($item['permalink'] ?? '')),
+            'description_text' => self::fetchItemDescriptionText($mlItemId),
+            'pictures' => $pictures,
+        ];
+    }
+
     public static function pauseItem(string $mlItemId): bool
     {
         $mlItemId = trim($mlItemId);
@@ -2636,10 +2844,30 @@ final class MercadoLibreService
     }
 
     /** @param array<string, mixed> $listing */
-    private static function resolveQuantity(array $listing): int
+    /**
+     * @param array<string, mixed> $listing
+     * @param array<int, int>|null $unitsInTransit Mapa product_id => unidades en camino ya calculado
+     *        (SeiqOrderBuilder::unitsInTransit()), para no recalcularlo por listing en corridas masivas.
+     *        Si se omite y use_real_stock=1, se calcula on-demand (costo aceptable para llamadas sueltas).
+     */
+    public static function resolveQuantity(array $listing, ?array $unitsInTransit = null): int
     {
         if ((int) ($listing['use_real_stock'] ?? 0) === 1) {
-            // Reservado para stock real futuro; hoy sigue usando override/default.
+            $productId = (int) ($listing['product_id'] ?? 0);
+            if ($productId > 0) {
+                $product = Database::getInstance()->fetch(
+                    'SELECT stock_units, COALESCE(stock_committed_units, 0) AS stock_committed_units
+                     FROM products WHERE id = ?',
+                    [$productId]
+                );
+                if ($product !== null) {
+                    $disponible = (int) $product['stock_units'] - (int) $product['stock_committed_units'];
+                    $inTransitMap = $unitsInTransit ?? SeiqOrderBuilder::unitsInTransit(Database::getInstance());
+                    $enCamino = $inTransitMap[$productId] ?? 0;
+
+                    return max(0, $disponible + $enCamino);
+                }
+            }
         }
 
         if (isset($listing['available_quantity_override']) && $listing['available_quantity_override'] !== null) {

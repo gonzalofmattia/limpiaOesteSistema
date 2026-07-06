@@ -670,21 +670,56 @@ $mlStatusLabel = static function (string $status): string {
 
 
 
-    <div x-show="syncConfirm" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" @keydown.escape.window="syncConfirm = false">
+    <div x-show="syncConfirm" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" @keydown.escape.window="if (!syncRunning) syncConfirm = false">
 
-        <div class="w-full max-w-md rounded-2xl bg-white border border-lo-border shadow-xl p-5" @click.outside="syncConfirm = false">
+        <div class="w-full max-w-md rounded-2xl bg-white border border-lo-border shadow-xl p-5" @click.outside="if (!syncRunning) syncConfirm = false">
 
-            <h4 class="text-base font-semibold text-slate-900">Sincronizar todos</h4>
+            <template x-if="!syncRunning && !syncSummary && !syncError">
+                <div>
+                    <h4 class="text-base font-semibold text-slate-900">Sincronizar todos</h4>
+                    <p class="mt-2 text-sm text-slate-600">Se corre el motor de sync bidireccional (título, precio, stock, descripción, categoría e imágenes) sobre todos los listings activos y pausados. Los campos que cambiaron a la vez en ML y en el sistema quedan como conflicto pendiente, no se pisan solos.</p>
+                    <div class="mt-5 flex justify-end gap-2">
+                        <button type="button" @click="syncConfirm = false" class="px-4 py-2 rounded-lg border border-lo-border text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
+                        <button type="button" @click="runSyncAll()" class="px-4 py-2 rounded-lg bg-lo-blue text-sm font-semibold text-white hover:bg-blue-700">Confirmar</button>
+                    </div>
+                </div>
+            </template>
 
-            <p class="mt-2 text-sm text-slate-600">Se sincronizarán todos los listings activos y pausados con MercadoLibre.</p>
+            <template x-if="syncRunning">
+                <div>
+                    <h4 class="text-base font-semibold text-slate-900">Sincronizando…</h4>
+                    <p class="mt-2 text-sm text-slate-600" x-text="(syncTotal > 0 ? syncIndex + ' / ' + syncTotal : 'Iniciando…')"></p>
+                    <div class="mt-3 h-2 rounded-full bg-slate-100 overflow-hidden">
+                        <div class="h-full bg-lo-blue transition-all" :style="'width: ' + (syncTotal > 0 ? Math.round((syncIndex / syncTotal) * 100) : 0) + '%'"></div>
+                    </div>
+                    <div class="mt-3 max-h-40 overflow-y-auto text-xs text-slate-600 space-y-1">
+                        <template x-for="(line, i) in syncLog.slice(-30)" :key="i">
+                            <div x-text="line"></div>
+                        </template>
+                    </div>
+                </div>
+            </template>
 
-            <div class="mt-5 flex justify-end gap-2">
-
-                <button type="button" @click="syncConfirm = false" class="px-4 py-2 rounded-lg border border-lo-border text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
-
-                <button type="button" @click="document.getElementById('ml-listings-sync-all').submit()" class="px-4 py-2 rounded-lg bg-lo-blue text-sm font-semibold text-white hover:bg-blue-700">Confirmar</button>
-
-            </div>
+            <template x-if="!syncRunning && (syncSummary || syncError)">
+                <div>
+                    <h4 class="text-base font-semibold text-slate-900">Sincronización terminada</h4>
+                    <template x-if="syncError">
+                        <p class="mt-2 text-sm text-red-700" x-text="syncError"></p>
+                    </template>
+                    <template x-if="syncSummary">
+                        <div class="mt-2 text-sm text-slate-700 space-y-1">
+                            <p x-text="'Traídos desde ML: ' + syncSummary.pulled + ' · Enviados a ML: ' + syncSummary.pushed + ' · Sin cambios: ' + syncSummary.no_change"></p>
+                            <p x-show="syncSummary.conflicts > 0" class="text-amber-700" x-text="syncSummary.conflicts + ' conflicto(s) pendiente(s) de resolución manual.'"></p>
+                            <p x-show="syncSummary.blocked > 0" class="text-slate-500" x-text="syncSummary.blocked + ' listing(s) bloqueado(s) (revisar log).'"></p>
+                            <p x-show="syncSummary.errors > 0" class="text-red-700" x-text="syncSummary.errors + ' error(es) (revisar log).'"></p>
+                        </div>
+                    </template>
+                    <div class="mt-5 flex justify-end gap-2">
+                        <a x-show="syncSummary && syncSummary.conflicts > 0" href="<?= e(url('/mercadolibre/sync/conflictos')) ?>" class="px-4 py-2 rounded-lg border border-lo-border text-sm font-medium text-slate-700 hover:bg-slate-50">Ver conflictos</a>
+                        <button type="button" @click="syncConfirm = false; syncSummary = null; syncError = null;" class="px-4 py-2 rounded-lg bg-lo-blue text-sm font-semibold text-white hover:bg-blue-700">Cerrar</button>
+                    </div>
+                </div>
+            </template>
 
         </div>
 
@@ -765,6 +800,18 @@ document.addEventListener('alpine:init', () => {
 
         syncConfirm: false,
 
+        syncRunning: false,
+
+        syncIndex: 0,
+
+        syncTotal: 0,
+
+        syncLog: [],
+
+        syncSummary: null,
+
+        syncError: null,
+
         deleteConfirm: false,
 
         deleteListingId: null,
@@ -772,6 +819,146 @@ document.addEventListener('alpine:init', () => {
         pauseConfirm: false,
 
         pauseListingId: null,
+
+        async runSyncAll() {
+
+            this.syncRunning = true;
+
+            this.syncIndex = 0;
+
+            this.syncTotal = 0;
+
+            this.syncLog = [];
+
+            this.syncSummary = null;
+
+            this.syncError = null;
+
+            const csrfInput = document.querySelector('#ml-listings-sync-all input[name="_csrf"]');
+
+            const body = new URLSearchParams();
+
+            body.set('_csrf', csrfInput ? csrfInput.value : '');
+
+            try {
+
+                const res = await fetch('<?= e(url('/mercadolibre/listings/sync-all')) ?>', {
+
+                    method: 'POST',
+
+                    headers: {
+
+                        'Content-Type': 'application/x-www-form-urlencoded',
+
+                        'Accept': 'application/x-ndjson',
+
+                    },
+
+                    body: body.toString(),
+
+                });
+
+                if (!res.ok || !res.body) {
+
+                    throw new Error('Error HTTP ' + res.status);
+
+                }
+
+                const reader = res.body.getReader();
+
+                const decoder = new TextDecoder();
+
+                let buffer = '';
+
+                const handle = (data) => {
+
+                    if (data.type === 'start') {
+
+                        this.syncTotal = Number(data.total || 0);
+
+                        return;
+
+                    }
+
+                    if (data.type === 'progress') {
+
+                        this.syncIndex = Number(data.index || this.syncIndex);
+
+                        if (data.blocked) {
+
+                            this.syncLog.push('#' + data.listing_id + ' bloqueado: ' + (data.block_reason || ''));
+
+                        } else if (data.fields) {
+
+                            const changed = Object.entries(data.fields).filter(([, v]) => v !== 'no_change');
+
+                            if (changed.length > 0) {
+
+                                this.syncLog.push('#' + data.listing_id + ': ' + changed.map(([k, v]) => k + '=' + v).join(', '));
+
+                            }
+
+                        }
+
+                        return;
+
+                    }
+
+                    if (data.type === 'done') {
+
+                        this.syncSummary = data;
+
+                        return;
+
+                    }
+
+                    if (data.type === 'error') {
+
+                        this.syncError = data.error || 'Error desconocido';
+
+                    }
+
+                };
+
+                while (true) {
+
+                    const chunk = await reader.read();
+
+                    if (chunk.done) break;
+
+                    buffer += decoder.decode(chunk.value, { stream: true });
+
+                    const lines = buffer.split('\n');
+
+                    buffer = lines.pop() || '';
+
+                    lines.forEach((line) => {
+
+                        if (!line.trim()) return;
+
+                        try { handle(JSON.parse(line)); } catch (e) {}
+
+                    });
+
+                }
+
+                if (buffer.trim()) {
+
+                    try { handle(JSON.parse(buffer)); } catch (e) {}
+
+                }
+
+            } catch (e) {
+
+                this.syncError = e.message || 'Error de red';
+
+            } finally {
+
+                this.syncRunning = false;
+
+            }
+
+        },
 
     }));
 
