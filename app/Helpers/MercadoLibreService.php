@@ -2844,10 +2844,30 @@ final class MercadoLibreService
     }
 
     /** @param array<string, mixed> $listing */
-    private static function resolveQuantity(array $listing): int
+    /**
+     * @param array<string, mixed> $listing
+     * @param array<int, int>|null $unitsInTransit Mapa product_id => unidades en camino ya calculado
+     *        (SeiqOrderBuilder::unitsInTransit()), para no recalcularlo por listing en corridas masivas.
+     *        Si se omite y use_real_stock=1, se calcula on-demand (costo aceptable para llamadas sueltas).
+     */
+    public static function resolveQuantity(array $listing, ?array $unitsInTransit = null): int
     {
         if ((int) ($listing['use_real_stock'] ?? 0) === 1) {
-            // Reservado para stock real futuro; hoy sigue usando override/default.
+            $productId = (int) ($listing['product_id'] ?? 0);
+            if ($productId > 0) {
+                $product = Database::getInstance()->fetch(
+                    'SELECT stock_units, COALESCE(stock_committed_units, 0) AS stock_committed_units
+                     FROM products WHERE id = ?',
+                    [$productId]
+                );
+                if ($product !== null) {
+                    $disponible = (int) $product['stock_units'] - (int) $product['stock_committed_units'];
+                    $inTransitMap = $unitsInTransit ?? SeiqOrderBuilder::unitsInTransit(Database::getInstance());
+                    $enCamino = $inTransitMap[$productId] ?? 0;
+
+                    return max(0, $disponible + $enCamino);
+                }
+            }
         }
 
         if (isset($listing['available_quantity_override']) && $listing['available_quantity_override'] !== null) {
