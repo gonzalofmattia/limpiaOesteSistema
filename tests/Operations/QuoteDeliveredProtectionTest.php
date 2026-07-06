@@ -83,7 +83,7 @@ final class QuoteDeliveredProtectionTest extends TestCase
      */
     public function testEditDeliveredQuoteViaHTTP(): void
     {
-        $baseUrl = 'http://localhost/limpiaOesteSistema/public';
+        $baseUrl = 'http://sistema.limpiaOeste.test';
 
         try {
             $db = Database::getInstance();
