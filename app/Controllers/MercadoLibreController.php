@@ -11,6 +11,7 @@ use App\Helpers\MercadoLibreService;
 use App\Helpers\MercadoLibreTokenManager;
 use App\Helpers\MlImageImporter;
 use App\Helpers\MlPriceIntelligence;
+use App\Helpers\MlSyncEngine;
 use App\Helpers\SeiqImageScraper;
 use App\Helpers\PricingEngine;
 use App\Helpers\QuoteLinePricing;
@@ -1555,70 +1556,70 @@ final class MercadoLibreController extends Controller
         redirect('/mercadolibre/listings');
     }
 
+    /**
+     * Corre el motor de sync bidireccional (MlSyncEngine) en modo apply sobre todos los listings
+     * activos/pausados, transmitiendo progreso NDJSON (antes hacía un loop síncrono con solo
+     * syncItem(); reemplazado porque el motor hace más trabajo por listing y con más publicaciones
+     * corre riesgo real de timeout).
+     */
     public function syncAll(): void
     {
         if (!verifyCsrf()) {
-            flash('error', 'Token inválido.');
-            redirect('/mercadolibre');
+            http_response_code(419);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['success' => false, 'error' => 'CSRF'], JSON_UNESCAPED_UNICODE);
+
             return;
         }
 
-        set_time_limit(60);
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+
+        @ob_end_clean();
+        header('Content-Type: application/x-ndjson; charset=utf-8');
+        header('Cache-Control: no-cache, no-store');
+        header('X-Accel-Buffering: no');
+        ini_set('output_buffering', 'off');
+        ini_set('zlib.output_compression', '0');
+        set_time_limit(300);
+
+        $emit = static function (array $payload): void {
+            echo json_encode($payload, JSON_UNESCAPED_UNICODE) . "\n";
+            if (function_exists('flush')) {
+                flush();
+            }
+        };
 
         try {
             $db = Database::getInstance();
             $rows = $db->fetchAll(
-                "SELECT id, title FROM ml_listings WHERE status IN ('active', 'paused') ORDER BY id ASC"
+                "SELECT id FROM ml_listings
+                 WHERE status IN ('active','paused') AND ml_item_id IS NOT NULL AND TRIM(ml_item_id) <> ''
+                 ORDER BY id ASC"
             );
+            $listingIds = array_map(static fn (array $row): int => (int) $row['id'], $rows);
 
-            $ok = 0;
-            $closed = 0;
-            $fail = 0;
-            $errorLines = [];
+            $emit(['type' => 'start', 'total' => count($listingIds)]);
 
-            foreach ($rows as $row) {
-                $listingId = (int) ($row['id'] ?? 0);
-                if ($listingId <= 0) {
-                    continue;
-                }
-                $result = MercadoLibreService::syncItem($listingId);
-                if (!empty($result['ml_not_found'])) {
-                    $closed++;
-                    continue;
-                }
-                if ($result['success']) {
-                    $ok++;
-                    continue;
-                }
-                $fail++;
-                $title = trim((string) ($row['title'] ?? ''));
-                $errorLines[] = ($title !== '' ? $title : ('#' . $listingId))
-                    . ': ' . ($result['error'] ?: 'Error desconocido');
-            }
+            $index = 0;
+            $result = MlSyncEngine::run($listingIds, apply: true, onProgress: function (array $item) use ($emit, &$index, $listingIds): void {
+                $index++;
+                $emit(array_merge(['type' => 'progress', 'index' => $index, 'total' => count($listingIds)], $item));
+            });
 
-            if ($rows === []) {
-                flash('info', 'No hay listings activos ni pausados para sincronizar.');
-            } elseif ($fail === 0) {
-                $summary = "Sincronización completa: {$ok} listing(s) actualizado(s).";
-                if ($closed > 0) {
-                    $summary .= " {$closed} marcado(s) como cerrado(s) (ítem inexistente en ML).";
-                }
-                flash('success', $summary);
-            } else {
-                $summary = "Sincronizados: {$ok}. Con error: {$fail}.";
-                if ($closed > 0) {
-                    $summary .= " Cerrados en ML inexistente: {$closed}.";
-                }
-                if ($errorLines !== []) {
-                    $summary .= ' ' . implode(' | ', array_slice($errorLines, 0, 3));
-                }
-                flash('error', $summary);
-            }
+            $emit([
+                'type' => 'done',
+                'pulled' => $result['pulled'],
+                'pushed' => $result['pushed'],
+                'conflicts' => $result['conflicts'],
+                'no_change' => $result['no_change'],
+                'blocked' => $result['blocked'],
+                'errors' => count($result['errors']),
+            ]);
         } catch (\Throwable $e) {
-            flash('error', 'Error en sincronización masiva: ' . $e->getMessage());
+            $emit(['type' => 'error', 'error' => $e->getMessage()]);
         }
-
-        redirect('/mercadolibre');
     }
 
     public function bulkUpdateQuantityExecute(): void
