@@ -1,6 +1,9 @@
 /vendor/
 /storage/pdfs/*.pdf
 /storage/logs/*.log
+/storage/logs/ml_category_leaf_audit_report.json
+/storage/logs/ml_reconciliation_report.json
+/storage/cache/ml_category_record_*.json
 .env
 /database/export_*.sql
 .DS_Store

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Controller;
+use App\Helpers\AnthropicConfig;
 use App\Helpers\ClientMarkupResolver;
 use App\Helpers\CategoryHierarchy;
 use App\Helpers\Env;
@@ -989,7 +990,7 @@ PROMPT;
         }
 
         $postBody = json_encode([
-            'model' => 'claude-haiku-4-5-20251001',
+            'model' => AnthropicConfig::descriptionModel(),
             'max_tokens' => 256,
             'messages' => [
                 ['role' => 'user', 'content' => $prompt],

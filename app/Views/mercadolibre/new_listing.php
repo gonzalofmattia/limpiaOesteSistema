@@ -462,7 +462,11 @@ function mlListingForm(cfg) {
             this.categoryError = '';
             this.categorySuccess = '';
             try {
-                const res = await fetch(window.appUrl('/api/ml/sugerir-categoria?title=' + encodeURIComponent(t)));
+                const params = new URLSearchParams({ title: t });
+                if (this.productId > 0) {
+                    params.set('product_id', String(this.productId));
+                }
+                const res = await fetch(window.appUrl('/api/ml/sugerir-categoria?' + params.toString()));
                 const data = await res.json();
                 if (!data.success || !data.category_id) {
                     this.categoryError = data.error || 'No se encontró categoría.';
@@ -494,6 +498,14 @@ function mlListingForm(cfg) {
                 const data = await res.json();
                 if (!data.success) {
                     this.descError = data.error || 'No se pudo generar la descripción.';
+                    if (Array.isArray(data.banned_terms) && data.banned_terms.length > 0) {
+                        this.descError += ' Términos detectados: ' + data.banned_terms.join(', ');
+                        if (data.descripcion) {
+                            this.mlDescription = data.descripcion;
+                            this.catalogFullDescription = data.full_description || '';
+                            this.catalogShortDescription = data.short_description || '';
+                        }
+                    }
                     return;
                 }
                 this.mlDescription = data.descripcion || '';

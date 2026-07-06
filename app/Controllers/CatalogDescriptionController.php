@@ -120,6 +120,10 @@ final class CatalogDescriptionController extends Controller
 
                 if (!$result['success']) {
                     $errors++;
+                    $errorMsg = $result['error'];
+                    if (!empty($result['banned_terms'])) {
+                        $errorMsg .= ' [' . implode(', ', $result['banned_terms']) . ']';
+                    }
                     $emit([
                         'type' => 'progress',
                         'index' => $index + 1,
@@ -127,7 +131,7 @@ final class CatalogDescriptionController extends Controller
                         'product_id' => $productId,
                         'name' => $productName,
                         'status' => 'error',
-                        'error' => $result['error'],
+                        'error' => $errorMsg,
                     ]);
 
                     continue;

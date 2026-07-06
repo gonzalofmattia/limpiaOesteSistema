@@ -19,8 +19,8 @@ final class MercadoLibreService
     private const MAX_PICTURES = 12;
     private const ML_BADGE_PICTURE_PATH = '/assets/img/ML.jpg';
     private const DESCRIPTION_FOOTER = 'Entrega en Zona Oeste GBA. Para pedidos frecuentes consultanos por mensajes de ML.';
-    /** Categoría genérica Productos de Limpieza cuando predictCategory devuelve repuestos/maquinaria. */
-    private const CLEANING_CATEGORY_FALLBACK = 'MLA127680';
+    /** @deprecated Usar general_cleaning_fallback en app/Config/ml_categories.php (MLA127680 es categoría padre). */
+    private const CLEANING_CATEGORY_FALLBACK = 'MLA127688';
     private const SHIPPING_MODE_PUBLISH = 'me2';
 
     public static function calculateMlPrice(int $productId, ?float $mlMarkup = null): float
@@ -113,6 +113,137 @@ final class MercadoLibreService
             ((($precioObjetivo * (1 - self::ML_COMMISSION)) - self::ML_FIXED_SHIPPING_FEE) / $costoBase - 1) * 100,
             2
         );
+    }
+
+    /**
+     * Resuelve una categoría ML hoja según el producto y la predicción de domain_discovery.
+     *
+     * @param array<string, mixed> $product
+     */
+    public static function resolveCategoryForProduct(array $product, ?string $predictedCategoryId = null): string
+    {
+        $config = self::mlCategoriesConfig();
+        $slugMap = $config['category_slug_map'] ?? [];
+        if (!is_array($slugMap)) {
+            $slugMap = [];
+        }
+
+        foreach (self::productCategorySlugs($product) as $slug) {
+            if ($slug !== '' && isset($slugMap[$slug])) {
+                return (string) $slugMap[$slug];
+            }
+        }
+
+        if (self::productLooksAutomotive($product)) {
+            return (string) ($config['vehicle_degreasers_category'] ?? 'MLA392349');
+        }
+
+        $predicted = trim((string) ($predictedCategoryId ?? ''));
+        if ($predicted !== '' && self::isCategoryLeaf($predicted)) {
+            return $predicted;
+        }
+
+        return (string) ($config['general_cleaning_fallback'] ?? self::CLEANING_CATEGORY_FALLBACK);
+    }
+
+    public static function resolveCategoryForProductId(int $productId, ?string $predictedCategoryId): string
+    {
+        $product = $productId > 0 ? self::fetchProduct($productId) : null;
+
+        return self::resolveCategoryForProduct($product ?? [], $predictedCategoryId);
+    }
+
+    public static function isCategoryLeaf(string $categoryId): bool
+    {
+        $record = self::fetchCategoryRecord($categoryId);
+
+        return (bool) ($record['is_leaf'] ?? false);
+    }
+
+    /**
+     * @return array{
+     *   id: string,
+     *   name: string,
+     *   path_string: string,
+     *   is_leaf: bool,
+     *   listing_allowed: bool,
+     *   children_count: int
+     * }
+     */
+    public static function fetchCategoryRecord(string $categoryId): array
+    {
+        $categoryId = trim($categoryId);
+        $empty = [
+            'id' => $categoryId,
+            'name' => '',
+            'path_string' => '',
+            'is_leaf' => false,
+            'listing_allowed' => false,
+            'children_count' => 0,
+        ];
+        if ($categoryId === '') {
+            return $empty;
+        }
+
+        $cacheDir = defined('STORAGE_PATH')
+            ? rtrim((string) STORAGE_PATH, '/') . '/cache'
+            : dirname(__DIR__, 2) . '/storage/cache';
+        $safeId = preg_replace('/[^A-Za-z0-9_-]/', '_', $categoryId) ?? $categoryId;
+        $cacheFile = $cacheDir . '/ml_category_record_' . $safeId . '.json';
+
+        if (is_file($cacheFile)) {
+            $age = time() - (int) filemtime($cacheFile);
+            if ($age < 86400) {
+                $cached = json_decode((string) file_get_contents($cacheFile), true);
+                if (is_array($cached)) {
+                    return array_merge($empty, $cached);
+                }
+            }
+        }
+
+        $result = self::apiRequest('GET', '/categories/' . rawurlencode($categoryId), null, false);
+        if (!$result['success'] || !is_array($result['data'])) {
+            return $empty;
+        }
+
+        $data = $result['data'];
+        $segments = [];
+        $pathFromRoot = $data['path_from_root'] ?? [];
+        if (is_array($pathFromRoot)) {
+            foreach ($pathFromRoot as $node) {
+                if (!is_array($node)) {
+                    continue;
+                }
+                $name = trim((string) ($node['name'] ?? ''));
+                if ($name !== '') {
+                    $segments[] = $name;
+                }
+            }
+        }
+
+        $children = $data['children_categories'] ?? [];
+        $childrenCount = is_array($children) ? count($children) : 0;
+        $settings = $data['settings'] ?? [];
+        $listingAllowed = is_array($settings) && !empty($settings['listing_allowed']);
+
+        $record = [
+            'id' => $categoryId,
+            'name' => trim((string) ($data['name'] ?? '')),
+            'path_string' => implode(' > ', $segments),
+            'is_leaf' => $childrenCount === 0,
+            'listing_allowed' => $listingAllowed,
+            'children_count' => $childrenCount,
+        ];
+
+        if (!is_dir($cacheDir)) {
+            @mkdir($cacheDir, 0775, true);
+        }
+        $encoded = json_encode($record, JSON_UNESCAPED_UNICODE);
+        if ($encoded !== false) {
+            @file_put_contents($cacheFile, $encoded);
+        }
+
+        return $record;
     }
 
     public static function predictCategory(string $title): ?string
@@ -1263,6 +1394,68 @@ final class MercadoLibreService
         return $items[0] ?? null;
     }
 
+    /**
+     * Items ML sin normalizar (para auditoría/reconciliación: pictures, attributes, category_id tal cual ML).
+     * Indexado por ml_item_id. Uso exclusivo de lectura.
+     *
+     * @param list<string> $itemIds
+     * @return array<string, array<string, mixed>>
+     */
+    public static function fetchRawItemsByIds(array $itemIds): array
+    {
+        $items = [];
+        $itemIds = array_values(array_unique(array_filter(array_map(
+            static fn ($id) => trim((string) $id),
+            $itemIds
+        ))));
+        if ($itemIds === []) {
+            return [];
+        }
+
+        foreach (array_chunk($itemIds, 20) as $chunk) {
+            $idsParam = implode(',', array_map('rawurlencode', $chunk));
+            $result = self::apiRequest('GET', '/items?ids=' . $idsParam, null, true);
+            if (!$result['success'] || !is_array($result['data'])) {
+                self::logError(
+                    'fetchRawItemsByIds',
+                    'ids=' . implode(',', $chunk),
+                    $result['http_code'],
+                    $result['error']
+                );
+                continue;
+            }
+
+            foreach ($result['data'] as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                $body = isset($row['body']) && is_array($row['body']) ? $row['body'] : $row;
+                $id = trim((string) ($body['id'] ?? ''));
+                if ($id !== '') {
+                    $items[$id] = $body;
+                }
+            }
+        }
+
+        return $items;
+    }
+
+    /** Descripción actualmente publicada en ML (plain_text). Solo lectura. */
+    public static function fetchItemDescriptionText(string $mlItemId): string
+    {
+        $mlItemId = trim($mlItemId);
+        if ($mlItemId === '') {
+            return '';
+        }
+
+        $result = self::apiRequest('GET', '/items/' . rawurlencode($mlItemId) . '/description', null, true);
+        if (!$result['success'] || !is_array($result['data'])) {
+            return '';
+        }
+
+        return trim((string) ($result['data']['plain_text'] ?? ''));
+    }
+
     /** @return list<string> */
     private static function searchUserItemIds(string $userId, string $status): array
     {
@@ -1717,13 +1910,16 @@ final class MercadoLibreService
     private static function resolvePublishCategoryAndAttributes(array $product, string $predictedCategoryId): array
     {
         $predictedCategoryId = trim($predictedCategoryId);
-        $fallbackId = self::CLEANING_CATEGORY_FALLBACK;
-        $effective = $predictedCategoryId !== '' ? $predictedCategoryId : $fallbackId;
+        $fallbackId = self::resolveCategoryForProduct($product, null);
+        $effective = self::resolveCategoryForProduct($product, $predictedCategoryId);
         $path = $effective !== '' ? self::getCategoryPathString($effective) : '';
         $reasons = [];
 
         if ($effective !== '' && self::categoryPathNeedsCleaningFallback($path)) {
             $reasons[] = 'path contiene repuestos/maquinaria';
+            $effective = $fallbackId;
+        } elseif ($effective !== '' && !self::isCategoryLeaf($effective)) {
+            $reasons[] = 'categoría no es hoja';
             $effective = $fallbackId;
         } elseif ($effective !== '') {
             $missing = self::findMissingRequiredCategoryAttributes($product, $effective);
@@ -1733,19 +1929,21 @@ final class MercadoLibreService
             }
         }
 
-        if ($effective === $fallbackId && $predictedCategoryId !== '' && $predictedCategoryId !== $fallbackId) {
-            $path = self::getCategoryPathString($fallbackId);
-            $stillMissing = self::findMissingRequiredCategoryAttributes($product, $fallbackId);
-            if ($stillMissing !== []) {
-                $reasons[] = 'fallback aún sin: ' . implode(', ', $stillMissing);
+        if ($effective !== $predictedCategoryId && $predictedCategoryId !== '') {
+            $path = self::getCategoryPathString($effective);
+            if ($effective === $fallbackId) {
+                $stillMissing = self::findMissingRequiredCategoryAttributes($product, $fallbackId);
+                if ($stillMissing !== []) {
+                    $reasons[] = 'fallback aún sin: ' . implode(', ', $stillMissing);
+                }
             }
             $productId = (int) ($product['id'] ?? 0);
             self::logInfo(
                 'resolvePublishCategory',
                 $productId > 0 ? "product_id={$productId}" : 'product_id=0',
-                'Categoría ' . $predictedCategoryId . ' → ' . $fallbackId
+                'Categoría ' . $predictedCategoryId . ' → ' . $effective
                 . ' | path_predicha=' . self::getCategoryPathString($predictedCategoryId)
-                . ' | path_fallback=' . $path
+                . ' | path_resuelta=' . $path
                 . ' | ' . implode('; ', $reasons)
             );
         }
@@ -1757,6 +1955,66 @@ final class MercadoLibreService
             'fallback_reasons' => $reasons,
             'attributes' => self::buildPublishAttributes($product, $effective),
         ];
+    }
+
+    /** @return array<string, mixed> */
+    private static function mlCategoriesConfig(): array
+    {
+        static $config = null;
+        if ($config !== null) {
+            return $config;
+        }
+
+        $file = dirname(__DIR__) . '/config/ml_categories.php';
+        $loaded = is_file($file) ? require $file : [];
+        $config = is_array($loaded) ? $loaded : [];
+
+        return $config;
+    }
+
+    /** @param array<string, mixed> $product
+     * @return list<string>
+     */
+    private static function productCategorySlugs(array $product): array
+    {
+        return array_values(array_unique(array_filter([
+            trim((string) ($product['category_slug'] ?? '')),
+            trim((string) ($product['category_leaf_slug'] ?? '')),
+            trim((string) ($product['parent_slug'] ?? '')),
+        ])));
+    }
+
+    /** @param array<string, mixed> $product */
+    private static function productLooksAutomotive(array $product): bool
+    {
+        foreach (self::productCategorySlugs($product) as $slug) {
+            if ($slug === 'bidones-automotor' || str_contains($slug, 'automotor')) {
+                return true;
+            }
+        }
+
+        $name = mb_strtolower(trim((string) ($product['name'] ?? '')));
+        if ($name === '') {
+            return false;
+        }
+
+        $keywords = [
+            'automotor',
+            'auto ',
+            ' vehicul',
+            ' vehícul',
+            'espuma activa',
+            'shampoo para el auto',
+            'shampoo para el automotor',
+            'cosmética del automotor',
+        ];
+        foreach ($keywords as $keyword) {
+            if (str_contains($name, $keyword)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static function categoryPathNeedsCleaningFallback(string $path): bool
