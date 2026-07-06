@@ -12,8 +12,11 @@ use App\Models\Database;
 final class ClaudeDescriptionGenerator
 {
     private const API_URL = 'https://api.anthropic.com/v1/messages';
-    private const MODEL = 'claude-sonnet-4-20250514';
     private const DESCRIPTION_HEADER = "LIMPIA OESTE\nDistribuidora de productos de limpieza e insumos de higiene profesional";
+    private const SAFETY_PROMPT_RULE = 'No uses palabras relacionadas a ventilación, riesgo de incendio, inflamabilidad, '
+        . 'corrosividad, toxicidad, vapores nocivos, reactividad de superficies ni advertencias de seguridad '
+        . 'tipo MSDS/ficha de seguridad. Mantené el foco en certificación SENASA, dilución, rendimiento y uso '
+        . 'profesional o gastronómico, sin lenguaje de peligrosidad.';
 
     /**
      * @return array{
@@ -21,7 +24,9 @@ final class ClaudeDescriptionGenerator
      *   descripcion: string,
      *   full_description: string,
      *   short_description: string,
-     *   error: string
+     *   error: string,
+     *   safety_blocked: bool,
+     *   banned_terms: list<string>
      * }
      */
     public static function generateForProduct(int $productId): array
@@ -32,6 +37,8 @@ final class ClaudeDescriptionGenerator
             'full_description' => '',
             'short_description' => '',
             'error' => '',
+            'safety_blocked' => false,
+            'banned_terms' => [],
         ];
 
         if ($productId <= 0) {
@@ -80,6 +87,7 @@ final class ClaudeDescriptionGenerator
             . '3) Cómo se usa. 4) Rendimiento y economía solo si aplica por dilución, sin cifras de precio. '
             . 'No agregues cierres fijos ni frases de entrega o contacto al final; terminá con el contenido del producto. '
             . 'No uses markdown ni asteriscos, solo texto plano con párrafos. '
+            . self::SAFETY_PROMPT_RULE . ' '
             . 'Datos disponibles del producto: ' . $datos;
 
         $longResult = self::callClaude($apiKey, $prompt, 1000);
@@ -90,6 +98,19 @@ final class ClaudeDescriptionGenerator
         }
 
         $body = $longResult['text'];
+        $bannedTerms = TextSafetyChecker::containsBannedMercadoEnviosTerms($body);
+        if ($bannedTerms !== []) {
+            $retryPrompt = $prompt
+                . ' REESCRIBÍ la descripción evitando por completo estas palabras o conceptos detectados: '
+                . implode(', ', $bannedTerms) . '. '
+                . self::SAFETY_PROMPT_RULE;
+            $retryResult = self::callClaude($apiKey, $retryPrompt, 1000);
+            if ($retryResult['success']) {
+                $body = $retryResult['text'];
+                $bannedTerms = TextSafetyChecker::containsBannedMercadoEnviosTerms($body);
+            }
+        }
+
         $shortResult = self::generateShortDescription($apiKey, $product);
         if (!$shortResult['success']) {
             $empty['error'] = $shortResult['error'];
@@ -97,12 +118,24 @@ final class ClaudeDescriptionGenerator
             return $empty;
         }
 
+        $shortText = $shortResult['text'];
+        $shortBanned = TextSafetyChecker::containsBannedMercadoEnviosTerms($shortText);
+        if ($shortBanned !== []) {
+            $bannedTerms = array_values(array_unique(array_merge($bannedTerms, $shortBanned)));
+        }
+
+        $safetyBlocked = $bannedTerms !== [];
+
         return [
-            'success' => true,
+            'success' => !$safetyBlocked,
             'descripcion' => self::prependHeader($body),
             'full_description' => $body,
-            'short_description' => $shortResult['text'],
-            'error' => '',
+            'short_description' => $shortText,
+            'error' => $safetyBlocked
+                ? 'La descripción generada incluye términos que ML puede clasificar como riesgo. Revisá o regenerá.'
+                : '',
+            'safety_blocked' => $safetyBlocked,
+            'banned_terms' => $bannedTerms,
         ];
     }
 
@@ -141,6 +174,7 @@ final class ClaudeDescriptionGenerator
         $prompt = 'Escribí una descripción corta de 1-2 oraciones para este producto de limpieza, '
             . 'en español argentino informal. Solo describí qué es y para qué sirve. '
             . 'Sin precios, sin marcas, sin tecnicismos. '
+            . self::SAFETY_PROMPT_RULE . ' '
             . 'Producto: ' . $name . '. Categoría: ' . $category . '. Dilución: ' . $dilution . '.';
 
         $result = self::callClaude($apiKey, $prompt, 200);
@@ -179,7 +213,7 @@ final class ClaudeDescriptionGenerator
     private static function callClaude(string $apiKey, string $prompt, int $maxTokens): array
     {
         $body = json_encode([
-            'model' => self::MODEL,
+            'model' => AnthropicConfig::descriptionModel(),
             'max_tokens' => $maxTokens,
             'messages' => [
                 ['role' => 'user', 'content' => $prompt],

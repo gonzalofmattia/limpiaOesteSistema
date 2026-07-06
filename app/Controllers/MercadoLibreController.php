@@ -517,6 +517,10 @@ final class MercadoLibreController extends Controller
                         $descResult = ClaudeDescriptionGenerator::generateForProduct($productId);
                         if (!$descResult['success']) {
                             $fail++;
+                            $msg = $descResult['error'] ?: 'error';
+                            if (!empty($descResult['banned_terms'])) {
+                                $msg .= ' Términos detectados: ' . implode(', ', $descResult['banned_terms']);
+                            }
                             $emit([
                                 'type' => 'progress',
                                 'index' => $index + 1,
@@ -524,7 +528,7 @@ final class MercadoLibreController extends Controller
                                 'product_id' => $productId,
                                 'product_name' => $productName,
                                 'status' => 'error',
-                                'message' => 'No se pudo generar la descripción: ' . ($descResult['error'] ?: 'error'),
+                                'message' => 'No se pudo generar la descripción: ' . $msg,
                             ]);
                             continue;
                         }
@@ -572,6 +576,8 @@ final class MercadoLibreController extends Controller
                         ]);
                         continue;
                     }
+
+                    $categoryId = MercadoLibreService::resolveCategoryForProduct($product, $categoryId);
 
                     $price = MercadoLibreService::calculateMlPrice($productId, $mlMarkup);
                     if ($price <= 0) {
@@ -1968,7 +1974,15 @@ final class MercadoLibreController extends Controller
 
             $result = ClaudeDescriptionGenerator::generateForProduct($productId);
             if (!$result['success']) {
-                $this->json(['success' => false, 'error' => $result['error']], 422);
+                $this->json([
+                    'success' => false,
+                    'error' => $result['error'],
+                    'safety_blocked' => (bool) ($result['safety_blocked'] ?? false),
+                    'banned_terms' => $result['banned_terms'] ?? [],
+                    'descripcion' => ($result['safety_blocked'] ?? false) ? ($result['descripcion'] ?? '') : '',
+                    'full_description' => ($result['safety_blocked'] ?? false) ? ($result['full_description'] ?? '') : '',
+                    'short_description' => ($result['safety_blocked'] ?? false) ? ($result['short_description'] ?? '') : '',
+                ], 422);
                 return;
             }
 
@@ -1978,6 +1992,8 @@ final class MercadoLibreController extends Controller
                 'full_description' => $result['full_description'],
                 'short_description' => $result['short_description'],
                 'error' => '',
+                'safety_blocked' => false,
+                'banned_terms' => [],
             ]);
         } catch (\Throwable $e) {
             $this->json(['success' => false, 'error' => $e->getMessage()], 500);
@@ -2012,7 +2028,12 @@ final class MercadoLibreController extends Controller
 
             $result = ClaudeDescriptionGenerator::generateForProduct($productId);
             if (!$result['success']) {
-                $this->json(['success' => false, 'error' => $result['error']], 422);
+                $this->json([
+                    'success' => false,
+                    'error' => $result['error'],
+                    'safety_blocked' => (bool) ($result['safety_blocked'] ?? false),
+                    'banned_terms' => $result['banned_terms'] ?? [],
+                ], 422);
 
                 return;
             }
@@ -2050,8 +2071,9 @@ final class MercadoLibreController extends Controller
                 return;
             }
 
-            $categoryId = MercadoLibreService::predictCategory($title);
-            if ($categoryId === null) {
+            $productId = (int) $this->query('product_id', 0);
+            $predicted = MercadoLibreService::predictCategory($title);
+            if ($predicted === null) {
                 $this->json([
                     'success' => false,
                     'category_id' => null,
@@ -2059,6 +2081,10 @@ final class MercadoLibreController extends Controller
                 ]);
                 return;
             }
+
+            $categoryId = $productId > 0
+                ? MercadoLibreService::resolveCategoryForProductId($productId, $predicted)
+                : MercadoLibreService::resolveCategoryForProduct([], $predicted);
 
             $this->json([
                 'success' => true,
