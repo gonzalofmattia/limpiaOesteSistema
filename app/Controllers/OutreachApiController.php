@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Controller;
+use App\Helpers\ArgentinePhoneNormalizer;
 use App\Helpers\OutreachScheduler;
 use App\Models\Database;
 
@@ -103,6 +104,117 @@ final class OutreachApiController extends Controller
         $this->json(['success' => true]);
     }
 
+    /**
+     * Recibe respuestas leidas por el worker (chats no leidos de WhatsApp Web).
+     * Si el telefono no matchea ningun prospecto, se ignora sin guardar nada
+     * (puede ser un chat personal del usuario — no es asunto del sistema).
+     */
+    public function responses(): void
+    {
+        if (!$this->authenticate()) {
+            return;
+        }
+        $items = $this->jsonInputList();
+        $db = Database::getInstance();
+        $matched = 0;
+        $optedOut = 0;
+        $unmatched = 0;
+        $invalid = 0;
+
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                $invalid++;
+                continue;
+            }
+            $phoneRaw = trim((string) ($item['phone'] ?? ''));
+            $body = trim((string) ($item['body'] ?? ''));
+            if ($phoneRaw === '' || $body === '') {
+                $invalid++;
+                continue;
+            }
+            $phone = ArgentinePhoneNormalizer::normalize($phoneRaw);
+            if ($phone === null) {
+                $invalid++;
+                continue;
+            }
+
+            $prospect = $db->fetch('SELECT * FROM prospects WHERE phone = ?', [$phone]);
+            if (!$prospect) {
+                $unmatched++;
+                continue;
+            }
+
+            $prospectId = (int) $prospect['id'];
+            $receivedAt = $this->parseReceivedAt((string) ($item['received_at'] ?? ''));
+            $db->insert('prospect_responses', [
+                'prospect_id' => $prospectId,
+                'body' => $body,
+                'received_at' => $receivedAt,
+                'processed' => 0,
+            ]);
+            $this->logProspectEvent($db, $prospectId, 'respondio', mb_substr($body, 0, 200));
+
+            if (in_array($prospect['status'], ['contactado', 'sin_respuesta'], true)) {
+                $db->update('prospects', ['status' => 'respondio'], 'id = :id', ['id' => $prospectId]);
+            }
+            $db->query(
+                "UPDATE outreach_queue SET status = 'cancelled' WHERE prospect_id = ? AND status IN ('queued', 'claimed')",
+                [$prospectId]
+            );
+
+            if ($this->containsOptOutKeyword($body)) {
+                $db->update(
+                    'prospects',
+                    ['status' => 'no_interesado', 'blacklisted' => 1],
+                    'id = :id',
+                    ['id' => $prospectId]
+                );
+                $this->logProspectEvent($db, $prospectId, 'opt_out', null);
+                $optedOut++;
+            }
+
+            $matched++;
+        }
+
+        $this->logApi('responses', [
+            'matched' => $matched,
+            'opted_out' => $optedOut,
+            'unmatched' => $unmatched,
+            'invalid' => $invalid,
+        ]);
+        $this->json(['success' => true, 'matched' => $matched, 'opted_out' => $optedOut, 'unmatched' => $unmatched]);
+    }
+
+    private function parseReceivedAt(string $raw): string
+    {
+        $raw = trim($raw);
+        if ($raw === '') {
+            return date('Y-m-d H:i:s');
+        }
+        $ts = strtotime($raw);
+
+        return $ts === false ? date('Y-m-d H:i:s') : date('Y-m-d H:i:s', $ts);
+    }
+
+    private function containsOptOutKeyword(string $body): bool
+    {
+        $normalized = $this->stripAccents(mb_strtolower($body));
+        $raw = (string) (setting('outreach_optout_keywords', '') ?? '');
+        foreach (explode(',', $raw) as $keyword) {
+            $keyword = trim($this->stripAccents(mb_strtolower($keyword)));
+            if ($keyword !== '' && str_contains($normalized, $keyword)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function stripAccents(string $s): string
+    {
+        return str_replace(['á', 'é', 'í', 'ó', 'ú', 'ñ'], ['a', 'e', 'i', 'o', 'u', 'n'], $s);
+    }
+
     private function applySentCascade(Database $db, int $prospectId, ?int $campaignId): void
     {
         $prospect = $db->fetch('SELECT * FROM prospects WHERE id = ?', [$prospectId]);
@@ -155,6 +267,15 @@ final class OutreachApiController extends Controller
         $decoded = json_decode((string) $raw, true);
 
         return is_array($decoded) ? $decoded : [];
+    }
+
+    /** @return list<mixed> */
+    private function jsonInputList(): array
+    {
+        $raw = file_get_contents('php://input');
+        $decoded = json_decode((string) $raw, true);
+
+        return is_array($decoded) ? array_values($decoded) : [];
     }
 
     /** @param array<string, mixed> $context */

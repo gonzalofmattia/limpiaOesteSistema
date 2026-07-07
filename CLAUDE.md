@@ -156,9 +156,7 @@ No se deploya (agregado a `$exclude` en `deploy.php`). Perfil de Chrome
 persistente (`chrome_profile_path` en `config.json`) para no re-escanear el QR.
 Selectores de WhatsApp Web (`MESSAGE_BOX_SELECTOR`, `SENT_TICK_SELECTOR`) son el
 punto más frágil — WhatsApp cambia su DOM seguido, revisar ahí primero si el
-worker empieza a fallar todo. **Fase 3 va a agregar** la lectura de chats no
-leídos al principio del loop (antes de enviar), reportando a
-`/api/outreach/responses`.
+worker empieza a fallar todo.
 
 ### Decisiones
 
@@ -170,3 +168,67 @@ leídos al principio del loop (antes de enviar), reportando a
 - `rendered_body` se persiste en `outreach_queue` en vez de re-renderizar al
   enviar, para que el historial de la cola no cambie retroactivamente si se
   edita la plantilla.
+
+## Módulo Outreach — Fase 3: respuestas, seguimientos y recontactos
+
+Cierra el loop: el worker lee chats no leídos (`scan_unread_chats()` en
+`whatsapp_worker.py`, antes de la parte de envío) y reporta a
+`POST /api/outreach/responses` (mismo token que el resto de la API). El
+sistema matchea por teléfono normalizado; **si no matchea ningún prospecto se
+ignora sin guardar nada** (`OutreachApiController::responses()`) — es
+deliberado, por privacidad (puede ser un chat personal del usuario), así que
+`storage/logs/outreach_api.log` solo loguea conteos de esa llamada, nunca
+teléfono/cuerpo del mensaje.
+
+### Schema
+
+- **`prospect_responses`**: una fila por mensaje entrante matcheado.
+  `processed=0` es lo que alimenta la bandeja (`/prospeccion/bandeja`) y el
+  badge del sidebar (`InboxController::pendingCount()`).
+- Settings nuevos: `outreach_followup_days`, `outreach_recontact_days`,
+  `outreach_max_recontacts`, `outreach_optout_keywords` (coma-separado,
+  comparación sin tildes/mayúsculas).
+
+### Automatizaciones (`OutreachScheduler::fillTodayQueueIfNeeded`)
+
+Orden de prioridad al llenar la cola del día: **recontactos → seguimientos →
+primeros contactos** (cada uno consume del cupo restante antes de pasar al
+siguiente). Antes de llenar, `autoMarkStaleAsNoResponse()` corre las dos
+transiciones automáticas a `sin_respuesta` (seguimiento ya mandado sin
+respuesta, o recontactos agotados sin novedades) — esto corre siempre, tenga o
+no cupo de envío disponible.
+
+- **Seguimiento**: dispara una sola vez, cuando `contact_attempts = 1` (es
+  literalmente el primer follow-up del primer contacto). Usa plantilla
+  `stage='seguimiento_7d'` del rubro del prospecto, con fallback a
+  `business_type='todos'` (`findTemplateForStage()`).
+- **Recontacto**: se repite mientras el conteo de eventos `recontacto` de ese
+  prospecto sea menor a `outreach_max_recontacts`; cada envío deja su propio
+  evento `recontacto` (así el conteo crece). Al llegar al máximo sin que haya
+  habido ningún evento nuevo en la ventana de `recontacto_days`, pasa a
+  `sin_respuesta` en vez de encolar de nuevo.
+- Ambos reusan las mismas exclusiones que las campañas (blacklist, sin mensaje
+  pendiente, teléfono no es de un cliente activo) vía
+  `enqueueFromCandidates()` — si se agrega una exclusión nueva a futuro, hay
+  que replicarla en los tres flujos (campañas, seguimientos, recontactos) o
+  centralizarla ahí.
+
+### Bandeja (`/prospeccion/bandeja`, `InboxController`)
+
+El hilo que arma cada card **no sale de `prospect_events`** (esos son solo
+bitácora resumida) sino de un `UNION` entre `outreach_queue` (`status='sent'`,
+`rendered_body`) y `prospect_responses` — es la única fuente con el contenido
+real de los mensajes salientes. "Marcar respondido por mí" solo pone
+`processed=1` en las respuestas pendientes de ese prospecto; el cambio de
+estado real se hace re-usando `POST /prospeccion/prospectos/{id}/estado`
+(no se duplicó esa lógica acá).
+
+### Decisiones
+
+- El opt-out se evalúa **después** de la actualización de estado normal, no en
+  vez de — así siempre queda el evento `respondio` en el historial además del
+  `opt_out`, aunque el status final termine en `no_interesado`.
+- No se intenta evitar que WhatsApp Web marque como leído un chat al abrirlo
+  para extraer el teléfono/mensaje — no hay forma de hacerlo desde la UI web,
+  así que quedó documentado como limitación conocida en `worker/README.md` en
+  vez de intentar un workaround fragile.

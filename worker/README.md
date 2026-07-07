@@ -50,6 +50,11 @@ Dejá la ventana de Chrome abierta y la terminal corriendo. El worker:
   con el siguiente — nunca corta el loop por un error puntual.
 - Si se acumulan 3 fallos seguidos, para 30 minutos por las dudas (puede ser que
   se haya cerrado la sesión de WhatsApp Web) y lo avisa en el heartbeat.
+- Antes de mandar mensajes, en cada ciclo escanea los chats con mensajes sin
+  leer y le avisa al sistema (`/api/outreach/responses`) para registrar
+  respuestas, disparar seguimientos automáticos y detectar opt-outs. Solo lee
+  y reporta — nunca contesta nada por su cuenta, ni manda algo que no venga de
+  la cola del sistema.
 
 Para cortarlo: `Ctrl+C` en la terminal.
 
@@ -62,7 +67,13 @@ Para cortarlo: `Ctrl+C` en la terminal.
 - WhatsApp Web cambia su interfaz de tanto en tanto. Si el worker empieza a
   reportar fallos raros (`no se encontro el cuadro de mensaje`), puede que haya
   que actualizar los selectores en `whatsapp_worker.py` (`MESSAGE_BOX_SELECTOR`,
-  `SENT_TICK_SELECTOR`).
+  `SENT_TICK_SELECTOR`). Lo mismo aplica a la lectura de respuestas
+  (`CHAT_LIST_UNREAD_BADGE_XPATH`, `INCOMING_MESSAGE_SELECTOR`) — es la parte
+  más frágil de todo el worker porque WhatsApp no expone una forma oficial de
+  leer chats no leídos.
+- Abrir un chat para leer el número y el último mensaje lo marca como leído en
+  WhatsApp — no hay forma de evitar esto desde la interfaz web. Es una
+  limitación conocida, no un bug.
 - Logs en `worker/worker.log` (se agranda con el tiempo, se puede borrar cuando
   quieras con el worker apagado).
 - Esta carpeta **no se deploya** al hosting — corre aparte, en tu PC.

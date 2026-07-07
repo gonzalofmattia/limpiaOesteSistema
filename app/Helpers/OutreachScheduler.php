@@ -131,9 +131,148 @@ final class OutreachScheduler
             return;
         }
 
-        // Fase 3 agrega aca, antes de los primeros contactos, el llenado de
-        // seguimientos y recontactos vencidos (mayor prioridad).
-        self::enqueueFirstContactsRoundRobin($db, $remainingCap);
+        self::autoMarkStaleAsNoResponse($db);
+
+        $remaining = $remainingCap;
+        $remaining -= self::enqueueRecontacts($db, $remaining);
+        if ($remaining > 0) {
+            $remaining -= self::enqueueFollowups($db, $remaining);
+        }
+        if ($remaining > 0) {
+            self::enqueueFirstContactsRoundRobin($db, $remaining);
+        }
+    }
+
+    /**
+     * Transiciones automaticas por inactividad: seguimiento ya enviado sin respuesta,
+     * o recontactos agotados sin novedades. No dependen de que haya cupo de envio hoy.
+     */
+    private static function autoMarkStaleAsNoResponse(Database $db): void
+    {
+        $followupDays = (int) (setting('outreach_followup_days', '7') ?? '7');
+        $db->query(
+            "UPDATE prospects SET status = 'sin_respuesta'
+             WHERE status = 'contactado' AND contact_attempts >= 2
+               AND last_contacted_at IS NOT NULL
+               AND last_contacted_at <= DATE_SUB(NOW(), INTERVAL :d DAY)",
+            ['d' => $followupDays]
+        );
+
+        $recontactDays = (int) (setting('outreach_recontact_days', '45') ?? '45');
+        $maxRecontacts = (int) (setting('outreach_max_recontacts', '2') ?? '2');
+        $exhausted = $db->fetchAll(
+            "SELECT p.id FROM prospects p
+             WHERE p.status IN ('respondio', 'interesado')
+               AND (SELECT COUNT(*) FROM prospect_events pe WHERE pe.prospect_id = p.id AND pe.event_type = 'recontacto') >= :max
+               AND NOT EXISTS (
+                   SELECT 1 FROM prospect_events pe2
+                   WHERE pe2.prospect_id = p.id AND pe2.created_at > DATE_SUB(NOW(), INTERVAL :days DAY)
+               )",
+            ['max' => $maxRecontacts, 'days' => $recontactDays]
+        );
+        foreach ($exhausted as $row) {
+            $db->update('prospects', ['status' => 'sin_respuesta'], 'id = :id', ['id' => (int) $row['id']]);
+        }
+    }
+
+    /** Seguimiento automatico: primer contacto sin respuesta hace >= followup_days. */
+    private static function enqueueFollowups(Database $db, int $remainingCap): int
+    {
+        if ($remainingCap <= 0) {
+            return 0;
+        }
+        $followupDays = (int) (setting('outreach_followup_days', '7') ?? '7');
+        $rows = $db->fetchAll(
+            "SELECT p.* FROM prospects p
+             WHERE p.status = 'contactado' AND p.contact_attempts = 1 AND p.blacklisted = 0
+               AND p.last_contacted_at IS NOT NULL
+               AND p.last_contacted_at <= DATE_SUB(NOW(), INTERVAL :d DAY)
+               AND NOT EXISTS (SELECT 1 FROM outreach_queue oq WHERE oq.prospect_id = p.id AND oq.status IN ('queued', 'claimed'))
+             ORDER BY p.last_contacted_at ASC
+             LIMIT " . self::FILL_CANDIDATE_LIMIT,
+            ['d' => $followupDays]
+        );
+
+        return self::enqueueFromCandidates($db, $rows, 'seguimiento_7d', $remainingCap, null);
+    }
+
+    /** Recontacto automatico: sin novedades hace >= recontact_days, bajo el maximo permitido. */
+    private static function enqueueRecontacts(Database $db, int $remainingCap): int
+    {
+        if ($remainingCap <= 0) {
+            return 0;
+        }
+        $recontactDays = (int) (setting('outreach_recontact_days', '45') ?? '45');
+        $maxRecontacts = (int) (setting('outreach_max_recontacts', '2') ?? '2');
+        $rows = $db->fetchAll(
+            "SELECT p.* FROM prospects p
+             WHERE p.status IN ('respondio', 'interesado') AND p.blacklisted = 0
+               AND (SELECT COUNT(*) FROM prospect_events pe WHERE pe.prospect_id = p.id AND pe.event_type = 'recontacto') < :max
+               AND NOT EXISTS (
+                   SELECT 1 FROM prospect_events pe2
+                   WHERE pe2.prospect_id = p.id AND pe2.created_at > DATE_SUB(NOW(), INTERVAL :days DAY)
+               )
+               AND NOT EXISTS (SELECT 1 FROM outreach_queue oq WHERE oq.prospect_id = p.id AND oq.status IN ('queued', 'claimed'))
+             ORDER BY p.updated_at ASC
+             LIMIT " . self::FILL_CANDIDATE_LIMIT,
+            ['max' => $maxRecontacts, 'days' => $recontactDays]
+        );
+
+        return self::enqueueFromCandidates($db, $rows, 'recontacto', $remainingCap, 'recontacto');
+    }
+
+    /**
+     * @param list<array<string, mixed>> $candidates
+     * @param string|null $logEventType Si no es null, registra ese evento ademas de encolar.
+     */
+    private static function enqueueFromCandidates(
+        Database $db,
+        array $candidates,
+        string $stage,
+        int $remainingCap,
+        ?string $logEventType
+    ): int {
+        $activeClientPhones = self::activeClientPhones($db);
+        $enqueued = 0;
+        foreach ($candidates as $p) {
+            if ($enqueued >= $remainingCap) {
+                break;
+            }
+            if (isset($activeClientPhones[(string) $p['phone']])) {
+                continue;
+            }
+            $template = self::findTemplateForStage($db, $stage, (string) $p['business_type']);
+            if ($template === null) {
+                continue;
+            }
+            self::enqueueMessage($db, null, $p, (int) $template['id']);
+            if ($logEventType !== null) {
+                $db->insert('prospect_events', [
+                    'prospect_id' => (int) $p['id'],
+                    'event_type' => $logEventType,
+                    'detail' => null,
+                ]);
+            }
+            $enqueued++;
+        }
+
+        return $enqueued;
+    }
+
+    private static function findTemplateForStage(Database $db, string $stage, string $businessType): ?array
+    {
+        $template = $db->fetch(
+            "SELECT * FROM outreach_templates WHERE stage = ? AND business_type = ? AND active = 1 LIMIT 1",
+            [$stage, $businessType]
+        );
+        if ($template) {
+            return $template;
+        }
+
+        return $db->fetch(
+            "SELECT * FROM outreach_templates WHERE stage = ? AND business_type = 'todos' AND active = 1 LIMIT 1",
+            [$stage]
+        );
     }
 
     private static function enqueueFirstContactsRoundRobin(Database $db, int $remainingCap): int

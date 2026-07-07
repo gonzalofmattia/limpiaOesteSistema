@@ -99,6 +99,7 @@ try {
 } catch (\Throwable) {
     $mlActiveListingsCount = 0;
 }
+$outreachInboxCount = \App\Controllers\InboxController::pendingCount();
 ?>
 <div class="min-h-screen lg:flex">
     <aside class="fixed lg:static inset-y-0 left-0 z-40 w-[220px] bg-white border-r border-lo-border flex flex-col transition-transform duration-200"
@@ -140,7 +141,13 @@ try {
             <a href="<?= e(url('/mercadolibre/publicacion-masiva')) ?>" class="<?= $itemBase ?> <?= isActive('/mercadolibre/publicacion-masiva') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?> pl-6">
                 <i data-lucide="upload-cloud" class="h-4 w-4"></i><span>Publicación masiva</span>
             </a>
-            <a href="<?= e(url('/prospeccion')) ?>" class="<?= $itemBase ?> <?= isActive('/prospeccion') && !isActive('/prospeccion/campanas') && !isActive('/prospeccion/cola') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="radar" class="h-4 w-4"></i><span>Prospección</span></a>
+            <a href="<?= e(url('/prospeccion')) ?>" class="<?= $itemBase ?> <?= isActive('/prospeccion') && !isActive('/prospeccion/campanas') && !isActive('/prospeccion/cola') && !isActive('/prospeccion/bandeja') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="radar" class="h-4 w-4"></i><span>Prospección</span></a>
+            <a href="<?= e(url('/prospeccion/bandeja')) ?>" class="<?= $itemBase ?> <?= isActive('/prospeccion/bandeja') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?> pl-6">
+                <i data-lucide="inbox" class="h-4 w-4"></i><span class="flex-1">Bandeja</span>
+                <?php if ($outreachInboxCount > 0): ?>
+                    <span class="ml-auto inline-flex min-w-[1.25rem] justify-center rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-800"><?= $outreachInboxCount ?></span>
+                <?php endif; ?>
+            </a>
             <a href="<?= e(url('/prospeccion/campanas')) ?>" class="<?= $itemBase ?> <?= isActive('/prospeccion/campanas') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?> pl-6"><i data-lucide="megaphone" class="h-4 w-4"></i><span>Campañas</span></a>
             <a href="<?= e(url('/prospeccion/cola')) ?>" class="<?= $itemBase ?> <?= isActive('/prospeccion/cola') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?> pl-6"><i data-lucide="send" class="h-4 w-4"></i><span>Cola de envíos</span></a>
             <a href="<?= e(url('/pedidos-proveedor')) ?>" class="<?= $itemBase ?> <?= isActive('/pedidos-proveedor') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="truck" class="h-4 w-4"></i><span>Pedidos a Proveedores</span></a>

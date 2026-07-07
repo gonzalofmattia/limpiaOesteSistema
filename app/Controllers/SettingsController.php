@@ -18,7 +18,8 @@ final class SettingsController extends Controller
         'catalog_markup_mayorista', 'catalog_markup_minorista',
         'outreach_daily_cap', 'outreach_window_start', 'outreach_window_end',
         'outreach_weekends_enabled', 'outreach_min_delay_seconds', 'outreach_max_delay_seconds',
-        'outreach_prospect_cooldown_days',
+        'outreach_prospect_cooldown_days', 'outreach_followup_days', 'outreach_recontact_days',
+        'outreach_max_recontacts', 'outreach_optout_keywords',
     ];
 
     public function index(): void

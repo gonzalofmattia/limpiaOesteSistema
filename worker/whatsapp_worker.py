@@ -6,18 +6,20 @@ WhatsApp Web. Sin cron: hace polling a la API del sistema (next-batch) y duerme
 cuando no hay trabajo o los envios estan en pausa. El panel web es quien manda
 (activar/pausar campanias, pausa global) — este script solo ejecuta.
 
-Fase 3 va a extender este archivo para leer chats no leidos y reportar
-respuestas via POST /api/outreach/responses, antes de la parte de envio.
+Cada ciclo, antes de mandar mensajes de la cola, escanea los chats con mensajes
+sin leer y reporta las respuestas al sistema (POST /api/outreach/responses).
+Nunca responde ni envia nada que no venga de la cola del sistema.
 """
 from __future__ import annotations
 
 import json
 import logging
 import random
+import re
 import sys
 import time
 import urllib.parse
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
@@ -49,6 +51,15 @@ INVALID_NUMBER_HINTS = (
     "phone number shared via url is invalid",
     "el número de teléfono compartido a través de una url no es válido",
 )
+
+# Lectura de respuestas (chats no leidos). Igual de fragil que lo anterior: si
+# WhatsApp Web cambia el DOM de la lista de chats, esto es lo primero a revisar.
+CHAT_LIST_UNREAD_BADGE_XPATH = (
+    "//div[@id='pane-side']//span[@aria-label and "
+    "contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'unread')]"
+)
+INCOMING_MESSAGE_SELECTOR = "div.message-in .selectable-text"
+PHONE_FROM_JID_RE = re.compile(r"(\d{8,15})@c\.us")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -87,6 +98,16 @@ class OutreachApiClient:
         except requests.RequestException as exc:
             log.error("No se pudo reportar %s (%s): %s", uuid, status, exc)
 
+    def send_responses(self, items: list) -> None:
+        if not items:
+            return
+        try:
+            r = self.session.post(f"{self.base_url}/api/outreach/responses", json=items, timeout=30)
+            r.raise_for_status()
+            log.info("Reportadas %s respuestas al sistema.", len(items))
+        except requests.RequestException as exc:
+            log.error("No se pudieron reportar respuestas: %s", exc)
+
     def heartbeat(self, sent_today: int, last_error: str = "") -> None:
         payload = {"version": WORKER_VERSION, "sent_today": sent_today, "last_error": last_error}
         try:
@@ -110,6 +131,74 @@ def wait_for_whatsapp_login(driver: "webdriver.Chrome") -> None:
     log.info("Esperando login de WhatsApp Web (escaneá el QR la primera vez, despues queda guardado)...")
     WebDriverWait(driver, 120).until(EC.presence_of_element_located((By.XPATH, "//div[@id='pane-side']")))
     log.info("WhatsApp Web logueado.")
+
+
+def scan_unread_chats(driver: "webdriver.Chrome") -> list:
+    """Escanea la lista de chats buscando mensajes sin leer y devuelve
+    [{phone, body, received_at}, ...] listo para /api/outreach/responses.
+
+    Best-effort: abrir un chat para leer el numero/mensaje lo marca como leido
+    en WhatsApp (no hay forma de evitarlo desde la UI). Si un chat falla al
+    procesarlo, se saltea y se loguea; nunca corta el ciclo completo.
+    """
+    driver.get("https://web.whatsapp.com")
+    try:
+        WebDriverWait(driver, CHAT_LOAD_TIMEOUT).until(
+            EC.presence_of_element_located((By.XPATH, "//div[@id='pane-side']"))
+        )
+    except TimeoutException:
+        log.warning("No cargo la lista de chats, se saltea el escaneo de respuestas de este ciclo.")
+        return []
+
+    try:
+        unread_badges = driver.find_elements(By.XPATH, CHAT_LIST_UNREAD_BADGE_XPATH)
+    except WebDriverException:
+        unread_badges = []
+
+    results = []
+    for badge in unread_badges:
+        try:
+            chat_row = badge.find_element(By.XPATH, "./ancestor::div[@role='listitem']")
+            chat_row.click()
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, INCOMING_MESSAGE_SELECTOR))
+            )
+        except Exception:
+            log.warning("No se pudo abrir un chat con mensajes sin leer, se saltea.")
+            continue
+
+        try:
+            phone = extract_phone_from_open_chat(driver)
+            body = extract_last_incoming_message(driver)
+        except Exception:
+            log.exception("Error inesperado leyendo un chat, se saltea.")
+            continue
+
+        if not phone or not body:
+            log.warning("No se pudo extraer telefono/mensaje de un chat sin leer, se saltea.")
+            continue
+
+        results.append({"phone": phone, "body": body, "received_at": datetime.now().isoformat()})
+
+    return results
+
+
+def extract_phone_from_open_chat(driver: "webdriver.Chrome") -> str:
+    try:
+        header = driver.find_element(By.CSS_SELECTOR, "header span[dir='auto']")
+        text = header.get_attribute("title") or header.text or ""
+    except Exception:
+        text = ""
+    digits = re.sub(r"\D", "", text)
+    if len(digits) >= 8:
+        return "+" + digits
+    match = PHONE_FROM_JID_RE.search(driver.page_source)
+    return f"+{match.group(1)}" if match else ""
+
+
+def extract_last_incoming_message(driver: "webdriver.Chrome") -> str:
+    bubbles = driver.find_elements(By.CSS_SELECTOR, INCOMING_MESSAGE_SELECTOR)
+    return bubbles[-1].text.strip() if bubbles else ""
 
 
 def send_message(driver: "webdriver.Chrome", phone: str, body: str) -> tuple[bool, str]:
@@ -201,6 +290,12 @@ def main() -> None:
         if date.today() != current_day:
             current_day = date.today()
             sent_today = 0
+
+        try:
+            responses = scan_unread_chats(driver)
+            api.send_responses(responses)
+        except Exception:
+            log.exception("Error inesperado escaneando respuestas, se continua con el envio.")
 
         try:
             api.heartbeat(sent_today)
