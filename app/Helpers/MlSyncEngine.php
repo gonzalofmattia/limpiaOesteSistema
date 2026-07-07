@@ -20,6 +20,9 @@ final class MlSyncEngine
     /** Campo compartido a nivel producto (descripción/imágenes) que este listing no puede tocar
      *  porque el producto tiene otro listing marcado como is_media_primary. */
     public const SKIPPED_SHARED = 'skipped_shared';
+    /** precio/stock no editable porque el ítem en ML no está en un estado que lo permita
+     *  (closed, under_review, etc.) o ML tiene precio dinámico activo para ese ítem. */
+    public const ML_LOCKED = 'ml_locked';
 
     /**
      * Clasificación pura del diff de tres vías. Sin snapshot previo, cualquier diferencia entre
@@ -134,6 +137,29 @@ final class MlSyncEngine
             return $blockedResult($productId, 'No se pudo leer el ítem desde ML (GET fallido o no existe).');
         }
 
+        // Autocorrección: si ML ya cambió el status del ítem (lo cerró, lo puso en revisión, etc.)
+        // y nuestra base todavía dice active/paused, lo actualizamos acá para que este listing deje
+        // de aparecer en la próxima corrida de "Sincronizar todos" (que filtra por active/paused).
+        $mlLiveStatus = trim((string) $mlState['status']);
+        $localStatus = trim((string) ($listing['status'] ?? ''));
+        if ($mlLiveStatus !== '' && $mlLiveStatus !== $localStatus) {
+            $db->update('ml_listings', ['status' => $mlLiveStatus], 'id = :id', ['id' => $listingId]);
+            $listing['status'] = $mlLiveStatus;
+            self::logSync(
+                'evaluate',
+                "listing_id={$listingId} ml_item_id={$mlItemId}",
+                "status local desincronizado, corregido: {$localStatus} -> {$mlLiveStatus}"
+            );
+        }
+
+        // ML solo permite editar price/available_quantity cuando el ítem está active o paused.
+        // En closed/under_review/etc. cualquier intento de PUT devuelve "not modifiable" — no tiene
+        // sentido intentarlo, así que estos campos quedan bloqueados (no error) hasta que ML libere
+        // el ítem. La sospecha de precio dinámico (mensaje de ML al pushear) tampoco es editable acá:
+        // se detecta recién al intentar el push y se resuelve del lado de ML (desactivar precio
+        // dinámico en la publicación).
+        $priceQtyEditable = in_array($mlLiveStatus, ['active', 'paused'], true);
+
         $snapshot = $db->fetch('SELECT * FROM ml_sync_snapshots WHERE ml_listing_id = ?', [$listingId]);
 
         $fields = [];
@@ -155,20 +181,26 @@ final class MlSyncEngine
         $sysPrice = self::normalizeMoney(MercadoLibreService::calculateMlPrice($productId, $markup));
         $lastPrice = self::snapshotColumnValue($snapshot, 'price');
         $fields['price'] = [
-            'action' => self::resolveField($mlPrice, $sysPrice, $lastPrice !== null ? self::normalizeMoney($lastPrice) : null),
+            'action' => $priceQtyEditable
+                ? self::resolveField($mlPrice, $sysPrice, $lastPrice !== null ? self::normalizeMoney($lastPrice) : null)
+                : self::ML_LOCKED,
             'ml_value' => $mlPrice,
             'system_value' => $sysPrice,
             'last_sync_value' => $lastPrice,
+            'note' => $priceQtyEditable ? null : "publicación en estado '{$mlLiveStatus}' en ML: precio no editable",
         ];
 
         $mlQty = self::normalizeInt($mlState['available_quantity']);
         $sysQty = self::normalizeInt(MercadoLibreService::resolveQuantity($listing, $unitsInTransit));
         $lastQty = self::snapshotColumnValue($snapshot, 'available_quantity');
         $fields['available_quantity'] = [
-            'action' => self::resolveField($mlQty, $sysQty, $lastQty !== null ? self::normalizeInt($lastQty) : null),
+            'action' => $priceQtyEditable
+                ? self::resolveField($mlQty, $sysQty, $lastQty !== null ? self::normalizeInt($lastQty) : null)
+                : self::ML_LOCKED,
             'ml_value' => $mlQty,
             'system_value' => $sysQty,
             'last_sync_value' => $lastQty,
+            'note' => $priceQtyEditable ? null : "publicación en estado '{$mlLiveStatus}' en ML: stock no editable",
         ];
 
         if ($sharedMediaAllowed) {
@@ -295,12 +327,13 @@ final class MlSyncEngine
 
                 $snapshotUpdates = [];
                 $fieldActions = [];
+                $listingPushError = null;
 
                 foreach ($evaluation['fields'] as $field => $info) {
                     $action = $info['action'];
                     $fieldActions[$field] = $action;
 
-                    if ($action === self::SKIPPED_SHARED) {
+                    if ($action === self::SKIPPED_SHARED || $action === self::ML_LOCKED) {
                         $skipped++;
                         continue;
                     }
@@ -326,7 +359,10 @@ final class MlSyncEngine
                         $pushed++;
                         $authoritative = $info['system_value'];
                         if ($apply) {
-                            self::applyField($listingId, $evaluation['product_id'], $field, $action, $info['system_value']);
+                            $pushResult = self::applyField($listingId, $evaluation['product_id'], $field, $action, $info['system_value']);
+                            if (!$pushResult['success']) {
+                                $listingPushError = $pushResult['error'];
+                            }
                         }
                     }
 
@@ -365,6 +401,23 @@ final class MlSyncEngine
 
                 if ($apply && $snapshotUpdates !== []) {
                     self::upsertSnapshot($listingId, $snapshotUpdates);
+                }
+
+                if ($apply) {
+                    if ($listingPushError !== null) {
+                        $errors[] = ['listing_id' => (int) $listingId, 'error' => $listingPushError];
+                    } else {
+                        // Ningún push falló en esta corrida: si había un last_sync_error de una
+                        // corrida anterior (ítem que ya no está bloqueado, precio dinámico que se
+                        // desactivó, etc.), lo limpiamos para que deje de figurar como "con error"
+                        // en el dashboard aunque nadie haya tocado ese campo puntual hoy.
+                        $db->update(
+                            'ml_listings',
+                            ['last_sync_error' => null],
+                            'id = :id AND last_sync_error IS NOT NULL',
+                            ['id' => $listingId]
+                        );
+                    }
                 }
 
                 $item = ['listing_id' => $listingId, 'blocked' => false, 'fields' => $fieldActions];
@@ -442,20 +495,21 @@ final class MlSyncEngine
         return ['success' => true, 'error' => ''];
     }
 
-    private static function applyField(int $listingId, int $productId, string $field, string $action, mixed $value): void
+    /** @return array{success: bool, error: string} */
+    private static function applyField(int $listingId, int $productId, string $field, string $action, mixed $value): array
     {
         $db = Database::getInstance();
 
         if ($action === self::PUSH_TO_ML) {
-            match ($field) {
+            $result = match ($field) {
                 'title' => MercadoLibreService::syncItemTitle($listingId),
                 'price' => MercadoLibreService::syncItemPrice($listingId),
                 'available_quantity' => MercadoLibreService::syncItemQuantity($listingId),
                 'description' => MercadoLibreService::syncItemDescription($listingId),
-                default => null,
+                default => ['success' => true, 'error' => ''],
             };
 
-            return;
+            return ['success' => (bool) ($result['success'] ?? false), 'error' => (string) ($result['error'] ?? '')];
         }
 
         switch ($field) {
@@ -479,6 +533,8 @@ final class MlSyncEngine
                 }
                 break;
         }
+
+        return ['success' => true, 'error' => ''];
     }
 
     private static function currentSystemValue(int $listingId, int $productId, string $field): mixed
