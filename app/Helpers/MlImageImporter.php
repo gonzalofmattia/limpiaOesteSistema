@@ -412,12 +412,29 @@ final class MlImageImporter
         return ['added' => $added, 'removed' => $removed, 'unchanged' => $unchanged];
     }
 
-    private function localBadgeHash(): ?string
+    public function localBadgeHash(): ?string
     {
         $basePath = defined('BASE_PATH') ? rtrim((string) BASE_PATH, '/') : dirname(__DIR__, 2);
         $path = $basePath . '/public/assets/img/ML.jpg';
 
         return is_file($path) ? (md5_file($path) ?: null) : null;
+    }
+
+    /**
+     * Descarga una URL de imagen de ML y compara su hash contra el badge local, para distinguir
+     * "esta foto extra en ML es el badge que agrega buildPictures()" de "es una foto real todavía
+     * no importada" sin depender de posición ni de cantidad (ver MlSyncEngine::evaluateImagesAction()).
+     */
+    public function isBadgePictureUrl(string $url): bool
+    {
+        $badgeHash = $this->localBadgeHash();
+        if ($badgeHash === null || $url === '') {
+            return false;
+        }
+
+        $bytes = $this->httpGetBinary($url);
+
+        return $bytes !== null && $bytes !== '' && md5($bytes) === $badgeHash;
     }
 
     /**
