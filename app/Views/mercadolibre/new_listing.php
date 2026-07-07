@@ -199,6 +199,22 @@ $cfg = [
             </div>
         </div>
 
+        <div class="rounded-lg border border-lo-border px-3 py-2.5">
+            <label class="flex items-start gap-2 text-sm text-slate-700">
+                <input type="checkbox" name="is_media_primary" value="1" class="mt-0.5"
+                       <?= !empty($listing['is_media_primary']) ? 'checked' : '' ?>>
+                <span>
+                    Fuente de imágenes y descripción para este producto
+                    <span class="block text-xs text-slate-500 mt-0.5">
+                        Marcá esto solo si el mismo producto tiene más de un listing ML activo. El motor de
+                        sync solo trae imágenes/descripción desde el listing marcado como fuente — en los
+                        demás, esos dos campos quedan sin tocar (precio, stock, título y categoría se
+                        sincronizan igual en todos).
+                    </span>
+                </span>
+            </label>
+        </div>
+
         <div>
             <label for="ml-notes" class="block text-sm font-medium text-slate-700 mb-1">Notas internas</label>
             <textarea id="ml-notes" name="notes" rows="3" x-model="notes"

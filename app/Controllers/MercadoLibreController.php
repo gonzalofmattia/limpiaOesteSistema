@@ -1271,6 +1271,9 @@ final class MercadoLibreController extends Controller
 
             $db = Database::getInstance();
             $listingId = $db->insert('ml_listings', $payload['data']);
+            if ((int) ($payload['data']['is_media_primary'] ?? 0) === 1) {
+                $this->enforceSingleMediaPrimary((int) $payload['data']['product_id'], (int) $listingId);
+            }
             $this->saveProductDescriptionIfEmpty((int) $payload['data']['product_id']);
             flash('success', 'Listing guardado como borrador.');
             redirect('/mercadolibre/listings/' . $listingId . '/editar');
@@ -1358,6 +1361,9 @@ final class MercadoLibreController extends Controller
                 'id = :id',
                 ['id' => $listingId]
             );
+            if ((int) ($payload['data']['is_media_primary'] ?? 0) === 1) {
+                $this->enforceSingleMediaPrimary((int) $payload['data']['product_id'], $listingId);
+            }
             $this->saveProductDescriptionIfEmpty((int) $payload['data']['product_id']);
             flash('success', 'Listing actualizado.');
             redirect('/mercadolibre/listings/' . $listingId . '/editar');
@@ -1615,6 +1621,7 @@ final class MercadoLibreController extends Controller
                 'conflicts' => $result['conflicts'],
                 'no_change' => $result['no_change'],
                 'blocked' => $result['blocked'],
+                'skipped' => $result['skipped'],
                 'errors' => count($result['errors']),
             ]);
         } catch (\Throwable $e) {
@@ -2306,6 +2313,17 @@ final class MercadoLibreController extends Controller
      * @param array<string, mixed>|null $existing
      * @return array{error: ?string, data: array<string, mixed>}
      */
+    /** Solo un listing por producto puede ser la fuente de imágenes/descripción. */
+    private function enforceSingleMediaPrimary(int $productId, int $keepListingId): void
+    {
+        Database::getInstance()->update(
+            'ml_listings',
+            ['is_media_primary' => 0],
+            'product_id = :product_id AND id != :keep_id',
+            ['product_id' => $productId, 'keep_id' => $keepListingId]
+        );
+    }
+
     private function validateListingPayload(?array $existing): array
     {
         $db = Database::getInstance();
@@ -2355,6 +2373,8 @@ final class MercadoLibreController extends Controller
         $notes = trim((string) $this->input('notes', ''));
         $notes = $notes !== '' ? $notes : null;
 
+        $isMediaPrimary = $this->input('is_media_primary') ? 1 : 0;
+
         $data = [
             'product_id' => $productId,
             'combo_id' => null,
@@ -2365,6 +2385,7 @@ final class MercadoLibreController extends Controller
             'available_quantity_override' => $quantity,
             'listing_type_id' => $listingType,
             'notes' => $notes,
+            'is_media_primary' => $isMediaPrimary,
         ];
 
         if ($existing === null) {
