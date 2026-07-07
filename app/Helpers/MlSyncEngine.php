@@ -432,10 +432,15 @@ final class MlSyncEngine
      * @param list<array{id: string, secure_url: string}> $mlPictures orden actual en ML
      * @param list<string> $localPictureIds ml_picture_id ya guardados localmente, en sort_order
      *
-     * Tolera hasta 1 id "extra" del lado ML sin marcarlo como cambio real: buildPictures() siempre
-     * agrega la imagen de badge ML como una foto más del listing, y esa foto nunca se guarda como
-     * product_images local (se descarta por hash al aplicar el pull, ver MlImageImporter). Más de
-     * un id extra, o cualquier id local ausente en ML, sí es un cambio real.
+     * Cada id "extra" del lado ML (que no está en product_images todavía) puede ser: (a) la
+     * imagen de badge ML que buildPictures() agrega siempre y que nunca se guarda como
+     * product_images local, o (b) una foto real nueva/no importada. Se distinguen por hash de
+     * contenido contra el badge local (MlImageImporter::isBadgePictureUrl()), NO por cantidad —
+     * un heurístico anterior que toleraba "hasta 1 extra" fallaba en el caso real y común de un
+     * listing con una sola foto y sin badge (nunca pasó por publishItem()/buildPictures(), p.ej.
+     * vinculado a mano desde ML): esa única foto quedaba mal clasificada como "el badge" y nunca
+     * se traía. El costo es descargar solo los ids extra (normalmente 0 o 1 por listing), nunca
+     * el set completo.
      */
     private static function evaluateImagesAction(array $mlPictures, array $localPictureIds): string
     {
@@ -447,13 +452,25 @@ final class MlSyncEngine
         }
 
         $extraInMl = array_values(array_diff($mlIds, $localPictureIds));
-        if (count($extraInMl) > 1) {
-            return self::PULL_FROM_ML;
+        if ($extraInMl === []) {
+            return $mlIds === $localPictureIds ? self::NO_CHANGE : self::PULL_FROM_ML;
         }
 
-        $mlIdsWithoutExtra = array_values(array_diff($mlIds, $extraInMl));
+        $urlById = [];
+        foreach ($mlPictures as $picture) {
+            $urlById[(string) $picture['id']] = (string) ($picture['secure_url'] ?? '');
+        }
 
-        return $mlIdsWithoutExtra === $localPictureIds ? self::NO_CHANGE : self::PULL_FROM_ML;
+        $importer = new MlImageImporter();
+        foreach ($extraInMl as $extraId) {
+            if (!$importer->isBadgePictureUrl($urlById[$extraId] ?? '')) {
+                return self::PULL_FROM_ML;
+            }
+        }
+
+        $mlIdsWithoutBadge = array_values(array_diff($mlIds, $extraInMl));
+
+        return $mlIdsWithoutBadge === $localPictureIds ? self::NO_CHANGE : self::PULL_FROM_ML;
     }
 
     private static function snapshotColumnForField(string $field): string
