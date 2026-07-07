@@ -2347,7 +2347,12 @@ final class MercadoLibreService
             if (!is_array($tags)) {
                 $tags = [];
             }
-            if (empty($tags['required']) && empty($tags['catalog_required'])) {
+            // PART_NUMBER: tratarlo siempre como obligatorio aunque tags.required no lo marque así.
+            // Confirmado en producción que ML puede exigirlo por canal ("required for category X
+            // and channel marketplace") sin que quede reflejado en el tag estático de esta consulta
+            // — y es un atributo de repuestos que nunca vamos a poder mapear para productos de
+            // limpieza, así que su sola presencia en la categoría ya es señal de fallback.
+            if ($id !== 'PART_NUMBER' && empty($tags['required']) && empty($tags['catalog_required'])) {
                 continue;
             }
 
