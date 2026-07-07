@@ -711,6 +711,7 @@ $mlStatusLabel = static function (string $status): string {
                             <p x-text="'Traídos desde ML: ' + syncSummary.pulled + ' · Enviados a ML: ' + syncSummary.pushed + ' · Sin cambios: ' + syncSummary.no_change"></p>
                             <p x-show="syncSummary.conflicts > 0" class="text-amber-700" x-text="syncSummary.conflicts + ' conflicto(s) pendiente(s) de resolución manual.'"></p>
                             <p x-show="syncSummary.blocked > 0" class="text-slate-500" x-text="syncSummary.blocked + ' listing(s) bloqueado(s) (revisar log).'"></p>
+                            <p x-show="syncSummary.skipped > 0" class="text-slate-500" x-text="syncSummary.skipped + ' campo(s) de imagen/descripción sin tocar (producto con más de un listing ML).'"></p>
                             <p x-show="syncSummary.errors > 0" class="text-red-700" x-text="syncSummary.errors + ' error(es) (revisar log).'"></p>
                         </div>
                     </template>

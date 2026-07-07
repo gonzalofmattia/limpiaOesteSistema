@@ -17,6 +17,9 @@ final class MlSyncEngine
     public const PULL_FROM_ML = 'pull_from_ml';
     public const PUSH_TO_ML = 'push_to_ml';
     public const CONFLICT = 'conflict';
+    /** Campo compartido a nivel producto (descripción/imágenes) que este listing no puede tocar
+     *  porque el producto tiene otro listing marcado como is_media_primary. */
+    public const SKIPPED_SHARED = 'skipped_shared';
 
     /**
      * Clasificación pura del diff de tres vías. Sin snapshot previo, cualquier diferencia entre
@@ -90,27 +93,40 @@ final class MlSyncEngine
         }
 
         // product_images y products.full_description son por PRODUCTO, no por listing. Si el mismo
-        // producto tiene más de un ml_listing activo/pausado (dos publicaciones ML distintas para
-        // el mismo producto), traer imágenes/descripción de cualquiera de las dos es ambiguo: cada
-        // una tiene su propio set de fotos en ML, y la que se procese después pisa (borra) lo que
-        // trajo la anterior. Se bloquea todo el listing hasta que Gonzalo decida cuál es la
-        // publicación canónica (pausar/desvincular la otra), en vez de aplicar un resultado
-        // arbitrario según el orden de procesamiento.
+        // producto tiene más de un ml_listing activo/pausado (dos publicaciones ML distintas e
+        // intencionales para el mismo producto — caso real: mismo producto en dos categorías),
+        // traer imágenes/descripción de cualquiera de las dos es ambiguo: cada una tiene su propio
+        // set de fotos en ML, y la que se procese después pisa (borra) lo que trajo la anterior.
+        // Se resuelve con el flag ml_listings.is_media_primary (marcado a mano en "Editar listing"):
+        // solo el listing marcado es fuente de imágenes/descripción; los demás sincronizan
+        // título/precio/stock/categoría normalmente pero esos dos campos quedan en SKIPPED_SHARED.
         $duplicateListings = $db->fetchAll(
-            "SELECT id FROM ml_listings
+            "SELECT id, is_media_primary FROM ml_listings
              WHERE product_id = ? AND id != ? AND status IN ('active','paused')
                AND ml_item_id IS NOT NULL AND TRIM(ml_item_id) <> ''",
             [$productId, $listingId]
         );
+        $sharedMediaAllowed = true;
+        $sharedMediaSkipReason = '';
         if ($duplicateListings !== []) {
-            $otherIds = implode(', ', array_map(static fn (array $r): string => '#' . $r['id'], $duplicateListings));
+            $thisIsPrimary = (int) ($listing['is_media_primary'] ?? 0) === 1;
+            $primarySiblings = array_values(array_filter(
+                $duplicateListings,
+                static fn (array $r): bool => (int) ($r['is_media_primary'] ?? 0) === 1
+            ));
 
-            return $blockedResult(
-                $productId,
-                "Este producto tiene más de un listing ML activo/pausado ({$otherIds}). "
-                . 'Imágenes y descripción son por producto, no por listing — no se puede resolver '
-                . 'solo mientras haya duplicados. Pausá o desvinculá uno de los dos.'
-            );
+            if ($thisIsPrimary) {
+                $sharedMediaAllowed = true;
+            } elseif ($primarySiblings !== []) {
+                $sharedMediaAllowed = false;
+                $primaryIds = implode(', ', array_map(static fn (array $r): string => '#' . $r['id'], $primarySiblings));
+                $sharedMediaSkipReason = "listing {$primaryIds} es la fuente de imágenes/descripción de este producto.";
+            } else {
+                $sharedMediaAllowed = false;
+                $otherIds = implode(', ', array_map(static fn (array $r): string => '#' . $r['id'], $duplicateListings));
+                $sharedMediaSkipReason = "producto con múltiples listings ML ({$otherIds}) sin ninguno marcado como "
+                    . "fuente de imágenes/descripción — marcá uno en \"Editar listing\".";
+            }
         }
 
         $mlState = MercadoLibreService::fetchCurrentState($mlItemId);
@@ -155,25 +171,35 @@ final class MlSyncEngine
             'last_sync_value' => $lastQty,
         ];
 
-        $mlDesc = trim((string) $mlState['description_text']);
-        $sysDesc = MercadoLibreService::buildDescription($product);
-        $mlDescHash = md5(self::normalizeText($mlDesc));
-        $sysDescHash = md5(self::normalizeText($sysDesc));
-        $lastDescHash = self::snapshotColumnValue($snapshot, 'description_hash');
-        $descAction = self::resolveField($mlDescHash, $sysDescHash, $lastDescHash);
-        if ($descAction === self::PUSH_TO_ML) {
-            $bannedTerms = TextSafetyChecker::containsBannedMercadoEnviosTerms($sysDesc);
-            if ($bannedTerms !== []) {
-                $descAction = self::CONFLICT;
-                $sysDesc = '[Términos bloqueados para ML: ' . implode(', ', $bannedTerms) . '] ' . $sysDesc;
+        if ($sharedMediaAllowed) {
+            $mlDesc = trim((string) $mlState['description_text']);
+            $sysDesc = MercadoLibreService::buildDescription($product);
+            $mlDescHash = md5(self::normalizeText($mlDesc));
+            $sysDescHash = md5(self::normalizeText($sysDesc));
+            $lastDescHash = self::snapshotColumnValue($snapshot, 'description_hash');
+            $descAction = self::resolveField($mlDescHash, $sysDescHash, $lastDescHash);
+            if ($descAction === self::PUSH_TO_ML) {
+                $bannedTerms = TextSafetyChecker::containsBannedMercadoEnviosTerms($sysDesc);
+                if ($bannedTerms !== []) {
+                    $descAction = self::CONFLICT;
+                    $sysDesc = '[Términos bloqueados para ML: ' . implode(', ', $bannedTerms) . '] ' . $sysDesc;
+                }
             }
+            $fields['description'] = [
+                'action' => $descAction,
+                'ml_value' => $mlDesc,
+                'system_value' => $sysDesc,
+                'last_sync_value' => null, // solo se guarda el hash, no el texto crudo
+            ];
+        } else {
+            $fields['description'] = [
+                'action' => self::SKIPPED_SHARED,
+                'ml_value' => null,
+                'system_value' => null,
+                'last_sync_value' => null,
+                'note' => $sharedMediaSkipReason,
+            ];
         }
-        $fields['description'] = [
-            'action' => $descAction,
-            'ml_value' => $mlDesc,
-            'system_value' => $sysDesc,
-            'last_sync_value' => null, // solo se guarda el hash, no el texto crudo
-        ];
 
         $mlCategory = self::normalizeText($mlState['category_id']);
         $sysCategory = self::normalizeText((string) ($listing['ml_category_id'] ?? ''));
@@ -185,15 +211,23 @@ final class MlSyncEngine
             'last_sync_value' => $lastCategory,
         ];
 
-        $localPictureIds = array_map(
-            static fn (array $row): string => (string) $row['ml_picture_id'],
-            $db->fetchAll(
-                'SELECT ml_picture_id FROM product_images
-                 WHERE product_id = ? AND ml_picture_id IS NOT NULL
-                 ORDER BY sort_order ASC, id ASC',
-                [$productId]
-            )
-        );
+        if ($sharedMediaAllowed) {
+            $localPictureIds = array_map(
+                static fn (array $row): string => (string) $row['ml_picture_id'],
+                $db->fetchAll(
+                    'SELECT ml_picture_id FROM product_images
+                     WHERE product_id = ? AND ml_picture_id IS NOT NULL
+                     ORDER BY sort_order ASC, id ASC',
+                    [$productId]
+                )
+            );
+            $images = [
+                'action' => self::evaluateImagesAction($mlState['pictures'], $localPictureIds),
+                'ml_pictures' => $mlState['pictures'],
+            ];
+        } else {
+            $images = ['action' => self::SKIPPED_SHARED, 'ml_pictures' => []];
+        }
 
         return [
             'listing_id' => $listingId,
@@ -202,10 +236,7 @@ final class MlSyncEngine
             'blocked' => false,
             'block_reason' => '',
             'fields' => $fields,
-            'images' => [
-                'action' => self::evaluateImagesAction($mlState['pictures'], $localPictureIds),
-                'ml_pictures' => $mlState['pictures'],
-            ],
+            'images' => $images,
         ];
     }
 
@@ -237,6 +268,7 @@ final class MlSyncEngine
         $conflicts = 0;
         $noChange = 0;
         $blocked = 0;
+        $skipped = 0;
         $errors = [];
         $details = [];
 
@@ -267,6 +299,11 @@ final class MlSyncEngine
                 foreach ($evaluation['fields'] as $field => $info) {
                     $action = $info['action'];
                     $fieldActions[$field] = $action;
+
+                    if ($action === self::SKIPPED_SHARED) {
+                        $skipped++;
+                        continue;
+                    }
 
                     if ($action === self::CONFLICT) {
                         $conflicts++;
@@ -320,6 +357,8 @@ final class MlSyncEngine
                             JSON_UNESCAPED_UNICODE
                         );
                     }
+                } elseif ($imagesAction === self::SKIPPED_SHARED) {
+                    $skipped++;
                 } else {
                     $noChange++;
                 }
@@ -343,7 +382,7 @@ final class MlSyncEngine
             'run',
             'resumen',
             'listings=' . count($listingIds) . " pulled={$pulled} pushed={$pushed} conflicts={$conflicts}"
-            . " no_change={$noChange} blocked={$blocked} errores=" . count($errors)
+            . " no_change={$noChange} blocked={$blocked} skipped_shared={$skipped} errores=" . count($errors)
             . ' modo=' . ($apply ? 'apply' : 'dry-run')
         );
 
@@ -353,6 +392,7 @@ final class MlSyncEngine
             'conflicts' => $conflicts,
             'no_change' => $noChange,
             'blocked' => $blocked,
+            'skipped' => $skipped,
             'errors' => $errors,
             'details' => $details,
         ];

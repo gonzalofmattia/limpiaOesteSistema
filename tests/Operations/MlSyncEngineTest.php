@@ -116,4 +116,26 @@ final class MlSyncEngineTest extends TestCase
             'MlSyncEngine debe poder resolver CONFLICT (no solo pull/push automáticos).'
         );
     }
+
+    /**
+     * Guardrail de regresión: cuando un producto tiene más de un ml_listing activo/pausado,
+     * imágenes y descripción (datos por producto, no por listing) deben quedar en SKIPPED_SHARED
+     * salvo en el listing marcado is_media_primary. Si esto se pierde en un refactor futuro, dos
+     * listings del mismo producto vuelven a pisarse las imágenes entre sí (bug real ya reportado).
+     */
+    public function testEngineSourceHandlesDuplicateListingsPerProduct(): void
+    {
+        $source = (string) file_get_contents(APP_PATH . '/Helpers/MlSyncEngine.php');
+
+        $this->assertMatchesRegularExpression(
+            '/is_media_primary/',
+            $source,
+            'MlSyncEngine debe consultar is_media_primary para resolver productos con múltiples listings ML.'
+        );
+        $this->assertMatchesRegularExpression(
+            '/SKIPPED_SHARED/',
+            $source,
+            'MlSyncEngine debe poder marcar campos compartidos (imágenes/descripción) como SKIPPED_SHARED.'
+        );
+    }
 }
