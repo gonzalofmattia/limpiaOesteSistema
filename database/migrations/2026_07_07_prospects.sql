@@ -1,0 +1,22 @@
+CREATE TABLE prospects (
+    id INT NOT NULL AUTO_INCREMENT,
+    name VARCHAR(255) NOT NULL,
+    business_type ENUM('parrilla','panaderia','restaurante','bar','hotel','clinica','escuela','revendedor','otro') NOT NULL DEFAULT 'otro',
+    phone VARCHAR(20) NOT NULL,
+    city VARCHAR(100) DEFAULT NULL,
+    source VARCHAR(50) DEFAULT NULL,
+    status ENUM('nuevo','contactado','respondio','interesado','visita_agendada','muestra_entregada','cotizado','cliente','no_interesado','sin_respuesta') NOT NULL DEFAULT 'nuevo',
+    client_id INT DEFAULT NULL,
+    notes TEXT,
+    contact_attempts INT NOT NULL DEFAULT 0,
+    last_contacted_at DATETIME DEFAULT NULL,
+    blacklisted TINYINT(1) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_prospects_phone (phone),
+    KEY idx_prospects_status (status),
+    KEY idx_prospects_business_type (business_type),
+    KEY idx_prospects_city (city),
+    CONSTRAINT fk_prospects_client FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
