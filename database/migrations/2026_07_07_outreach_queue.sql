@@ -1,0 +1,21 @@
+CREATE TABLE outreach_queue (
+    id INT NOT NULL AUTO_INCREMENT,
+    uuid CHAR(36) NOT NULL,
+    campaign_id INT DEFAULT NULL,
+    prospect_id INT NOT NULL,
+    template_id INT NOT NULL,
+    rendered_body TEXT NOT NULL,
+    status ENUM('queued', 'claimed', 'sent', 'failed', 'cancelled') NOT NULL DEFAULT 'queued',
+    scheduled_for DATE NOT NULL,
+    claimed_at DATETIME DEFAULT NULL,
+    sent_at DATETIME DEFAULT NULL,
+    error TEXT DEFAULT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_outreach_queue_uuid (uuid),
+    KEY idx_outreach_queue_status_scheduled (status, scheduled_for),
+    KEY idx_outreach_queue_prospect (prospect_id),
+    CONSTRAINT fk_outreach_queue_campaign FOREIGN KEY (campaign_id) REFERENCES outreach_campaigns (id) ON DELETE SET NULL,
+    CONSTRAINT fk_outreach_queue_prospect FOREIGN KEY (prospect_id) REFERENCES prospects (id) ON DELETE CASCADE,
+    CONSTRAINT fk_outreach_queue_template FOREIGN KEY (template_id) REFERENCES outreach_templates (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

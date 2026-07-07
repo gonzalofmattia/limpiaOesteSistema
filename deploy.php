@@ -310,6 +310,7 @@ $exclude = [
     'composer.lock',
     'composer.json',
     '*.md',
+    'worker',
 ];
 
 $ftp = null;

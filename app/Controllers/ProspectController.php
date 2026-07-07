@@ -6,6 +6,7 @@ namespace App\Controllers;
 
 use App\Core\Controller;
 use App\Helpers\ArgentinePhoneNormalizer;
+use App\Helpers\OutreachScheduler;
 use App\Models\Database;
 use PDOException;
 
@@ -96,6 +97,21 @@ final class ProspectController extends Controller
              LIMIT 50"
         );
 
+        $worker = null;
+        $sentToday = 0;
+        $dailyCap = 0;
+        $globalPaused = false;
+        try {
+            $worker = $db->fetch('SELECT * FROM outreach_worker_status WHERE id = 1');
+            $sentToday = (int) $db->fetchColumn(
+                "SELECT COUNT(*) FROM outreach_queue WHERE status = 'sent' AND DATE(sent_at) = CURDATE()"
+            );
+            $dailyCap = OutreachScheduler::dailyCap();
+            $globalPaused = OutreachScheduler::isGloballyPaused();
+        } catch (\Throwable) {
+            // Motor de envios (Fase 2) todavia no esta migrado.
+        }
+
         $this->view('prospects/dashboard', [
             'title' => 'Prospección',
             'subtitle' => 'Embudo de prospección B2B',
@@ -104,6 +120,10 @@ final class ProspectController extends Controller
             'contactedLast7' => $contactedLast7,
             'pendingResponses' => $pendingResponses,
             'overdueFollowups' => $overdueFollowups,
+            'worker' => $worker,
+            'sentToday' => $sentToday,
+            'dailyCap' => $dailyCap,
+            'globalPaused' => $globalPaused,
         ]);
     }
 

@@ -17,8 +17,15 @@ $labels = [
     'quote_validity_days' => ['Sistema', 'Validez presupuesto default (días)'],
     'catalog_markup_mayorista' => ['Catálogo API', 'Markup % mayorista (vacío = reglas normales)'],
     'catalog_markup_minorista' => ['Catálogo API', 'Markup % minorista (vacío = igual que mayorista)'],
+    'outreach_daily_cap' => ['Prospección / Envíos', 'Tope diario de mensajes (máximo absoluto 25)'],
+    'outreach_window_start' => ['Prospección / Envíos', 'Ventana de envío — inicio (HH:MM)'],
+    'outreach_window_end' => ['Prospección / Envíos', 'Ventana de envío — fin (HH:MM)'],
+    'outreach_weekends_enabled' => ['Prospección / Envíos', 'Enviar fines de semana (0 = no, 1 = sí)'],
+    'outreach_min_delay_seconds' => ['Prospección / Envíos', 'Delay mínimo entre mensajes (segundos)'],
+    'outreach_max_delay_seconds' => ['Prospección / Envíos', 'Delay máximo entre mensajes (segundos)'],
+    'outreach_prospect_cooldown_days' => ['Prospección / Envíos', 'Días de cooldown entre contactos al mismo prospecto'],
 ];
-$groups = ['Empresa' => [], 'Pricing' => [], 'Catálogo API' => [], 'Sistema' => []];
+$groups = ['Empresa' => [], 'Pricing' => [], 'Catálogo API' => [], 'Prospección / Envíos' => [], 'Sistema' => []];
 foreach ($labels as $key => $meta) {
     $groups[$meta[0]][$key] = $meta[1];
 }
@@ -65,6 +72,11 @@ foreach ($labels as $key => $meta) {
                 </div>
             </section>
         <?php endforeach; ?>
+        <section class="lo-card p-6">
+            <h2 class="text-sm font-semibold text-gray-800 border-b border-gray-100 pb-2 mb-4">Token del worker de WhatsApp</h2>
+            <p class="text-xs text-gray-500 mb-2">Pegá este valor como <code>api_token</code> en <code>worker/config.json</code>. Es de solo lectura acá; para rotarlo, actualizalo directo en la tabla <code>settings</code> y en el worker.</p>
+            <input type="text" readonly value="<?= e((string) (setting('outreach_api_token', '') ?? '')) ?>" onclick="this.select()" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono bg-gray-50">
+        </section>
         <section class="lo-card p-6">
             <h2 class="text-sm font-semibold text-gray-800 border-b border-gray-100 pb-2 mb-4">Proveedores</h2>
             <div class="space-y-6">

@@ -16,6 +16,9 @@ final class SettingsController extends Controller
         'mostrar_iva', 'quote_prefix', 'quote_validity_days',
         'sale_prefix',
         'catalog_markup_mayorista', 'catalog_markup_minorista',
+        'outreach_daily_cap', 'outreach_window_start', 'outreach_window_end',
+        'outreach_weekends_enabled', 'outreach_min_delay_seconds', 'outreach_max_delay_seconds',
+        'outreach_prospect_cooldown_days',
     ];
 
     public function index(): void
@@ -57,6 +60,9 @@ final class SettingsController extends Controller
                 continue;
             }
             $val = (string) $this->input('s_' . $key, '');
+            if ($key === 'outreach_daily_cap') {
+                $val = (string) max(1, min(25, (int) $val));
+            }
             $db->query(
                 'UPDATE settings SET setting_value = ? WHERE setting_key = ?',
                 [$val, $key]
