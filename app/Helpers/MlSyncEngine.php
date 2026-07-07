@@ -89,6 +89,30 @@ final class MlSyncEngine
             return $blockedResult($productId, 'Producto no encontrado.');
         }
 
+        // product_images y products.full_description son por PRODUCTO, no por listing. Si el mismo
+        // producto tiene más de un ml_listing activo/pausado (dos publicaciones ML distintas para
+        // el mismo producto), traer imágenes/descripción de cualquiera de las dos es ambiguo: cada
+        // una tiene su propio set de fotos en ML, y la que se procese después pisa (borra) lo que
+        // trajo la anterior. Se bloquea todo el listing hasta que Gonzalo decida cuál es la
+        // publicación canónica (pausar/desvincular la otra), en vez de aplicar un resultado
+        // arbitrario según el orden de procesamiento.
+        $duplicateListings = $db->fetchAll(
+            "SELECT id FROM ml_listings
+             WHERE product_id = ? AND id != ? AND status IN ('active','paused')
+               AND ml_item_id IS NOT NULL AND TRIM(ml_item_id) <> ''",
+            [$productId, $listingId]
+        );
+        if ($duplicateListings !== []) {
+            $otherIds = implode(', ', array_map(static fn (array $r): string => '#' . $r['id'], $duplicateListings));
+
+            return $blockedResult(
+                $productId,
+                "Este producto tiene más de un listing ML activo/pausado ({$otherIds}). "
+                . 'Imágenes y descripción son por producto, no por listing — no se puede resolver '
+                . 'solo mientras haya duplicados. Pausá o desvinculá uno de los dos.'
+            );
+        }
+
         $mlState = MercadoLibreService::fetchCurrentState($mlItemId);
         if ($mlState === null) {
             return $blockedResult($productId, 'No se pudo leer el ítem desde ML (GET fallido o no existe).');
@@ -276,11 +300,21 @@ final class MlSyncEngine
 
                 $imagesAction = $evaluation['images']['action'];
                 $fieldActions['images'] = $imagesAction;
+                self::logSync(
+                    'run.images',
+                    "listing_id={$listingId} product_id={$evaluation['product_id']}",
+                    "accion={$imagesAction} ml_pictures=" . count($evaluation['images']['ml_pictures']) . ' apply=' . ($apply ? '1' : '0')
+                );
                 if ($imagesAction === self::PULL_FROM_ML) {
                     $pulled++;
                     if ($apply) {
                         $importer = new MlImageImporter($db);
-                        $importer->syncProductImagesFromMl($evaluation['product_id'], $evaluation['images']['ml_pictures']);
+                        $imgResult = $importer->syncProductImagesFromMl($evaluation['product_id'], $evaluation['images']['ml_pictures']);
+                        self::logSync(
+                            'run.images',
+                            "listing_id={$listingId} product_id={$evaluation['product_id']}",
+                            "resultado added={$imgResult['added']} removed={$imgResult['removed']} unchanged={$imgResult['unchanged']}"
+                        );
                         $snapshotUpdates['images_id_list'] = json_encode(
                             array_map(static fn (array $p): string => $p['id'], $evaluation['images']['ml_pictures']),
                             JSON_UNESCAPED_UNICODE

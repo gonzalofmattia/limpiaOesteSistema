@@ -371,15 +371,18 @@ final class MlImageImporter
 
             try {
                 $saved = $this->downloadAndSave($productId, $url);
-            } catch (\Throwable) {
+            } catch (\Throwable $e) {
+                $this->logImport($productId, '', 'sync_ml_picture_id=' . $mlId, $url, 'error: ' . $e->getMessage());
                 continue;
             }
 
             $contentHash = md5_file($this->uploader->originalPath($productId, $saved['filename'])) ?: null;
             if ($badgeHash !== null && $contentHash === $badgeHash) {
                 $this->uploader->deleteFiles($productId, $saved['filename']);
+                $this->logImport($productId, '', 'sync_ml_picture_id=' . $mlId, $url, 'skipped_badge');
                 continue;
             }
+            $this->logImport($productId, '', 'sync_ml_picture_id=' . $mlId, $url, 'ok');
 
             $imageId = $this->db->insert('product_images', [
                 'product_id' => $productId,
@@ -408,6 +411,14 @@ final class MlImageImporter
             $this->db->delete('product_images', 'id = :id', ['id' => $id]);
             $removed++;
         }
+
+        $this->logImport(
+            $productId,
+            '',
+            'sync_summary ml_pictures=' . count($mlPictures) . ' existentes_antes=' . count($existing),
+            '',
+            "added={$added} removed={$removed} unchanged={$unchanged}"
+        );
 
         return ['added' => $added, 'removed' => $removed, 'unchanged' => $unchanged];
     }
