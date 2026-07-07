@@ -31,6 +31,35 @@ $fmtFecha = static function (mixed $raw): string {
         <a href="<?= e(url('/prospeccion/prospectos')) ?>" class="text-sm font-medium text-lo-blue hover:underline">Ver todos los prospectos →</a>
     </div>
 
+    <?php
+    $worker = $worker ?? null;
+    $heartbeatAt = $worker['last_heartbeat'] ?? null;
+    $heartbeatTs = $heartbeatAt !== null ? strtotime((string) $heartbeatAt) : false;
+    $workerAlive = $heartbeatTs !== false && $heartbeatTs >= (time() - 600);
+    $globalPaused = (bool) ($globalPaused ?? false);
+    ?>
+    <div class="lo-card p-4 flex flex-col sm:flex-row sm:items-center gap-4">
+        <div class="flex items-center gap-3 flex-1 min-w-0">
+            <span class="h-3 w-3 rounded-full shrink-0 <?= $workerAlive ? 'bg-green-500' : 'bg-red-500' ?>"></span>
+            <div class="min-w-0">
+                <p class="text-sm font-semibold text-slate-800">Worker <?= $workerAlive ? 'activo' : 'sin señal' ?></p>
+                <p class="text-xs text-slate-500">
+                    <?= $heartbeatTs !== false ? 'Último aviso: ' . e(date('d/m H:i', $heartbeatTs)) : 'Todavía no se conectó' ?>
+                    · Enviados hoy: <?= (int) ($sentToday ?? 0) ?>/<?= (int) ($dailyCap ?? 0) ?>
+                    <?php if (!empty($worker['last_error'])): ?>
+                        · <span class="text-red-600">Error: <?= e((string) $worker['last_error']) ?></span>
+                    <?php endif; ?>
+                </p>
+            </div>
+        </div>
+        <form method="post" action="<?= e(url('/prospeccion/worker/pausa')) ?>">
+            <?= csrfField() ?>
+            <button type="submit" class="w-full sm:w-auto px-5 py-2.5 rounded-lg text-sm font-semibold <?= $globalPaused ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-red-600 text-white hover:bg-red-700' ?>">
+                <?= $globalPaused ? 'REANUDAR' : 'PAUSAR TODO' ?>
+            </button>
+        </form>
+    </div>
+
     <div>
         <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Embudo</p>
         <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">

@@ -75,9 +75,7 @@ stock/cuenta corriente/ML.
 ## Módulo Outreach (Prospección) — Fase 1
 
 CRM de prospección B2B por WhatsApp. Vive bajo `/prospeccion`, controlador
-`ProspectController`. Pensado para una Fase 2 (no implementada todavía) que agregue
-cola de envíos + worker conectado al script externo de automatización de WhatsApp
-(`C:\Users\gonza\whatsapp-limpia-oeste`, fuera de este repo).
+`ProspectController`.
 
 ### Schema (`database/migrations/2026_07_07_*`)
 
@@ -103,3 +101,72 @@ cola de envíos + worker conectado al script externo de automatización de Whats
   headers tolerantes a mayúsculas/acentos) pero como métodos propios en
   `ProspectController`, no una clase compartida — el volumen de casos especiales
   de productos (multi-hoja, categorías) no aplica acá.
+
+## Módulo Outreach — Fase 2: motor de envíos (cola + worker)
+
+El hosting (DonWeb) no puede mandar WhatsApp. El sistema arma y administra la cola;
+un worker Python (`worker/whatsapp_worker.py`, **fuera del deploy** — ver
+`deploy.php`) corre en una PC local con Chrome + WhatsApp Web y hace polling a la
+API. Todo se controla desde el panel (`/prospeccion/campanas`, `/prospeccion/cola`,
+card "Worker" en `/prospeccion`).
+
+### Schema (`database/migrations/2026_07_07_outreach_*`)
+
+- **`outreach_campaigns`**: filtros (rubro/ciudad/estado del prospecto) + plantilla
+  + tope diario propio. Máquina de estados `borrador → activa ⇄ pausada → finalizada`
+  (`CampaignController::ALLOWED_TRANSITIONS`).
+- **`outreach_queue`**: una fila por mensaje a enviar. `uuid` es lo que el worker
+  usa para reportar (nunca el `id` autoincremental). `rendered_body` se calcula
+  una sola vez al encolar (no al enviar), así el historial queda igual aunque se
+  edite la plantilla después.
+- **`outreach_worker_status`**: fila única `id=1`, la pisa cada heartbeat.
+- Settings nuevos en la tabla `settings` (prefijo `outreach_`): token de API,
+  tope diario (clamp 1-25 en `SettingsController::update`), ventana horaria,
+  fines de semana, pausa global, delays min/max, cooldown. Editables desde
+  `/settings` (sección "Prospección / Envíos"); el token se muestra ahí de solo lectura.
+
+### `OutreachScheduler` (app/Helpers/OutreachScheduler.php)
+
+Es lazy: no hay cron, se dispara cuando el worker pide `next-batch`. En cada
+llamada: recupera `claimed` viejos (>30 min sin reporte → vuelven a `queued`),
+chequea pausa global y ventana horaria/fin de semana, y si la cola de HOY está
+vacía la llena (round-robin entre campañas activas respetando el `daily_limit`
+de cada una y el tope global). La exclusión de prospectos
+(`OutreachScheduler::matchingProspects`) siempre descarta: blacklisted, dentro
+del cooldown, con un mensaje `queued`/`claimed` pendiente, ya contactados antes
+por esa misma campaña, y teléfonos que ya son de un cliente activo (comparación
+por `ArgentinePhoneNormalizer`, igual que el importador de prospectos).
+**Fase 3 extiende `fillTodayQueueIfNeeded()`** agregando seguimientos y
+recontactos con más prioridad que los primeros contactos — no tocar el orden sin
+revisar esa fase.
+
+### API para el worker (`OutreachApiController`)
+
+Rutas públicas (`public => true` en `routes.php`, bypasean sesión admin) pero
+autenticadas por header `X-Outreach-Token` contra el setting `outreach_api_token`
+(`hash_equals`). `next-batch` (GET), `report` (POST, idempotente por `uuid`),
+`heartbeat` (POST). Todo queda logueado en `storage/logs/outreach_api.log`.
+Al reportar `sent`: si el prospecto estaba en `nuevo` pasa a `contactado`, y
+siempre se actualiza `last_contacted_at`/`contact_attempts` + evento
+`mensaje_enviado`/`mensaje_fallido`.
+
+### Worker Python (`worker/`)
+
+No se deploya (agregado a `$exclude` en `deploy.php`). Perfil de Chrome
+persistente (`chrome_profile_path` en `config.json`) para no re-escanear el QR.
+Selectores de WhatsApp Web (`MESSAGE_BOX_SELECTOR`, `SENT_TICK_SELECTOR`) son el
+punto más frágil — WhatsApp cambia su DOM seguido, revisar ahí primero si el
+worker empieza a fallar todo. **Fase 3 va a agregar** la lectura de chats no
+leídos al principio del loop (antes de enviar), reportando a
+`/api/outreach/responses`.
+
+### Decisiones
+
+- `daily_limit` de una campaña es un tope propio que compite por el cupo global
+  (`outreach_daily_cap`) vía round-robin; no es un tope independiente.
+- El link prospecto↔cliente-activo se resuelve por teléfono normalizado, no por
+  `prospects.client_id` — evita mandar mensajes a alguien que ya compró aunque
+  nadie haya actualizado el estado del prospecto a mano.
+- `rendered_body` se persiste en `outreach_queue` en vez de re-renderizar al
+  enviar, para que el historial de la cola no cambie retroactivamente si se
+  edita la plantilla.

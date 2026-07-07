@@ -11,3 +11,6 @@ Thumbs.db
 *.swp
 .phpunit.cache/
 lo_test_cookies.txt
+worker/__pycache__/
+worker/config.json
+worker/worker.log
