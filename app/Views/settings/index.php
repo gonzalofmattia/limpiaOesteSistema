@@ -24,6 +24,10 @@ $labels = [
     'outreach_min_delay_seconds' => ['Prospección / Envíos', 'Delay mínimo entre mensajes (segundos)'],
     'outreach_max_delay_seconds' => ['Prospección / Envíos', 'Delay máximo entre mensajes (segundos)'],
     'outreach_prospect_cooldown_days' => ['Prospección / Envíos', 'Días de cooldown entre contactos al mismo prospecto'],
+    'outreach_followup_days' => ['Prospección / Envíos', 'Días sin respuesta antes del seguimiento automático'],
+    'outreach_recontact_days' => ['Prospección / Envíos', 'Días sin novedades antes de un recontacto automático'],
+    'outreach_max_recontacts' => ['Prospección / Envíos', 'Máximo de recontactos automáticos'],
+    'outreach_optout_keywords' => ['Prospección / Envíos', 'Palabras de opt-out (separadas por coma)'],
 ];
 $groups = ['Empresa' => [], 'Pricing' => [], 'Catálogo API' => [], 'Prospección / Envíos' => [], 'Sistema' => []];
 foreach ($labels as $key => $meta) {

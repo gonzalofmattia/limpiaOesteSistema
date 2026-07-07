@@ -190,6 +190,9 @@ return [
     ['GET', 'api/outreach/next-batch', 'OutreachApiController@nextBatch', ['public' => true]],
     ['POST', 'api/outreach/report', 'OutreachApiController@report', ['public' => true]],
     ['POST', 'api/outreach/heartbeat', 'OutreachApiController@heartbeat', ['public' => true]],
+    ['POST', 'api/outreach/responses', 'OutreachApiController@responses', ['public' => true]],
+    ['GET', 'prospeccion/bandeja', 'InboxController@index', []],
+    ['POST', 'prospeccion/bandeja/{id}/marcar-respondido', 'InboxController@markResponded', []],
 
     ['GET', 'cuenta-corriente', 'AccountController@index', []],
     ['GET', 'cuenta-corriente/clientes', 'AccountController@clients', []],
