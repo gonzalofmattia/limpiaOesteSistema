@@ -25,7 +25,7 @@ from typing import Optional
 
 import requests
 from selenium import webdriver
-from selenium.common.exceptions import TimeoutException, WebDriverException
+from selenium.common.exceptions import InvalidSessionIdException, NoSuchWindowException, TimeoutException, WebDriverException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -131,6 +131,28 @@ def wait_for_whatsapp_login(driver: "webdriver.Chrome") -> None:
     log.info("Esperando login de WhatsApp Web (escaneá el QR la primera vez, despues queda guardado)...")
     WebDriverWait(driver, 120).until(EC.presence_of_element_located((By.XPATH, "//div[@id='pane-side']")))
     log.info("WhatsApp Web logueado.")
+
+
+def is_driver_alive(driver: "webdriver.Chrome") -> bool:
+    """Chequeo barato para detectar si Chrome se cerro/crasheo por fuera del worker."""
+    try:
+        _ = driver.title
+        return True
+    except WebDriverException:
+        return False
+
+
+def recreate_driver(old_driver: "webdriver.Chrome", chrome_profile_path: str) -> "webdriver.Chrome":
+    """Tira el driver muerto y levanta uno nuevo. El perfil persistente evita pedir el QR de nuevo."""
+    try:
+        old_driver.quit()
+    except Exception:
+        pass
+    log.warning("Recreando la sesion de Chrome/WhatsApp Web...")
+    new_driver = build_driver(chrome_profile_path)
+    wait_for_whatsapp_login(new_driver)
+    log.info("Sesion de Chrome recreada.")
+    return new_driver
 
 
 def scan_unread_chats(driver: "webdriver.Chrome") -> list:
@@ -239,7 +261,11 @@ def send_message(driver: "webdriver.Chrome", phone: str, body: str) -> tuple[boo
     return True, ""
 
 
-def run_batch(driver, api: OutreachApiClient, messages: list, delays: dict, sent_today: int) -> tuple[int, int]:
+def run_batch(driver, api: OutreachApiClient, messages: list, delays: dict, sent_today: int) -> tuple[int, int, bool]:
+    """Devuelve (enviados, fallidos, sesion_perdida). Si Chrome muere a mitad del
+    batch, corta ahi mismo sin marcar el resto como fallido — al perder la
+    'claim' en el sistema (recovery automatico a los 30 min), esos mensajes
+    vuelven solos a la cola para el proximo intento con una sesion sana."""
     sent = 0
     consecutive_failures = 0
     min_delay = max(1, int(delays.get("min_delay", 60)))
@@ -249,6 +275,9 @@ def run_batch(driver, api: OutreachApiClient, messages: list, delays: dict, sent
         uuid, phone, body = msg["uuid"], msg["phone"], msg["body"]
         try:
             ok, reason = send_message(driver, phone, body)
+        except (InvalidSessionIdException, NoSuchWindowException) as exc:
+            log.error("Se perdio la sesion de Chrome a mitad de un envio (%s). Corto el batch.", exc)
+            return sent, len(messages) - sent, True
         except Exception as exc:  # nunca crashear el loop por un mensaje puntual
             log.exception("Error inesperado enviando a %s", phone)
             ok, reason = False, str(exc)
@@ -273,7 +302,7 @@ def run_batch(driver, api: OutreachApiClient, messages: list, delays: dict, sent
         if i < len(messages) - 1:
             time.sleep(random.uniform(min_delay, max_delay))
 
-    return sent, len(messages) - sent
+    return sent, len(messages) - sent, False
 
 
 def main() -> None:
@@ -291,9 +320,21 @@ def main() -> None:
             current_day = date.today()
             sent_today = 0
 
+        if not is_driver_alive(driver):
+            log.warning("La sesion de Chrome no responde (¿se cerro la ventana o crasheo?). La recreo.")
+            try:
+                driver = recreate_driver(driver, config["chrome_profile_path"])
+            except Exception:
+                log.exception("No se pudo recrear la sesion de Chrome, reintento en %s segundos.", IDLE_SLEEP_SECONDS)
+                time.sleep(IDLE_SLEEP_SECONDS)
+                continue
+
         try:
             responses = scan_unread_chats(driver)
             api.send_responses(responses)
+        except (InvalidSessionIdException, NoSuchWindowException):
+            log.warning("Sesion de Chrome perdida escaneando respuestas, se recrea en el proximo ciclo.")
+            continue
         except Exception:
             log.exception("Error inesperado escaneando respuestas, se continua con el envio.")
 
@@ -319,9 +360,14 @@ def main() -> None:
             time.sleep(IDLE_SLEEP_SECONDS)
             continue
 
-        sent, failed = run_batch(driver, api, messages, batch.get("settings", {}), sent_today)
+        sent, failed, session_lost = run_batch(driver, api, messages, batch.get("settings", {}), sent_today)
         sent_today += sent
         log.info("Batch terminado: %s enviados, %s fallidos. Total hoy: %s.", sent, failed, sent_today)
+        if session_lost:
+            try:
+                driver = recreate_driver(driver, config["chrome_profile_path"])
+            except Exception:
+                log.exception("No se pudo recrear la sesion de Chrome, se reintenta en el proximo ciclo.")
 
 
 if __name__ == "__main__":
