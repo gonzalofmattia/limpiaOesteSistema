@@ -21,4 +21,20 @@ final class AnthropicConfig
 
         return $model;
     }
+
+    public static function outreachModel(): string
+    {
+        static $model = null;
+        if ($model !== null) {
+            return $model;
+        }
+
+        $file = dirname(__DIR__) . '/config/anthropic.php';
+        $config = is_file($file) ? require $file : [];
+        $model = is_array($config) && !empty($config['outreach_model'])
+            ? (string) $config['outreach_model']
+            : 'claude-haiku-4-5-20251001';
+
+        return $model;
+    }
 }

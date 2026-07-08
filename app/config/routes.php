@@ -193,6 +193,7 @@ return [
     ['POST', 'api/outreach/responses', 'OutreachApiController@responses', ['public' => true]],
     ['GET', 'prospeccion/bandeja', 'InboxController@index', []],
     ['POST', 'prospeccion/bandeja/{id}/marcar-respondido', 'InboxController@markResponded', []],
+    ['POST', 'prospeccion/bandeja/{id}/descartar-sugerencia', 'InboxController@discardSuggestion', []],
 
     ['GET', 'cuenta-corriente', 'AccountController@index', []],
     ['GET', 'cuenta-corriente/clientes', 'AccountController@clients', []],
