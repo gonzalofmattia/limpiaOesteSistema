@@ -232,3 +232,38 @@ estado real se hace re-usando `POST /prospeccion/prospectos/{id}/estado`
   para extraer el teléfono/mensaje — no hay forma de hacerlo desde la UI web,
   así que quedó documentado como limitación conocida en `worker/README.md` en
   vez de intentar un workaround fragile.
+
+## Módulo Outreach — Fase 4: asistente IA en la bandeja
+
+**Regla innegociable: el sistema nunca responde solo.** `OutreachAiAssistant`
+(app/Helpers/OutreachAiAssistant.php) solo clasifica y sugiere; la bandeja
+siempre pide una acción humana antes de que salga cualquier mensaje.
+
+- Mismo patrón que `ClaudeDescriptionGenerator` (curl directo a la API de
+  Anthropic, sin SDK), pero con `system` prompt separado (campo top-level de
+  `/v1/messages`) y timeout corto (15s) porque esto corre síncrono al abrir
+  `/prospeccion/bandeja`. Modelo centralizado en
+  `AnthropicConfig::outreachModel()` / `config/anthropic.php` (mismo
+  `claude-haiku-4-5-20251001` que la generación de descripciones — no
+  hardcodear el nombre del modelo en otro lado).
+- Columnas nuevas en `prospect_responses`: `ai_intent`, `ai_suggested_reply`,
+  `ai_processed_at`. `InboxController::processUnclassifiedResponses()` procesa
+  como máximo 5 respuestas sin clasificar por carga de página (lazy, no hay
+  cola ni worker para esto). Si `ANTHROPIC_API_KEY` falta o la API falla, se
+  guarda igual `ai_processed_at` con intent/reply en `NULL` — así no se
+  reintenta en cada carga, y la bandeja muestra "no se pudo generar sugerencia"
+  en vez de romper. Errores puntuales de la llamada (no la falta de key) se
+  loguean en `storage/logs/outreach_ai.log`.
+- La bandeja arma **un card por prospecto** (no uno por respuesta) y solo
+  muestra la sugerencia de la respuesta pendiente más reciente de ese
+  prospecto — si hay dos respuestas sin procesar del mismo prospecto, la
+  sugerencia visible corresponde a la última.
+- "Copiar y abrir WhatsApp" es JS plano en la vista (`inbox/index.php`), no
+  Alpine — se evitó a propósito por el bug de escaping que ya pasó una vez con
+  `json_encode` dentro de un atributo `x-data` de doble comilla (ver
+  `outreach_templates/form.php`, Fase 1). Con un `<textarea>` + `getElementById`
+  no hay JSON que embeber en el HTML, así que no aplica ese riesgo.
+- El atajo "Pasar a No interesado" en `intent=rechazo` reusa
+  `POST /prospeccion/prospectos/{id}/estado` (no duplica lógica de cambio de
+  estado); "Descartar sugerencia" solo limpia `ai_intent`/`ai_suggested_reply`
+  de las respuestas no procesadas de ese prospecto, no las marca `processed`.
