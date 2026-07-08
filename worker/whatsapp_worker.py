@@ -124,7 +124,24 @@ class OutreachApiClient:
             log.error("No se pudo enviar heartbeat: %s", exc)
 
 
+def _clear_stale_chrome_locks(chrome_profile_path: str) -> None:
+    """Si Chrome se cerro de mala manera (crash), deja archivos de lock que
+    impiden arrancar una sesion nueva con el mismo perfil ('DevToolsActivePort
+    file doesn't exist' / 'Chrome failed to start: crashed'). Son seguros de
+    borrar: Chrome los recrea solo en cada arranque normal."""
+    profile_dir = Path(chrome_profile_path)
+    for name in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
+        lock_file = profile_dir / name
+        try:
+            if lock_file.exists() or lock_file.is_symlink():
+                lock_file.unlink()
+                log.info("Se borro un lock viejo de Chrome: %s", lock_file)
+        except OSError as exc:
+            log.warning("No se pudo borrar %s: %s", lock_file, exc)
+
+
 def build_driver(chrome_profile_path: str) -> "webdriver.Chrome":
+    _clear_stale_chrome_locks(chrome_profile_path)
     options = Options()
     options.add_argument(f"--user-data-dir={chrome_profile_path}")
     options.add_argument("--profile-directory=Default")
