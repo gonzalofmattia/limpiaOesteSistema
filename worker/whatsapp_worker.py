@@ -53,7 +53,6 @@ MESSAGE_BOX_SELECTORS = (
     "footer div[contenteditable='true'][aria-placeholder]",
     "div[contenteditable='true'][data-tab='10']",
 )
-SENT_TICK_SELECTOR = "span[data-icon='msg-time'], span[data-icon='msg-check'], span[data-icon='msg-dblcheck']"
 INVALID_NUMBER_HINTS = (
     "phone number shared via url is invalid",
     "el número de teléfono compartido a través de una url no es válido",
@@ -287,12 +286,14 @@ def send_message(driver: "webdriver.Chrome", phone: str, body: str) -> tuple[boo
     except WebDriverException as exc:
         return False, f"error al enviar: {exc}"
 
+    def _box_is_empty(d: "webdriver.Chrome") -> bool:
+        current = find_message_box(d)
+        return not current or all((b.text or "").strip() == "" for b in current)
+
     try:
-        WebDriverWait(driver, SEND_CONFIRM_TIMEOUT).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, SENT_TICK_SELECTOR))
-        )
+        WebDriverWait(driver, SEND_CONFIRM_TIMEOUT).until(_box_is_empty)
     except TimeoutException:
-        return False, "no se pudo confirmar que el mensaje salio"
+        return False, "no se pudo confirmar que el mensaje salio (el cuadro no se vacio)"
 
     return True, ""
 
