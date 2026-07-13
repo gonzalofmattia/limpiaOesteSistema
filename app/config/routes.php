@@ -164,6 +164,7 @@ return [
     ['POST', 'sincronizacion/import-local', 'SyncController@importSqlToLocal', []],
 
     ['GET', 'prospeccion', 'ProspectController@dashboard', []],
+    ['GET', 'prospeccion/instrucciones', 'ProspectController@instructions', []],
     ['GET', 'prospeccion/prospectos', 'ProspectController@index', []],
     ['GET', 'prospeccion/prospectos/crear', 'ProspectController@create', []],
     ['POST', 'prospeccion/prospectos', 'ProspectController@store', []],

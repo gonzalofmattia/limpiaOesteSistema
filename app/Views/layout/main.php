@@ -115,19 +115,49 @@ $outreachInboxCount = \App\Controllers\InboxController::pendingCount();
             <button class="lg:hidden text-slate-500" @click="sidebarOpen=false"><i data-lucide="x" class="h-5 w-5"></i></button>
         </div>
         <nav class="flex-1 overflow-y-auto px-3 py-4 text-sm">
-            <?php $itemBase = 'group flex items-center gap-3 rounded-lg px-3 py-2.5 border-l-2 transition'; ?>
-            <p class="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Principal</p>
+            <?php
+            $itemBase = 'group flex items-center gap-3 rounded-lg px-3 py-2.5 border-l-2 transition';
+            $navGroupActive = [
+                'principal' => isActive('/') && !isActive('/categorias') && !isActive('/productos'),
+                'catalogo' => isActive('/categorias') || isActive('/productos') || isActive('/catalogo-visual')
+                    || isActive('/catalogo/generar-descripciones') || isActive('/stock-actual') || isActive('/stock/proyeccion'),
+                'comercial' => isActive('/listas') || isActive('/clientes') || isActive('/presupuestos') || isActive('/ventas')
+                    || isActive('/ventas-ml') || isActive('/mercadolibre') || isActive('/prospeccion')
+                    || isActive('/pedidos-proveedor') || isActive('/cuenta-corriente'),
+                'sistema' => isActive('/settings') || isActive('/sincronizacion'),
+            ];
+            $navGroupOpen = static function (string $key) use ($navGroupActive): string {
+                if ($navGroupActive[$key]) {
+                    return 'true';
+                }
+                return "(localStorage.getItem('lo_nav_{$key}') ?? '1') === '1'";
+            };
+            $navGroupStart = static function (string $key, string $label) use ($navGroupOpen): void {
+                echo '<div x-data="{ open: ' . $navGroupOpen($key) . ' }" x-init="$watch(\'open\', v => localStorage.setItem(\'lo_nav_' . $key . '\', v ? \'1\' : \'0\'))">';
+                echo '<button type="button" @click="open = !open" class="w-full flex items-center justify-between px-3 pt-4 pb-1 text-left">';
+                echo '<span class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">' . e($label) . '</span>';
+                echo '<i data-lucide="chevron-down" class="h-3.5 w-3.5 text-slate-400 transition-transform" :class="{ \'-rotate-90\': !open }"></i>';
+                echo '</button>';
+                echo '<div x-show="open" x-cloak>';
+            };
+            $navGroupEnd = static function (): void {
+                echo '</div></div>';
+            };
+            ?>
+            <?php $navGroupStart('principal', 'Principal'); ?>
             <a href="<?= e(url('/')) ?>" class="<?= $itemBase ?> <?= isActive('/') && !isActive('/categorias') && !isActive('/productos') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>">
                 <i data-lucide="layout-dashboard" class="h-4 w-4"></i><span>Dashboard</span>
             </a>
-            <p class="px-3 pt-4 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Catálogo</p>
+            <?php $navGroupEnd(); ?>
+            <?php $navGroupStart('catalogo', 'Catálogo'); ?>
             <a href="<?= e(url('/categorias')) ?>" class="<?= $itemBase ?> <?= isActive('/categorias') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="tags" class="h-4 w-4"></i><span>Categorías</span></a>
             <a href="<?= e(url('/productos')) ?>" class="<?= $itemBase ?> <?= isActive('/productos') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="package" class="h-4 w-4"></i><span>Productos</span></a>
             <a href="<?= e(url('/catalogo-visual')) ?>" class="<?= $itemBase ?> <?= isActive('/catalogo-visual') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?> pl-6"><i data-lucide="layout-grid" class="h-4 w-4"></i><span>Vista visual</span></a>
             <a href="<?= e(url('/catalogo/generar-descripciones')) ?>" class="<?= $itemBase ?> <?= isActive('/catalogo/generar-descripciones') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?> pl-6"><i data-lucide="sparkles" class="h-4 w-4"></i><span>Generar descripciones IA</span></a>
             <a href="<?= e(url('/stock-actual')) ?>" class="<?= $itemBase ?> <?= isActive('/stock-actual') && !isActive('/stock/proyeccion') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="warehouse" class="h-4 w-4"></i><span>Stock actual</span></a>
             <a href="<?= e(url('/stock/proyeccion')) ?>" class="<?= $itemBase ?> <?= isActive('/stock/proyeccion') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?> pl-6"><i data-lucide="trending-up" class="h-4 w-4"></i><span>Proyección compra</span></a>
-            <p class="px-3 pt-4 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Comercial</p>
+            <?php $navGroupEnd(); ?>
+            <?php $navGroupStart('comercial', 'Comercial'); ?>
             <a href="<?= e(url('/listas')) ?>" class="<?= $itemBase ?> <?= isActive('/listas') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="list-ordered" class="h-4 w-4"></i><span>Listas de precios</span></a>
             <a href="<?= e(url('/clientes')) ?>" class="<?= $itemBase ?> <?= isActive('/clientes') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="users" class="h-4 w-4"></i><span>Clientes</span></a>
             <a href="<?= e(url('/presupuestos')) ?>" class="<?= $itemBase ?> <?= isActive('/presupuestos') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="file-text" class="h-4 w-4"></i><span>Presupuestos</span></a>
@@ -141,7 +171,7 @@ $outreachInboxCount = \App\Controllers\InboxController::pendingCount();
             <a href="<?= e(url('/mercadolibre/publicacion-masiva')) ?>" class="<?= $itemBase ?> <?= isActive('/mercadolibre/publicacion-masiva') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?> pl-6">
                 <i data-lucide="upload-cloud" class="h-4 w-4"></i><span>Publicación masiva</span>
             </a>
-            <a href="<?= e(url('/prospeccion')) ?>" class="<?= $itemBase ?> <?= isActive('/prospeccion') && !isActive('/prospeccion/campanas') && !isActive('/prospeccion/cola') && !isActive('/prospeccion/bandeja') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="radar" class="h-4 w-4"></i><span>Prospección</span></a>
+            <a href="<?= e(url('/prospeccion')) ?>" class="<?= $itemBase ?> <?= isActive('/prospeccion') && !isActive('/prospeccion/campanas') && !isActive('/prospeccion/cola') && !isActive('/prospeccion/bandeja') && !isActive('/prospeccion/instrucciones') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="radar" class="h-4 w-4"></i><span>Prospección</span></a>
             <a href="<?= e(url('/prospeccion/bandeja')) ?>" class="<?= $itemBase ?> <?= isActive('/prospeccion/bandeja') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?> pl-6">
                 <i data-lucide="inbox" class="h-4 w-4"></i><span class="flex-1">Bandeja</span>
                 <?php if ($outreachInboxCount > 0): ?>
@@ -150,11 +180,14 @@ $outreachInboxCount = \App\Controllers\InboxController::pendingCount();
             </a>
             <a href="<?= e(url('/prospeccion/campanas')) ?>" class="<?= $itemBase ?> <?= isActive('/prospeccion/campanas') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?> pl-6"><i data-lucide="megaphone" class="h-4 w-4"></i><span>Campañas</span></a>
             <a href="<?= e(url('/prospeccion/cola')) ?>" class="<?= $itemBase ?> <?= isActive('/prospeccion/cola') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?> pl-6"><i data-lucide="send" class="h-4 w-4"></i><span>Cola de envíos</span></a>
+            <a href="<?= e(url('/prospeccion/instrucciones')) ?>" class="<?= $itemBase ?> <?= isActive('/prospeccion/instrucciones') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?> pl-6"><i data-lucide="book-open" class="h-4 w-4"></i><span>Instrucciones</span></a>
             <a href="<?= e(url('/pedidos-proveedor')) ?>" class="<?= $itemBase ?> <?= isActive('/pedidos-proveedor') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="truck" class="h-4 w-4"></i><span>Pedidos a Proveedores</span></a>
             <a href="<?= e(url('/cuenta-corriente')) ?>" class="<?= $itemBase ?> <?= isActive('/cuenta-corriente') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="wallet" class="h-4 w-4"></i><span>Cuenta Corriente</span></a>
-            <p class="px-3 pt-4 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Sistema</p>
+            <?php $navGroupEnd(); ?>
+            <?php $navGroupStart('sistema', 'Sistema'); ?>
             <a href="<?= e(url('/settings')) ?>" class="<?= $itemBase ?> <?= isActive('/settings') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="settings" class="h-4 w-4"></i><span>Configuración</span></a>
             <a href="<?= e(url('/sincronizacion')) ?>" class="<?= $itemBase ?> <?= isActive('/sincronizacion') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="refresh-cw" class="h-4 w-4"></i><span>Sincronización</span></a>
+            <?php $navGroupEnd(); ?>
         </nav>
         <div class="p-3 border-t border-lo-border">
             <div class="rounded-xl bg-slate-50 px-3 py-2 mb-2">
