@@ -57,6 +57,14 @@ final class ProspectController extends Controller
         return self::STATUS_LABELS;
     }
 
+    public function instructions(): void
+    {
+        $this->view('prospects/instrucciones', [
+            'title' => 'Instrucciones',
+            'subtitle' => 'Cómo usar el módulo de Prospección',
+        ]);
+    }
+
     public function dashboard(): void
     {
         $db = Database::getInstance();
