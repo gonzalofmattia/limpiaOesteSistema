@@ -353,8 +353,9 @@ final class OutreachScheduler
 
     /**
      * Prospectos que matchean los filtros de la campania, excluyendo blacklist, cooldown,
-     * mensajes ya pendientes, prospectos ya contactados por esta misma campania, y telefonos
-     * que ya son de un cliente activo. Sin $limit, devuelve todos (para dry-run/conteo).
+     * mensajes ya pendientes, prospectos ya contactados EXITOSAMENTE por esta misma campania
+     * (un intento 'failed' anterior no lo excluye — se puede reintentar), y telefonos que ya
+     * son de un cliente activo. Sin $limit, devuelve todos (para dry-run/conteo).
      *
      * @return list<array<string, mixed>>
      */
@@ -366,7 +367,7 @@ final class OutreachScheduler
             'p.status = :filter_status',
             '(p.last_contacted_at IS NULL OR p.last_contacted_at < DATE_SUB(NOW(), INTERVAL :cooldown DAY))',
             "NOT EXISTS (SELECT 1 FROM outreach_queue oq WHERE oq.prospect_id = p.id AND oq.status IN ('queued', 'claimed'))",
-            'NOT EXISTS (SELECT 1 FROM outreach_queue oq2 WHERE oq2.prospect_id = p.id AND oq2.campaign_id = :campaign_id)',
+            "NOT EXISTS (SELECT 1 FROM outreach_queue oq2 WHERE oq2.prospect_id = p.id AND oq2.campaign_id = :campaign_id AND oq2.status IN ('sent', 'queued', 'claimed'))",
         ];
         $params = [
             'filter_status' => (string) $campaign['filter_status'],
