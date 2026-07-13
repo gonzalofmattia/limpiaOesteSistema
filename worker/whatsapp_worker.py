@@ -246,10 +246,20 @@ def extract_last_incoming_message(driver: "webdriver.Chrome") -> str:
     return bubbles[-1].text.strip() if bubbles else ""
 
 
+def _is_usable(el) -> bool:
+    """Descarta matches del selector que existen en el DOM pero no son clickeables
+    todavia (no visibles, deshabilitados, o referencia caduca)."""
+    try:
+        return el.is_displayed() and el.is_enabled()
+    except WebDriverException:
+        return False
+
+
 def find_message_box(driver: "webdriver.Chrome") -> list:
-    """Prueba los selectores candidatos en orden y devuelve el primer match."""
+    """Prueba los selectores candidatos en orden; devuelve el primer grupo con
+    al menos un elemento realmente usable (visible + habilitado)."""
     for selector in MESSAGE_BOX_SELECTORS:
-        boxes = driver.find_elements(By.CSS_SELECTOR, selector)
+        boxes = [b for b in driver.find_elements(By.CSS_SELECTOR, selector) if _is_usable(b)]
         if boxes:
             return boxes
     return []
@@ -260,8 +270,21 @@ def _is_invalid_number_page(driver: "webdriver.Chrome") -> bool:
     return any(hint in page_text for hint in INVALID_NUMBER_HINTS)
 
 
+def _clear_draft(driver: "webdriver.Chrome") -> None:
+    """Best-effort: si el texto quedo tipeado pero no se mando, lo borra para no
+    dejar un borrador colgado en el chat real del prospecto."""
+    try:
+        boxes = find_message_box(driver)
+        if boxes:
+            boxes[-1].send_keys(Keys.CONTROL, "a")
+            boxes[-1].send_keys(Keys.DELETE)
+    except WebDriverException:
+        pass
+
+
 def send_message(driver: "webdriver.Chrome", phone: str, body: str) -> tuple[bool, str]:
-    """Devuelve (ok, motivo_si_fallo). No levanta excepciones hacia afuera."""
+    """Devuelve (ok, motivo_si_fallo). No levanta excepciones hacia afuera,
+    salvo perdida de sesion de Chrome (la deja subir para que el llamador la maneje)."""
     clean_phone = phone.lstrip("+")
     url = f"https://web.whatsapp.com/send?phone={clean_phone}&text={urllib.parse.quote(body)}"
     driver.get(url)
@@ -280,11 +303,28 @@ def send_message(driver: "webdriver.Chrome", phone: str, body: str) -> tuple[boo
     if not boxes:
         return False, "no se encontro el cuadro de mensaje (revisar selector, WhatsApp Web pudo haber cambiado)"
 
-    try:
-        boxes[-1].click()
-        boxes[-1].send_keys(Keys.ENTER)
-    except WebDriverException as exc:
-        return False, f"error al enviar: {exc}"
+    last_exc: Optional[Exception] = None
+    sent = False
+    for attempt in range(3):
+        boxes = find_message_box(driver)
+        if not boxes:
+            last_exc = RuntimeError("el cuadro dejo de estar disponible entre reintentos")
+            time.sleep(1)
+            continue
+        try:
+            boxes[-1].click()
+            boxes[-1].send_keys(Keys.ENTER)
+            sent = True
+            break
+        except (InvalidSessionIdException, NoSuchWindowException):
+            raise
+        except WebDriverException as exc:
+            last_exc = exc
+            time.sleep(1)
+
+    if not sent:
+        _clear_draft(driver)
+        return False, f"error al enviar tras 3 intentos: {last_exc}"
 
     def _box_is_empty(d: "webdriver.Chrome") -> bool:
         current = find_message_box(d)
