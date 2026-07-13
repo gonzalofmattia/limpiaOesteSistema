@@ -54,11 +54,17 @@ $transitionLabels = [
             <?php endif; ?>
         </div>
     <?php elseif ($queueStats !== null): ?>
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
             <div class="lo-card p-4"><p class="text-xs text-slate-500">Enviados (total)</p><p class="text-2xl font-semibold"><?= (int) ($queueStats['sent'] ?? 0) ?></p></div>
             <div class="lo-card p-4"><p class="text-xs text-slate-500">Enviados hoy</p><p class="text-2xl font-semibold"><?= (int) ($queueStats['sent_today'] ?? 0) ?></p></div>
             <div class="lo-card p-4"><p class="text-xs text-slate-500">Pendientes</p><p class="text-2xl font-semibold"><?= (int) ($queueStats['pending'] ?? 0) ?></p></div>
             <div class="lo-card p-4"><p class="text-xs text-slate-500">Fallidos</p><p class="text-2xl font-semibold text-red-600"><?= (int) ($queueStats['failed'] ?? 0) ?></p></div>
+            <div class="lo-card p-4"><p class="text-xs text-slate-500">Destinatarios restantes</p><p class="text-2xl font-semibold"><?= (int) ($queueStats['remaining_matching'] ?? 0) ?></p></div>
         </div>
+        <?php if ((int) ($queueStats['remaining_matching'] ?? 0) === 0): ?>
+            <div class="rounded-xl border border-amber-100 bg-amber-50 p-3 text-sm text-amber-800">
+                No quedan prospectos nuevos que matcheen el filtro de esta campaña (rubro <?= e((string) ($campaign['filter_business_type'] ?? 'cualquiera')) ?> · ciudad <?= e((string) ($campaign['filter_city'] ?? 'cualquiera')) ?>). Si esperabas que quedaran más, revisá si el filtro es demasiado angosto (por ejemplo, una ciudad escrita distinto a como está cargada en los prospectos).
+            </div>
+        <?php endif; ?>
     <?php endif; ?>
 </div>
