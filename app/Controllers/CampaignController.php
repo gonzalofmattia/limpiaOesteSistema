@@ -106,6 +106,7 @@ final class CampaignController extends Controller
                  FROM outreach_queue WHERE campaign_id = ?",
                 [(int) $id]
             );
+            $queueStats['remaining_matching'] = count(OutreachScheduler::matchingProspects($db, $campaign));
         }
 
         $this->view('campaigns/show', [
