@@ -66,8 +66,10 @@ Para cortarlo: `Ctrl+C` en la terminal.
   default para reducir el riesgo de baneo.
 - WhatsApp Web cambia su interfaz de tanto en tanto. Si el worker empieza a
   reportar fallos raros (`no se encontro el cuadro de mensaje`), puede que haya
-  que actualizar los selectores en `whatsapp_worker.py` (`MESSAGE_BOX_SELECTOR`,
-  `SENT_TICK_SELECTOR`). Lo mismo aplica a la lectura de respuestas
+  que actualizar los selectores en `whatsapp_worker.py` (`MESSAGE_BOX_SELECTORS`).
+  La confirmación de envío no depende de un ícono (esos cambian seguido) sino
+  de que el cuadro de texto quede vacío después de apretar ENTER. Lo mismo
+  aplica a la lectura de respuestas
   (`CHAT_LIST_UNREAD_BADGE_XPATH`, `INCOMING_MESSAGE_SELECTOR`) — es la parte
   más frágil de todo el worker porque WhatsApp no expone una forma oficial de
   leer chats no leídos.

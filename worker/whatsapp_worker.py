@@ -45,8 +45,14 @@ MAX_CONSECUTIVE_FAILURES = 3
 
 # WhatsApp Web cambia su DOM con cierta frecuencia; si el envio empieza a fallar
 # siempre con "no se encontro el cuadro de mensaje", revisar/actualizar esto.
-MESSAGE_BOX_SELECTOR = "div[contenteditable='true'][data-tab='10']"
-SENT_TICK_SELECTOR = "span[data-icon='msg-time'], span[data-icon='msg-check'], span[data-icon='msg-dblcheck']"
+# Se prueban en orden y se usa el primero que matchee; "footer" acota la busqueda
+# al chat abierto (evita agarrar el buscador de arriba, que tambien es contenteditable).
+MESSAGE_BOX_SELECTORS = (
+    "footer div[contenteditable='true'][data-tab]",
+    "#main footer div[contenteditable='true']",
+    "footer div[contenteditable='true'][aria-placeholder]",
+    "div[contenteditable='true'][data-tab='10']",
+)
 INVALID_NUMBER_HINTS = (
     "phone number shared via url is invalid",
     "el número de teléfono compartido a través de una url no es válido",
@@ -117,7 +123,24 @@ class OutreachApiClient:
             log.error("No se pudo enviar heartbeat: %s", exc)
 
 
+def _clear_stale_chrome_locks(chrome_profile_path: str) -> None:
+    """Si Chrome se cerro de mala manera (crash), deja archivos de lock que
+    impiden arrancar una sesion nueva con el mismo perfil ('DevToolsActivePort
+    file doesn't exist' / 'Chrome failed to start: crashed'). Son seguros de
+    borrar: Chrome los recrea solo en cada arranque normal."""
+    profile_dir = Path(chrome_profile_path)
+    for name in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
+        lock_file = profile_dir / name
+        try:
+            if lock_file.exists() or lock_file.is_symlink():
+                lock_file.unlink()
+                log.info("Se borro un lock viejo de Chrome: %s", lock_file)
+        except OSError as exc:
+            log.warning("No se pudo borrar %s: %s", lock_file, exc)
+
+
 def build_driver(chrome_profile_path: str) -> "webdriver.Chrome":
+    _clear_stale_chrome_locks(chrome_profile_path)
     options = Options()
     options.add_argument(f"--user-data-dir={chrome_profile_path}")
     options.add_argument("--profile-directory=Default")
@@ -223,6 +246,20 @@ def extract_last_incoming_message(driver: "webdriver.Chrome") -> str:
     return bubbles[-1].text.strip() if bubbles else ""
 
 
+def find_message_box(driver: "webdriver.Chrome") -> list:
+    """Prueba los selectores candidatos en orden y devuelve el primer match."""
+    for selector in MESSAGE_BOX_SELECTORS:
+        boxes = driver.find_elements(By.CSS_SELECTOR, selector)
+        if boxes:
+            return boxes
+    return []
+
+
+def _is_invalid_number_page(driver: "webdriver.Chrome") -> bool:
+    page_text = driver.page_source.lower()
+    return any(hint in page_text for hint in INVALID_NUMBER_HINTS)
+
+
 def send_message(driver: "webdriver.Chrome", phone: str, body: str) -> tuple[bool, str]:
     """Devuelve (ok, motivo_si_fallo). No levanta excepciones hacia afuera."""
     clean_phone = phone.lstrip("+")
@@ -231,17 +268,15 @@ def send_message(driver: "webdriver.Chrome", phone: str, body: str) -> tuple[boo
 
     try:
         WebDriverWait(driver, CHAT_LOAD_TIMEOUT).until(
-            lambda d: d.find_elements(By.CSS_SELECTOR, MESSAGE_BOX_SELECTOR)
-            or "invalid" in d.page_source.lower()
+            lambda d: find_message_box(d) or _is_invalid_number_page(d)
         )
     except TimeoutException:
         return False, "timeout esperando que cargue el chat"
 
-    page_text = driver.page_source.lower()
-    if any(hint in page_text for hint in INVALID_NUMBER_HINTS):
+    if _is_invalid_number_page(driver):
         return False, "el numero no tiene WhatsApp"
 
-    boxes = driver.find_elements(By.CSS_SELECTOR, MESSAGE_BOX_SELECTOR)
+    boxes = find_message_box(driver)
     if not boxes:
         return False, "no se encontro el cuadro de mensaje (revisar selector, WhatsApp Web pudo haber cambiado)"
 
@@ -251,12 +286,14 @@ def send_message(driver: "webdriver.Chrome", phone: str, body: str) -> tuple[boo
     except WebDriverException as exc:
         return False, f"error al enviar: {exc}"
 
+    def _box_is_empty(d: "webdriver.Chrome") -> bool:
+        current = find_message_box(d)
+        return not current or all((b.text or "").strip() == "" for b in current)
+
     try:
-        WebDriverWait(driver, SEND_CONFIRM_TIMEOUT).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, SENT_TICK_SELECTOR))
-        )
+        WebDriverWait(driver, SEND_CONFIRM_TIMEOUT).until(_box_is_empty)
     except TimeoutException:
-        return False, "no se pudo confirmar que el mensaje salio"
+        return False, "no se pudo confirmar que el mensaje salio (el cuadro no se vacio)"
 
     return True, ""
 
