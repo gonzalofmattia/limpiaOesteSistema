@@ -38,7 +38,7 @@ CONFIG_PATH = BASE_DIR / "config.json"
 LOG_PATH = BASE_DIR / "worker.log"
 
 IDLE_SLEEP_SECONDS = 300
-CHAT_LOAD_TIMEOUT = 25
+CHAT_LOAD_TIMEOUT = 35
 SEND_CONFIRM_TIMEOUT = 15
 CONSECUTIVE_FAILURE_PAUSE_SECONDS = 1800
 MAX_CONSECUTIVE_FAILURES = 3
@@ -294,6 +294,11 @@ def send_message(driver: "webdriver.Chrome", phone: str, body: str) -> tuple[boo
             lambda d: find_message_box(d) or _is_invalid_number_page(d)
         )
     except TimeoutException:
+        # WhatsApp precarga el texto en el cuadro apenas abre el chat (viene por
+        # la URL), independientemente de si nosotros llegamos a detectarlo a
+        # tiempo. Si el timeout nos gana, ese texto puede haber quedado tipeado
+        # igual — lo limpiamos para no dejar un borrador colgado en el chat real.
+        _clear_draft(driver)
         return False, "timeout esperando que cargue el chat"
 
     if _is_invalid_number_page(driver):
@@ -301,6 +306,7 @@ def send_message(driver: "webdriver.Chrome", phone: str, body: str) -> tuple[boo
 
     boxes = find_message_box(driver)
     if not boxes:
+        _clear_draft(driver)
         return False, "no se encontro el cuadro de mensaje (revisar selector, WhatsApp Web pudo haber cambiado)"
 
     last_exc: Optional[Exception] = None
