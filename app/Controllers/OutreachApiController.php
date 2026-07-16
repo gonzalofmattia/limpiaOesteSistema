@@ -76,7 +76,23 @@ final class OutreachApiController extends Controller
                 'id = :id',
                 ['id' => (int) $row['id']]
             );
-            $this->logProspectEvent($db, (int) $row['prospect_id'], 'mensaje_fallido', $error);
+            if ($error !== null && stripos($error, 'no tiene whatsapp') !== false) {
+                // Falla permanente, no transitoria: reintentarla (el scheduler
+                // reintenta todo lo que quede en 'failed') solo repetiria el
+                // mismo resultado para siempre y gastaria cupo del batch cada
+                // dia. blacklisted=1 lo excluye de matchingProspects como
+                // cualquier otro prospecto dado de baja (mismo patron que
+                // no_interesado).
+                $db->update(
+                    'prospects',
+                    ['status' => 'sin_whatsapp', 'blacklisted' => 1],
+                    'id = :id',
+                    ['id' => (int) $row['prospect_id']]
+                );
+                $this->logProspectEvent($db, (int) $row['prospect_id'], 'sin_whatsapp', $error);
+            } else {
+                $this->logProspectEvent($db, (int) $row['prospect_id'], 'mensaje_fallido', $error);
+            }
         }
 
         $this->logApi('report', ['uuid' => $uuid, 'status' => $status]);

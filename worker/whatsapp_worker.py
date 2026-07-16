@@ -57,6 +57,8 @@ MESSAGE_BOX_SELECTORS = (
 INVALID_NUMBER_HINTS = (
     "phone number shared via url is invalid",
     "el número de teléfono compartido a través de una url no es válido",
+    "no está en whatsapp",
+    "is not on whatsapp",
 )
 
 # Lectura de respuestas (chats no leidos). Igual de fragil que lo anterior: si
