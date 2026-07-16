@@ -21,26 +21,23 @@ final class CampaignController extends Controller
     {
         $db = Database::getInstance();
         $campaigns = $db->fetchAll(
-            "SELECT c.*, t.name AS template_name,
+            "SELECT c.*,
                     (SELECT COUNT(*) FROM outreach_queue oq WHERE oq.campaign_id = c.id AND oq.status = 'sent') AS total_sent,
                     (SELECT COUNT(*) FROM outreach_queue oq WHERE oq.campaign_id = c.id AND oq.status IN ('queued', 'claimed')) AS total_pending
              FROM outreach_campaigns c
-             INNER JOIN outreach_templates t ON t.id = c.template_id
              ORDER BY FIELD(c.status, 'activa', 'pausada', 'borrador', 'finalizada'), c.created_at DESC"
         );
         $this->view('campaigns/index', [
             'title' => 'Campañas',
             'campaigns' => $campaigns,
+            'businessTypeLabels' => ProspectController::businessTypeLabels(),
         ]);
     }
 
     public function create(): void
     {
-        $db = Database::getInstance();
-        $templates = $db->fetchAll("SELECT id, name, business_type, stage FROM outreach_templates WHERE active = 1 ORDER BY name");
         $this->view('campaigns/form', [
             'title' => 'Nueva campaña',
-            'templates' => $templates,
             'businessTypeLabels' => ProspectController::businessTypeLabels(),
             'statusLabels' => ProspectController::statusLabels(),
         ]);
@@ -67,12 +64,7 @@ final class CampaignController extends Controller
     public function show(string $id): void
     {
         $db = Database::getInstance();
-        $campaign = $db->fetch(
-            'SELECT c.*, t.name AS template_name, t.body AS template_body
-             FROM outreach_campaigns c INNER JOIN outreach_templates t ON t.id = c.template_id
-             WHERE c.id = ?',
-            [(int) $id]
-        );
+        $campaign = $db->fetch('SELECT * FROM outreach_campaigns WHERE id = ?', [(int) $id]);
         if (!$campaign) {
             flash('error', 'Campaña no encontrada.');
             redirect('/prospeccion/campanas');
@@ -88,10 +80,12 @@ final class CampaignController extends Controller
             $dryRun = [
                 'count' => $count,
                 'sample' => array_map(
-                    static fn (array $p) => [
-                        'prospect' => $p,
-                        'rendered_body' => OutreachScheduler::renderTemplate((string) $campaign['template_body'], $p),
-                    ],
+                    static function (array $p) use ($db) {
+                        $template = OutreachScheduler::findTemplateForStage($db, 'primer_contacto', (string) $p['business_type']);
+                        $body = $template !== null ? OutreachScheduler::renderTemplate((string) $template['body'], $p) : '(sin plantilla disponible para este rubro)';
+
+                        return ['prospect' => $p, 'rendered_body' => $body];
+                    },
                     $sample
                 ),
                 'projected_days' => $count > 0 ? (int) ceil($count / max(1, (int) $campaign['daily_limit'])) : 0,
@@ -151,11 +145,6 @@ final class CampaignController extends Controller
         if ($name === '') {
             $errors[] = 'El nombre es obligatorio.';
         }
-        $templateId = (int) $this->input('template_id', 0);
-        $db = Database::getInstance();
-        if ($templateId <= 0 || !$db->fetch('SELECT id FROM outreach_templates WHERE id = ?', [$templateId])) {
-            $errors[] = 'Elegí una plantilla válida.';
-        }
         $businessType = trim((string) $this->input('filter_business_type', ''));
         if ($businessType !== '' && !array_key_exists($businessType, ProspectController::businessTypeLabels())) {
             $businessType = '';
@@ -165,13 +154,12 @@ final class CampaignController extends Controller
         if (!array_key_exists($status, ProspectController::statusLabels())) {
             $status = 'nuevo';
         }
-        $dailyLimit = (int) $this->input('daily_limit', 15);
+        $dailyLimit = (int) $this->input('daily_limit', 20);
         $dailyLimit = max(1, min(OutreachScheduler::dailyCap(), $dailyLimit));
 
         return [
             'errors' => $errors,
             'name' => $name,
-            'template_id' => $templateId,
             'filter_business_type' => $businessType !== '' ? $businessType : null,
             'filter_city' => $city !== '' ? $city : null,
             'filter_status' => $status,

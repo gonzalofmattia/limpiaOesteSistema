@@ -259,7 +259,13 @@ final class OutreachScheduler
         return $enqueued;
     }
 
-    private static function findTemplateForStage(Database $db, string $stage, string $businessType): ?array
+    /**
+     * Resuelve la plantilla a usar segun el rubro del prospecto (con fallback
+     * a business_type='todos' si no hay una especifica para ese rubro, o si el
+     * rubro no esta normalizado). Publico: tambien lo usa CampaignController
+     * para previsualizar el mensaje personalizado de cada prospecto en el dry-run.
+     */
+    public static function findTemplateForStage(Database $db, string $stage, string $businessType): ?array
     {
         $template = $db->fetch(
             "SELECT * FROM outreach_templates WHERE stage = ? AND business_type = ? AND active = 1 LIMIT 1",
@@ -311,7 +317,18 @@ final class OutreachScheduler
                     $exhausted[$campaignId] = true;
                     continue;
                 }
-                self::enqueueMessage($db, $c, $prospect, (int) $c['template_id']);
+                // Personalizacion automatica: cada prospecto recibe la
+                // plantilla de su propio rubro (o el fallback generico
+                // 'todos'), no una plantilla fija por campania.
+                $template = self::findTemplateForStage($db, 'primer_contacto', (string) $prospect['business_type']);
+                if ($template === null) {
+                    // No deberia pasar existiendo el fallback 'todos', pero si
+                    // pasa cortamos esta campania en vez de loopear siempre
+                    // sobre el mismo prospecto sin poder avanzar.
+                    $exhausted[$campaignId] = true;
+                    continue;
+                }
+                self::enqueueMessage($db, $c, $prospect, (int) $template['id']);
                 $countToday[$campaignId]++;
                 $enqueued++;
                 $progressed = true;

@@ -9,17 +9,11 @@ $statusLabels = $statusLabels ?? [];
             <label class="block text-sm font-medium text-slate-700 mb-1">Nombre de la campaña</label>
             <input type="text" name="name" required class="w-full min-h-11 rounded-xl border border-lo-border px-3 text-sm">
         </div>
-        <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">Plantilla</label>
-            <select name="template_id" required class="w-full min-h-11 rounded-xl border border-lo-border px-3 text-sm">
-                <option value="">Elegir plantilla...</option>
-                <?php foreach ($templates ?? [] as $t): ?>
-                    <option value="<?= (int) $t['id'] ?>"><?= e((string) $t['name']) ?> (<?= e($businessTypeLabels[$t['business_type']] ?? $t['business_type']) ?>)</option>
-                <?php endforeach; ?>
-            </select>
-            <?php if (($templates ?? []) === []): ?>
-                <p class="text-xs text-amber-600 mt-1">No hay plantillas activas. <a href="<?= e(url('/prospeccion/plantillas/crear')) ?>" class="underline">Creá una primero</a>.</p>
-            <?php endif; ?>
+        <div class="rounded-xl bg-slate-50 border border-slate-100 p-3 text-xs text-slate-600">
+            El mensaje de primer contacto se arma solo, según el rubro de cada prospecto
+            (plantillas en <a href="<?= e(url('/prospeccion/plantillas')) ?>" class="underline">Plantillas</a>).
+            No hace falta elegir una acá — si el rubro no tiene plantilla propia o no está
+            cargado, usa un mensaje genérico.
         </div>
         <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 pt-1">Filtro de prospectos</p>
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -47,7 +41,7 @@ $statusLabels = $statusLabels ?? [];
         </div>
         <div>
             <label class="block text-sm font-medium text-slate-700 mb-1">Tope diario de esta campaña</label>
-            <input type="number" name="daily_limit" value="15" min="1" max="25" class="w-full min-h-11 rounded-xl border border-lo-border px-3 text-sm">
+            <input type="number" name="daily_limit" value="20" min="1" max="25" class="w-full min-h-11 rounded-xl border border-lo-border px-3 text-sm">
             <p class="text-xs text-slate-400 mt-1">Se reparte con las demás campañas activas sin superar el tope global diario.</p>
         </div>
         <div class="flex justify-end gap-2 pt-2">

@@ -11,8 +11,7 @@ $transitionLabels = [
 ?>
 <div class="space-y-5">
     <div class="lo-card p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <dl class="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm flex-1">
-            <div><dt class="text-slate-500">Plantilla</dt><dd class="font-medium text-slate-800"><?= e((string) $campaign['template_name']) ?></dd></div>
+        <dl class="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm flex-1">
             <div><dt class="text-slate-500">Filtro</dt><dd class="font-medium text-slate-800"><?= e((string) ($campaign['filter_business_type'] ?? 'Cualquier rubro')) ?> · <?= e((string) ($campaign['filter_city'] ?? 'Cualquier ciudad')) ?></dd></div>
             <div><dt class="text-slate-500">Estado prospecto</dt><dd class="font-medium text-slate-800"><?= e((string) $campaign['filter_status']) ?></dd></div>
             <div><dt class="text-slate-500">Tope diario</dt><dd class="font-medium text-slate-800"><?= (int) $campaign['daily_limit'] ?></dd></div>
