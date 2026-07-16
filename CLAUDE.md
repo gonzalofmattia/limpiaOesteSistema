@@ -235,9 +235,26 @@ estado real se hace re-usando `POST /prospeccion/prospectos/{id}/estado`
 
 ## Módulo Outreach — Fase 4: asistente IA en la bandeja
 
-**Regla innegociable: el sistema nunca responde solo.** `OutreachAiAssistant`
-(app/Helpers/OutreachAiAssistant.php) solo clasifica y sugiere; la bandeja
-siempre pide una acción humana antes de que salga cualquier mensaje.
+**Regla: el sistema solo responde solo en casos de bajísimo riesgo.**
+`OutreachAiAssistant` (app/Helpers/OutreachAiAssistant.php) clasifica cada
+respuesta entrante en un intent; para todos los intents salvo `saludo`
+(`interesado`, `pregunta_precio`, `pregunta_producto`, `reagendar`, `rechazo`,
+`otro`) solo sugiere, y la bandeja siempre pide una acción humana antes de que
+salga cualquier mensaje. **Nunca cotiza ni cierra una venta solo** — eso quedó
+explícitamente descartado (2026-07-16): demasiado riesgo de pisar reglas de
+pricing/segmentación de producto sin que nadie lo vea antes de mandarse.
+
+- **Excepción acotada — intent `saludo`**: cuando el mensaje entrante es un
+  saludo o acuse de recibo puro sin pregunta real ("hola", "dale", "ok
+  gracias"), `InboxController::processUnclassifiedResponses()` encola la
+  respuesta sugerida directamente vía `OutreachScheduler::enqueueDirectReply()`
+  (mismo mecanismo que una campaña, `template_id = NULL` porque no viene de una
+  plantilla) — el worker la manda en su próximo ciclo sin intervención humana.
+  Guardas: nunca encadena dos auto-respuestas seguidas (si el último saliente a
+  ese prospecto ya fue automático, se deja en la bandeja para un humano en vez
+  de seguir la cadena "hola" → auto → "dale" → auto sin fin — ver el chequeo de
+  `template_id IS NULL` en `InboxController::autoSendReply()`), y nunca se
+  manda a un prospecto `blacklisted` (chequeo en `enqueueDirectReply()`).
 
 - Mismo patrón que `ClaudeDescriptionGenerator` (curl directo a la API de
   Anthropic, sin SDK), pero con `system` prompt separado (campo top-level de

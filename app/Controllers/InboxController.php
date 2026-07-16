@@ -6,6 +6,7 @@ namespace App\Controllers;
 
 use App\Core\Controller;
 use App\Helpers\OutreachAiAssistant;
+use App\Helpers\OutreachScheduler;
 use App\Models\Database;
 
 final class InboxController extends Controller
@@ -92,7 +93,43 @@ final class InboxController extends Controller
                 'id = :id',
                 ['id' => (int) $resp['id']]
             );
+
+            if ($result['success'] && in_array($result['intent'], OutreachAiAssistant::AUTO_SEND_INTENTS, true)) {
+                $this->autoSendReply($db, $prospect, (int) $resp['id'], $result['reply']);
+            }
         }
+    }
+
+    /**
+     * Auto-envio para intents de bajo riesgo (ver OutreachAiAssistant::AUTO_SEND_INTENTS).
+     * Encola la respuesta ya redactada (el worker la manda en su proximo ciclo,
+     * mismo mecanismo que una campaña) y marca la respuesta como atendida —
+     * no queda pendiente en la bandeja.
+     */
+    private function autoSendReply(Database $db, array $prospect, int $responseId, string $reply): void
+    {
+        // No encadenar auto-respuestas: si lo ultimo que le mandamos a este
+        // prospecto ya fue automatico (template_id NULL = enqueueDirectReply),
+        // esta vez se deja en la bandeja para que la vea un humano en vez de
+        // seguir la cadena de "hola" -> auto -> "dale" -> auto sin fin.
+        $lastOut = $db->fetch(
+            'SELECT template_id FROM outreach_queue WHERE prospect_id = ? AND status IN (?, ?, ?) ORDER BY created_at DESC LIMIT 1',
+            [(int) $prospect['id'], 'sent', 'queued', 'claimed']
+        );
+        if ($lastOut !== null && $lastOut['template_id'] === null) {
+            return;
+        }
+
+        $uuid = OutreachScheduler::enqueueDirectReply($db, $prospect, $reply);
+        if ($uuid === null) {
+            return;
+        }
+        $db->query('UPDATE prospect_responses SET processed = 1 WHERE id = ?', [$responseId]);
+        $db->insert('prospect_events', [
+            'prospect_id' => (int) $prospect['id'],
+            'event_type' => 'respuesta_automatica',
+            'detail' => $reply,
+        ]);
     }
 
     public function markResponded(string $id): void
