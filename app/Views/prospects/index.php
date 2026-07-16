@@ -13,6 +13,7 @@ $statusBadge = static function (string $status): string {
         'cliente' => 'bg-green-100 text-green-800',
         'no_interesado' => 'bg-red-100 text-red-800',
         'sin_respuesta' => 'bg-gray-200 text-gray-600',
+        'sin_whatsapp' => 'bg-gray-200 text-gray-600',
         default => 'bg-slate-100 text-slate-700',
     };
 };

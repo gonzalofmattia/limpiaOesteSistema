@@ -32,6 +32,7 @@ final class ProspectController extends Controller
     private const STATUSES = [
         'nuevo', 'contactado', 'respondio', 'interesado', 'visita_agendada',
         'muestra_entregada', 'cotizado', 'cliente', 'no_interesado', 'sin_respuesta',
+        'sin_whatsapp',
     ];
 
     private const STATUS_LABELS = [
@@ -45,6 +46,7 @@ final class ProspectController extends Controller
         'cliente' => 'Cliente',
         'no_interesado' => 'No interesado',
         'sin_respuesta' => 'Sin respuesta',
+        'sin_whatsapp' => 'Sin WhatsApp',
     ];
 
     public static function businessTypeLabels(): array
