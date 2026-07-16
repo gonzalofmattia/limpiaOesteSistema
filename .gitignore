@@ -14,3 +14,4 @@ lo_test_cookies.txt
 worker/__pycache__/
 worker/config.json
 worker/worker.log
+worker/debug/
