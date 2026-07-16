@@ -36,6 +36,7 @@ WORKER_VERSION = "1.0.0"
 BASE_DIR = Path(__file__).parent
 CONFIG_PATH = BASE_DIR / "config.json"
 LOG_PATH = BASE_DIR / "worker.log"
+DEBUG_DIR = BASE_DIR / "debug"
 
 IDLE_SLEEP_SECONDS = 300
 CHAT_LOAD_TIMEOUT = 35
@@ -270,6 +271,21 @@ def _is_invalid_number_page(driver: "webdriver.Chrome") -> bool:
     return any(hint in page_text for hint in INVALID_NUMBER_HINTS)
 
 
+def _dump_debug_snapshot(driver: "webdriver.Chrome", phone: str, tag: str) -> None:
+    """Guarda captura + HTML de la pagina cuando algo falla de forma inesperada,
+    para poder ver despues que estaba mostrando WhatsApp en el momento del fallo
+    sin depender de estar mirando la pantalla en vivo."""
+    try:
+        DEBUG_DIR.mkdir(exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        base = DEBUG_DIR / f"{stamp}_{tag}_{phone.lstrip('+')}"
+        driver.save_screenshot(str(base) + ".png")
+        (base.with_suffix(".html")).write_text(driver.page_source, encoding="utf-8")
+        log.info("Diagnostico guardado: %s.png / .html", base.name)
+    except WebDriverException as exc:
+        log.warning("No se pudo guardar el diagnostico: %s", exc)
+
+
 def _clear_draft(driver: "webdriver.Chrome") -> None:
     """Best-effort: si el texto quedo tipeado pero no se mando, lo borra para no
     dejar un borrador colgado en el chat real del prospecto."""
@@ -298,6 +314,7 @@ def send_message(driver: "webdriver.Chrome", phone: str, body: str) -> tuple[boo
         # la URL), independientemente de si nosotros llegamos a detectarlo a
         # tiempo. Si el timeout nos gana, ese texto puede haber quedado tipeado
         # igual — lo limpiamos para no dejar un borrador colgado en el chat real.
+        _dump_debug_snapshot(driver, phone, "timeout")
         _clear_draft(driver)
         return False, "timeout esperando que cargue el chat"
 
