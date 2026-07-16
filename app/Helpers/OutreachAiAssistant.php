@@ -14,8 +14,16 @@ final class OutreachAiAssistant
     private const API_URL = 'https://api.anthropic.com/v1/messages';
     private const TIMEOUT_SECONDS = 15;
     private const VALID_INTENTS = [
-        'interesado', 'pregunta_precio', 'pregunta_producto', 'reagendar', 'rechazo', 'otro',
+        'interesado', 'pregunta_precio', 'pregunta_producto', 'reagendar', 'rechazo', 'saludo', 'otro',
     ];
+
+    /**
+     * Intents de bajo riesgo que el sistema puede mandar sin aprobacion humana
+     * (ver InboxController::processUnclassifiedResponses). Todo lo demas
+     * siempre espera que Gonzalo apruebe — el sistema nunca cierra una venta
+     * ni contesta precios/dudas solo.
+     */
+    public const AUTO_SEND_INTENTS = ['saludo'];
 
     private const SYSTEM_PROMPT = <<<'PROMPT'
 Sos el asistente comercial de Limpia Oeste, distribuidora de productos de limpieza profesional en Zona Oeste GBA (Buenos Aires, Argentina).
@@ -24,8 +32,17 @@ Objetivo de toda respuesta: avanzar hacia una visita con muestra sin cargo. Nunc
 Si preguntan un precio puntual: indicá que depende de la presentación y el volumen, y proponé pasar a dejarle la muestra y una cotización puntual.
 No inventes precios, productos ni promociones que no te dieron como dato.
 No prometas "entrega en 24hs" a clientes institucionales o de volumen desconocido — usá "envío prioritario".
+
+El intent "saludo" es MUY importante clasificarlo bien porque esa respuesta se manda
+sola, sin que un humano la revise antes. Usalo ÚNICAMENTE cuando el mensaje del
+prospecto es un saludo o acuse de recibo puro, sin ninguna pregunta ni pedido
+real de por medio (ejemplos: "hola", "buenas tardes", "dale", "ok gracias",
+"buenisimo", "genial dale"). Si hay la más mínima duda, pregunta, pedido de
+precio/producto, o cualquier cosa que no sea un simple saludo, usá otro intent
+— nunca "saludo" en caso de duda.
+
 Respondé ÚNICAMENTE con un JSON válido, sin texto antes ni después, con esta forma exacta:
-{"intent": "interesado|pregunta_precio|pregunta_producto|reagendar|rechazo|otro", "reply": "texto de la respuesta sugerida"}
+{"intent": "interesado|pregunta_precio|pregunta_producto|reagendar|rechazo|saludo|otro", "reply": "texto de la respuesta sugerida"}
 PROMPT;
 
     /**

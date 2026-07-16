@@ -342,6 +342,32 @@ final class OutreachScheduler
         return ['uuid' => $uuid, 'body' => $body];
     }
 
+    /**
+     * Encola una respuesta ya redactada (sin plantilla) para el worker mandarla
+     * en el proximo ciclo — usado para el auto-reply de la bandeja (intents
+     * de bajo riesgo, ver OutreachAiAssistant). No pasa por matchingProspects
+     * (es una respuesta directa a un mensaje entrante puntual, no una
+     * campaña), pero si respeta el estado de blacklist del prospecto.
+     */
+    public static function enqueueDirectReply(Database $db, array $prospect, string $body): ?string
+    {
+        if ((int) ($prospect['blacklisted'] ?? 0) === 1) {
+            return null;
+        }
+        $uuid = self::generateUuid();
+        $db->insert('outreach_queue', [
+            'uuid' => $uuid,
+            'campaign_id' => null,
+            'prospect_id' => (int) $prospect['id'],
+            'template_id' => null,
+            'rendered_body' => $body,
+            'status' => 'queued',
+            'scheduled_for' => date('Y-m-d'),
+        ]);
+
+        return $uuid;
+    }
+
     public static function renderTemplate(string $body, array $prospect): string
     {
         return str_replace(
