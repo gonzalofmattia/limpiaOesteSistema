@@ -394,15 +394,8 @@ final class OutreachScheduler
         );
     }
 
-    /**
-     * Prospectos que matchean los filtros de la campania, excluyendo blacklist, cooldown,
-     * mensajes ya pendientes, prospectos ya contactados EXITOSAMENTE por esta misma campania
-     * (un intento 'failed' anterior no lo excluye — se puede reintentar), y telefonos que ya
-     * son de un cliente activo. Sin $limit, devuelve todos (para dry-run/conteo).
-     *
-     * @return list<array<string, mixed>>
-     */
-    public static function matchingProspects(Database $db, array $campaign, ?int $limit = null): array
+    /** @return array{0: list<string>, 1: array<string, mixed>} */
+    private static function matchingWhereClause(array $campaign): array
     {
         $cooldownDays = (int) (setting('outreach_prospect_cooldown_days', '7') ?? '7');
         $where = [
@@ -425,6 +418,46 @@ final class OutreachScheduler
             $where[] = 'p.city = :city';
             $params['city'] = (string) $campaign['filter_city'];
         }
+
+        return [$where, $params];
+    }
+
+    /**
+     * Cuenta el total real de prospectos que matchean (sin el LIMIT interno de
+     * matchingProspects) — para mostrar en el dry-run y "Destinatarios
+     * restantes". matchingProspects() esta pensado para ir a buscar un lote
+     * acotado a encolar, no para contar cuantos hay en total.
+     */
+    public static function countMatchingProspects(Database $db, array $campaign): int
+    {
+        [$where, $params] = self::matchingWhereClause($campaign);
+        $rows = $db->fetchAll(
+            'SELECT p.phone FROM prospects p WHERE ' . implode(' AND ', $where) . ' ORDER BY p.created_at ASC',
+            $params
+        );
+        $activeClientPhones = self::activeClientPhones($db);
+        $count = 0;
+        foreach ($rows as $row) {
+            if (!isset($activeClientPhones[(string) $row['phone']])) {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
+    /**
+     * Prospectos que matchean los filtros de la campania, excluyendo blacklist, cooldown,
+     * mensajes ya pendientes, prospectos ya contactados EXITOSAMENTE por esta misma campania
+     * (un intento 'failed' anterior no lo excluye — se puede reintentar), y telefonos que ya
+     * son de un cliente activo. Trae hasta FILL_CANDIDATE_LIMIT candidatos (pensado para
+     * encolar un lote, no para contar el total — usar countMatchingProspects() para eso).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function matchingProspects(Database $db, array $campaign, ?int $limit = null): array
+    {
+        [$where, $params] = self::matchingWhereClause($campaign);
 
         $rows = $db->fetchAll(
             'SELECT p.* FROM prospects p WHERE ' . implode(' AND ', $where)

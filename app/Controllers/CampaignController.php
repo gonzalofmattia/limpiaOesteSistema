@@ -74,9 +74,8 @@ final class CampaignController extends Controller
         $dryRun = null;
         $queueStats = null;
         if ($campaign['status'] === 'borrador') {
-            $matching = OutreachScheduler::matchingProspects($db, $campaign);
-            $count = count($matching);
-            $sample = array_slice($matching, 0, 20);
+            $count = OutreachScheduler::countMatchingProspects($db, $campaign);
+            $sample = OutreachScheduler::matchingProspects($db, $campaign, 20);
             $dryRun = [
                 'count' => $count,
                 'sample' => array_map(
@@ -100,7 +99,7 @@ final class CampaignController extends Controller
                  FROM outreach_queue WHERE campaign_id = ?",
                 [(int) $id]
             );
-            $queueStats['remaining_matching'] = count(OutreachScheduler::matchingProspects($db, $campaign));
+            $queueStats['remaining_matching'] = OutreachScheduler::countMatchingProspects($db, $campaign);
         }
 
         $this->view('campaigns/show', [
