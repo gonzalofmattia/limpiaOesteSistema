@@ -8,6 +8,12 @@ $statusBadge = static function (string $status): string {
         default => 'bg-slate-100 text-slate-700',
     };
 };
+$businessTypeLabels = $businessTypeLabels ?? [];
+$filterLabel = static function (array $c) use ($businessTypeLabels): string {
+    $rubro = $c['filter_business_type'] !== null ? ($businessTypeLabels[$c['filter_business_type']] ?? $c['filter_business_type']) : 'Cualquier rubro';
+
+    return $rubro . ' · ' . ($c['filter_city'] ?? 'Cualquier ciudad');
+};
 ?>
 <div class="space-y-5">
     <div class="flex justify-end">
@@ -18,7 +24,7 @@ $statusBadge = static function (string $status): string {
             <thead class="bg-gray-50 border-b border-gray-200 text-gray-600">
                 <tr>
                     <th class="text-left px-4 py-3">Nombre</th>
-                    <th class="text-left px-4 py-3">Plantilla</th>
+                    <th class="text-left px-4 py-3">Filtro</th>
                     <th class="text-left px-4 py-3">Estado</th>
                     <th class="text-right px-4 py-3">Enviados</th>
                     <th class="text-right px-4 py-3">Pendientes</th>
@@ -33,7 +39,7 @@ $statusBadge = static function (string $status): string {
                         <td class="px-4 py-3">
                             <a href="<?= e(url('/prospeccion/campanas/' . (int) $c['id'])) ?>" class="font-medium text-slate-900 hover:text-lo-blue hover:underline"><?= e((string) $c['name']) ?></a>
                         </td>
-                        <td class="px-4 py-3 text-slate-600"><?= e((string) $c['template_name']) ?></td>
+                        <td class="px-4 py-3 text-slate-600"><?= e($filterLabel($c)) ?></td>
                         <td class="px-4 py-3"><span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium <?= e($statusBadge((string) $c['status'])) ?>"><?= e(ucfirst((string) $c['status'])) ?></span></td>
                         <td class="px-4 py-3 text-right"><?= (int) $c['total_sent'] ?></td>
                         <td class="px-4 py-3 text-right"><?= (int) $c['total_pending'] ?></td>
@@ -49,7 +55,7 @@ $statusBadge = static function (string $status): string {
                     <a href="<?= e(url('/prospeccion/campanas/' . (int) $c['id'])) ?>" class="text-base font-semibold text-slate-900"><?= e((string) $c['name']) ?></a>
                     <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium <?= e($statusBadge((string) $c['status'])) ?>"><?= e(ucfirst((string) $c['status'])) ?></span>
                 </div>
-                <p class="text-sm text-slate-500"><?= e((string) $c['template_name']) ?></p>
+                <p class="text-sm text-slate-500"><?= e($filterLabel($c)) ?></p>
                 <p class="text-sm text-slate-500">Enviados: <?= (int) $c['total_sent'] ?> · Pendientes: <?= (int) $c['total_pending'] ?></p>
             </article>
         <?php endforeach; ?>
