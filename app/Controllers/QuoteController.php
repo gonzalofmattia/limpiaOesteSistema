@@ -912,7 +912,7 @@ final class QuoteController extends Controller
         }
         $db = Database::getInstance();
         $quoteId = (int) $id;
-        $quote = $db->fetch('SELECT id, quote_number, pdf_path, status FROM quotes WHERE id = ?', [$quoteId]);
+        $quote = $db->fetch('SELECT id, quote_number, pdf_path, status, delivery_stock_applied FROM quotes WHERE id = ?', [$quoteId]);
         if (!$quote) {
             flash('error', 'Presupuesto no encontrado.');
             redirect('/presupuestos');
@@ -927,6 +927,11 @@ final class QuoteController extends Controller
             } elseif ($qst === 'partially_delivered') {
                 QuoteDeliveryStock::releaseRemainingCommittedStock($db, $quoteId);
                 QuoteDeliveryStock::reversePartialDeliveriesPhysical($db, $quoteId);
+            } elseif ($qst === 'delivered' && (int) ($quote['delivery_stock_applied'] ?? 0) === 1) {
+                $revert = QuoteDeliveryStock::revertDeliveredStock($quoteId, $db);
+                if (!$revert['success']) {
+                    throw new \RuntimeException('No se pudo reponer stock antes de eliminar: ' . implode(' | ', $revert['errors']));
+                }
             }
             try {
                 $hasAttach = (bool) $db->fetchColumn("SHOW TABLES LIKE 'quote_attachments'");

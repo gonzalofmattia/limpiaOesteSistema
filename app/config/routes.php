@@ -95,6 +95,7 @@ return [
     ['GET', 'ventas-ml/{id}/editar', 'MercadoLibreController@edit', []],
     ['POST', 'ventas-ml/{id}', 'MercadoLibreController@update', []],
     ['GET', 'ventas-ml/{id}', 'MercadoLibreController@show', []],
+    ['POST', 'ventas-ml/{id}/entregado', 'MercadoLibreController@markDelivered', []],
 
     ['GET', 'mercadolibre', 'MercadoLibreController@dashboard', []],
     ['GET', 'mercadolibre/conectar', 'MercadoLibreController@connect', []],

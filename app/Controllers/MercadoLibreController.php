@@ -14,7 +14,9 @@ use App\Helpers\MlPriceIntelligence;
 use App\Helpers\MlSyncEngine;
 use App\Helpers\SeiqImageScraper;
 use App\Helpers\PricingEngine;
+use App\Helpers\QuoteDeliveryStock;
 use App\Helpers\QuoteLinePricing;
+use App\Helpers\QuoteStatusTransitions;
 use App\Models\Database;
 
 final class MercadoLibreController extends Controller
@@ -138,6 +140,62 @@ final class MercadoLibreController extends Controller
             'items' => $items,
             'stats' => $stats,
         ]);
+    }
+
+    /**
+     * Descuenta el stock físico real de una venta ML y libera su comprometido.
+     * Mismo mecanismo (guardado por delivery_stock_applied) que usa el resto del sistema
+     * para presupuestos normales — ver QuoteDeliveryStock.
+     */
+    public function markDelivered(string $id): void
+    {
+        if (!verifyCsrf()) {
+            flash('error', 'Token inválido.');
+            redirect('/ventas-ml/' . $id);
+            return;
+        }
+        $db = Database::getInstance();
+        $quoteId = (int) $id;
+        $sale = $db->fetch(
+            'SELECT id, status, delivery_stock_applied FROM quotes WHERE id = ? AND COALESCE(is_mercadolibre, 0) = 1',
+            [$quoteId]
+        );
+        if (!$sale) {
+            flash('error', 'Venta ML no encontrada.');
+            redirect('/ventas-ml');
+            return;
+        }
+        $status = (string) ($sale['status'] ?? '');
+        if ($status === 'delivered') {
+            flash('info', 'Esta venta ya estaba marcada como entregada.');
+            redirect('/ventas-ml/' . $id);
+            return;
+        }
+        if (!in_array($status, ['accepted', 'partially_delivered'], true)) {
+            flash('error', "No se puede marcar como entregada una venta en estado '{$status}'.");
+            redirect('/ventas-ml/' . $id);
+            return;
+        }
+
+        $pdo = $db->getPdo();
+        $pdo->beginTransaction();
+        try {
+            QuoteStatusTransitions::deliver(
+                $db,
+                $quoteId,
+                $status,
+                (int) ($sale['delivery_stock_applied'] ?? 0) === 1
+            );
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            flash('error', 'No se pudo marcar como entregada: ' . $e->getMessage());
+            redirect('/ventas-ml/' . $id);
+            return;
+        }
+
+        flash('success', 'Venta marcada como entregada. Stock físico descontado.');
+        redirect('/ventas-ml/' . $id);
     }
 
     public function dashboard(): void
@@ -2542,10 +2600,11 @@ final class MercadoLibreController extends Controller
             $priceFieldUsed = 'manual_ml';
         }
 
+        $isNewSale = $quoteId === null;
         $db->getPdo()->beginTransaction();
         try {
             $clientId = $this->ensureMercadoLibreClient($db);
-            if ($quoteId === null) {
+            if ($isNewSale) {
                 $insertData = [
                     'quote_number' => $this->nextQuoteNumber($db),
                     'client_id' => $clientId,
@@ -2570,13 +2629,21 @@ final class MercadoLibreController extends Controller
                 }
                 $quoteId = $db->insert('quotes', $insertData);
             } else {
-                $exists = $db->fetch(
-                    'SELECT id FROM quotes WHERE id = ? AND COALESCE(is_mercadolibre, 0) = 1',
+                $existing = $db->fetch(
+                    'SELECT id, status FROM quotes WHERE id = ? AND COALESCE(is_mercadolibre, 0) = 1',
                     [$quoteId]
                 );
-                if (!$exists) {
+                if (!$existing) {
                     $db->getPdo()->rollBack();
                     return ['error' => 'Venta ML no encontrada.'];
+                }
+                $existingStatus = (string) ($existing['status'] ?? '');
+                if ($existingStatus === 'delivered') {
+                    $db->getPdo()->rollBack();
+                    return ['error' => 'No se puede editar una venta ML ya entregada (el stock físico ya fue descontado).'];
+                }
+                if ($existingStatus === 'accepted') {
+                    QuoteDeliveryStock::releaseCommittedStock($db, $quoteId);
                 }
                 $db->delete('quote_items', 'quote_id = :qid', ['qid' => $quoteId]);
                 $updateData = [
@@ -2657,6 +2724,13 @@ final class MercadoLibreController extends Controller
                 'ml_net_amount' => round($mlNetAmount, 2),
                 'total' => round($mlSaleTotal, 2),
             ], 'id = :id', ['id' => $quoteId]);
+
+            // La venta ML nace (o se re-edita) en 'accepted': reserva stock comprometido
+            // igual que un presupuesto aceptado, para que SeiqOrderBuilder la cuente como
+            // demanda real al armar pedidos a proveedor. El descuento físico recién ocurre
+            // al marcar la venta como entregada (ver markDelivered()).
+            QuoteDeliveryStock::commitStock($db, $quoteId);
+
             $db->getPdo()->commit();
 
             return ['id' => $quoteId, 'error' => null];
