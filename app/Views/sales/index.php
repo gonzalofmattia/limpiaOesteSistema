@@ -58,7 +58,12 @@ $sales = $sales ?? [];
                             <span class="font-mono"><?= e((string) ($sale['sale_number'] ?: '—')) ?></span>
                         </div>
                     </td>
-                    <td class="px-4 py-2"><?= e((string) $sale['quote_number']) ?></td>
+                    <td class="px-4 py-2">
+                        <?= e((string) $sale['quote_number']) ?>
+                        <?php if ((int) ($sale['is_mercadolibre'] ?? 0) === 1): ?>
+                            <span class="ml-1.5 inline-flex px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-800 text-xs">ML</span>
+                        <?php endif; ?>
+                    </td>
                     <td class="px-4 py-2"><?= e((string) $sale['created_date']) ?></td>
                     <td class="px-4 py-2"><span class="lo-truncate" title="<?= e((string) $sale['client_name']) ?>"><?= e((string) $sale['client_name']) ?></span></td>
                     <td class="px-4 py-2 text-right"><?= (int) $sale['items_count'] ?></td>

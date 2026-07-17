@@ -6,7 +6,7 @@ namespace App\Controllers;
 
 use App\Core\Controller;
 use App\Helpers\PricingEngine;
-use App\Helpers\QuoteDeliveryStock;
+use App\Helpers\QuoteStatusTransitions;
 use App\Helpers\SeiqOrderBuilder;
 use App\Models\Database;
 use Dompdf\Dompdf;
@@ -978,26 +978,11 @@ final class SeiqOrderController extends Controller
                 if (!$q) {
                     continue;
                 }
-                $qStatus = (string) ($q['status'] ?? '');
-                if ($qStatus === 'delivered') {
-                    continue;
-                }
-                if ((int) ($q['delivery_stock_applied'] ?? 0) === 1) {
-                    continue;
-                }
-                if (!in_array($qStatus, ['accepted', 'partially_delivered'], true)) {
-                    continue;
-                }
-                if ($qStatus === 'partially_delivered') {
-                    QuoteDeliveryStock::markRemainingDeliveredFromPartial($db, $qid);
-                } else {
-                    QuoteDeliveryStock::markDelivered($db, $qid);
-                }
-                $db->update(
-                    'quotes',
-                    ['status' => 'delivered', 'delivery_stock_applied' => 1],
-                    'id = :id',
-                    ['id' => $qid]
+                QuoteStatusTransitions::deliver(
+                    $db,
+                    $qid,
+                    (string) ($q['status'] ?? ''),
+                    (int) ($q['delivery_stock_applied'] ?? 0) === 1
                 );
             }
             $pdo->commit();

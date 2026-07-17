@@ -16,6 +16,7 @@
         <thead class="bg-gray-50 border-b border-gray-200 text-gray-600">
             <tr>
                 <th class="text-left px-4 py-3">Fecha</th>
+                <th class="text-left px-4 py-3">Estado</th>
                 <th class="text-left px-4 py-3">Productos</th>
                 <th class="text-right px-4 py-3">Total ML</th>
                 <th class="text-right px-4 py-3">Neto MP</th>
@@ -33,6 +34,10 @@
                             <span><?= e((string) ($s['created_at'] ?? '')) ?></span>
                         </div>
                     </td>
+                    <td class="px-4 py-3">
+                        <?php $status = (string) ($s['status'] ?? ''); ?>
+                        <?php include APP_PATH . '/Views/components/status_badge.php'; ?>
+                    </td>
                     <td class="px-4 py-3"><?= (int) ($s['products_count'] ?? 0) ?> productos</td>
                     <td class="px-4 py-3 text-right font-medium"><?= formatPrice((float) ($s['ml_sale_total'] ?? 0)) ?></td>
                     <td class="px-4 py-3 text-right"><?= formatPrice((float) ($s['ml_net_amount'] ?? 0)) ?></td>
@@ -43,12 +48,18 @@
                     <td class="px-4 py-3 text-right whitespace-nowrap space-x-2">
                         <a href="<?= e(url('/ventas-ml/' . (int) $s['id'])) ?>" class="text-[#1565C0] hover:underline">Ver</a>
                         <a href="<?= e(url('/ventas-ml/' . (int) $s['id'] . '/editar')) ?>" class="text-gray-600 hover:underline">Editar</a>
+                        <?php if (in_array((string) ($s['status'] ?? ''), ['accepted', 'partially_delivered'], true)): ?>
+                            <form method="post" action="<?= e(url('/ventas-ml/' . (int) $s['id'] . '/entregado')) ?>" class="inline">
+                                <?= csrfField() ?>
+                                <button type="submit" class="text-emerald-700 hover:underline">Marcar entregado</button>
+                            </form>
+                        <?php endif; ?>
                     </td>
                 </tr>
             <?php endforeach; ?>
             <?php if ($sales === []): ?>
                 <tr>
-                    <td colspan="7" class="px-4 py-8 text-center text-gray-500">Todavía no hay ventas ML cargadas.</td>
+                    <td colspan="8" class="px-4 py-8 text-center text-gray-500">Todavía no hay ventas ML cargadas.</td>
                 </tr>
             <?php endif; ?>
         </tbody>

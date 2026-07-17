@@ -411,6 +411,7 @@ final class SaleController extends Controller
 
         $rows = $db->fetchAll(
             "SELECT qt.id, qt.sale_number, qt.quote_number, DATE(qt.created_at) AS created_date, qt.total, qt.status,
+                    COALESCE(qt.is_mercadolibre, 0) AS is_mercadolibre,
                     c.name AS client_name,
                     COALESCE(items.items_count, 0) AS items_count
              FROM quotes qt
