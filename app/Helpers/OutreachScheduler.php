@@ -566,11 +566,27 @@ final class OutreachScheduler
 
         return sprintf(
             'Hola %s! ¿Cómo andás? Tu último pedido fue el %s, llevaste %s. Seguramente ya te estés por quedar sin alguno, ¿no andás necesitando reponer? %s',
-            (string) $client['name'],
+            self::firstName((string) $client['name']),
             $lastOrderAt->format('d/m'),
             $productList,
             $tipLine
         );
+    }
+
+    /**
+     * clients.name suele tener anotaciones propias ademas del nombre real
+     * (ej. "Sofia SPL Miss" para identificar de que cadena/local es) — para
+     * el saludo del mensaje usamos solo la primera palabra.
+     */
+    private static function firstName(string $fullName): string
+    {
+        $trimmed = trim($fullName);
+        if ($trimmed === '') {
+            return $trimmed;
+        }
+        $parts = preg_split('/\s+/', $trimmed);
+
+        return $parts[0] ?? $trimmed;
     }
 
     /** Encola los recontactos de clientes del dia, respetando su propio tope diario. */
