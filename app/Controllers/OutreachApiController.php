@@ -67,8 +67,13 @@ final class OutreachApiController extends Controller
                 'id = :id',
                 ['id' => (int) $row['id']]
             );
-            $campaignId = $row['campaign_id'] !== null ? (int) $row['campaign_id'] : null;
-            $this->applySentCascade($db, (int) $row['prospect_id'], $campaignId);
+            // Los recontactos a clientes (client_id set, prospect_id NULL) no
+            // pasan por la maquina de estados de prospectos — solo se marca
+            // el envio en outreach_queue, sin cascada adicional.
+            if ($row['prospect_id'] !== null) {
+                $campaignId = $row['campaign_id'] !== null ? (int) $row['campaign_id'] : null;
+                $this->applySentCascade($db, (int) $row['prospect_id'], $campaignId);
+            }
         } else {
             $db->update(
                 'outreach_queue',
@@ -76,7 +81,10 @@ final class OutreachApiController extends Controller
                 'id = :id',
                 ['id' => (int) $row['id']]
             );
-            if ($error !== null && stripos($error, 'no tiene whatsapp') !== false) {
+            if ($row['prospect_id'] === null) {
+                // Idem: fallas de recontacto a clientes no tienen cascada de
+                // prospecto (no existe tal prospecto).
+            } elseif ($error !== null && stripos($error, 'no tiene whatsapp') !== false) {
                 // Falla permanente, no transitoria: reintentarla (el scheduler
                 // reintenta todo lo que quede en 'failed') solo repetiria el
                 // mismo resultado para siempre y gastaria cupo del batch cada

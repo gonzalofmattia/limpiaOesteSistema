@@ -12,7 +12,9 @@ use App\Models\Database;
  *
  * Prioridad de llenado de la cola del dia (ver tambien Fase 3, que agrega
  * seguimientos/recontactos antes de los primeros contactos de campania):
- * recontactos > seguimientos > primeros contactos de campanias activas.
+ * recontactos de prospectos > seguimientos > recontactos de CLIENTES
+ * (reposicion, ver eligibleClientsForRecontact) > primeros contactos de
+ * campanias activas.
  */
 final class OutreachScheduler
 {
@@ -83,9 +85,9 @@ final class OutreachScheduler
         }
 
         $rows = $db->fetchAll(
-            "SELECT oq.id, oq.uuid, p.phone, oq.rendered_body
+            "SELECT oq.id, oq.uuid, COALESCE(oq.phone_override, p.phone) AS phone, oq.rendered_body
              FROM outreach_queue oq
-             INNER JOIN prospects p ON p.id = oq.prospect_id
+             LEFT JOIN prospects p ON p.id = oq.prospect_id
              WHERE oq.status = 'queued' AND oq.scheduled_for <= CURDATE()
              ORDER BY oq.created_at ASC, oq.id ASC
              LIMIT {$take}"
@@ -137,6 +139,9 @@ final class OutreachScheduler
         $remaining -= self::enqueueRecontacts($db, $remaining);
         if ($remaining > 0) {
             $remaining -= self::enqueueFollowups($db, $remaining);
+        }
+        if ($remaining > 0) {
+            $remaining -= self::enqueueClientRecontacts($db, $remaining);
         }
         if ($remaining > 0) {
             self::enqueueFirstContactsRoundRobin($db, $remaining);
@@ -478,6 +483,132 @@ final class OutreachScheduler
         }
 
         return $matching;
+    }
+
+    /**
+     * Clientes activos cuyo ultimo pedido (cotizacion accepted/delivered/
+     * partially_delivered) tiene mas de client_recontact_days dias, sin un
+     * recontacto pendiente ni uno ya mandado dentro del cooldown. Devuelve
+     * cliente + productos de ese ultimo pedido (para armar el mensaje).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function eligibleClientsForRecontact(Database $db, ?int $limit = null): array
+    {
+        $days = (int) (setting('client_recontact_days', '45') ?? '45');
+        $cooldownDays = (int) (setting('client_recontact_cooldown_days', '60') ?? '60');
+
+        $sql = "SELECT lo.client_id, lo.id AS last_quote_id, lo.created_at AS last_order_at, c.name, c.phone
+                FROM (
+                    SELECT q.*, ROW_NUMBER() OVER (PARTITION BY q.client_id ORDER BY q.created_at DESC) AS rn
+                    FROM quotes q
+                    WHERE q.status IN ('accepted', 'delivered', 'partially_delivered') AND q.client_id IS NOT NULL
+                ) lo
+                INNER JOIN clients c ON c.id = lo.client_id
+                WHERE lo.rn = 1
+                  AND c.is_active = 1
+                  AND c.phone IS NOT NULL AND c.phone <> ''
+                  AND lo.created_at <= DATE_SUB(NOW(), INTERVAL :days DAY)
+                  AND NOT EXISTS (SELECT 1 FROM outreach_queue oq WHERE oq.client_id = c.id AND oq.status IN ('queued', 'claimed'))
+                  AND NOT EXISTS (SELECT 1 FROM outreach_queue oq2 WHERE oq2.client_id = c.id AND oq2.status = 'sent' AND oq2.sent_at > DATE_SUB(NOW(), INTERVAL :cooldown DAY))
+                ORDER BY lo.created_at ASC";
+        if ($limit !== null) {
+            $sql .= ' LIMIT ' . max(0, $limit);
+        }
+
+        return $db->fetchAll($sql, ['days' => $days, 'cooldown' => $cooldownDays]);
+    }
+
+    /** @return list<array{name: string, cross_sell_tip: ?string}> */
+    public static function lastOrderItems(Database $db, int $quoteId): array
+    {
+        return $db->fetchAll(
+            'SELECT p.name, p.cross_sell_tip FROM quote_items qi
+             INNER JOIN products p ON p.id = qi.product_id
+             WHERE qi.quote_id = ? ORDER BY qi.sort_order ASC, qi.id ASC',
+            [$quoteId]
+        );
+    }
+
+    /**
+     * Arma el mensaje de recontacto: nombra los primeros 2 productos del
+     * ultimo pedido ("y otros" si hay mas), y agrega un tip de venta cruzada
+     * si alguno de esos productos tiene uno cargado (sino, un cierre generico).
+     *
+     * @param array<string, mixed> $client Fila de eligibleClientsForRecontact (name, last_order_at)
+     * @param list<array{name: string, cross_sell_tip: ?string}> $items
+     */
+    public static function buildClientRecontactBody(array $client, array $items): string
+    {
+        $names = array_column($items, 'name');
+        if ($names === []) {
+            $productList = 'los productos que llevaste la última vez';
+        } else {
+            $shown = array_slice($names, 0, 2);
+            $productList = implode(' y ', $shown);
+            if (count($names) > 2) {
+                $productList .= ' y otros';
+            }
+        }
+
+        $tip = null;
+        foreach ($items as $item) {
+            if (!empty($item['cross_sell_tip'])) {
+                $tip = (string) $item['cross_sell_tip'];
+                break;
+            }
+        }
+        $tipLine = $tip !== null
+            ? "Aprovechá también para probar algo nuevo: {$tip}."
+            : 'Tenemos más de 300 productos para todo tipo de limpieza — capaz hay algo más que te sirva.';
+
+        $lastOrderAt = new \DateTimeImmutable((string) $client['last_order_at']);
+
+        return sprintf(
+            'Hola %s! ¿Cómo andás? Tu último pedido fue el %s, llevaste %s. Seguramente ya te estés por quedar sin alguno, ¿no andás necesitando reponer? %s',
+            (string) $client['name'],
+            $lastOrderAt->format('d/m'),
+            $productList,
+            $tipLine
+        );
+    }
+
+    /** Encola los recontactos de clientes del dia, respetando su propio tope diario. */
+    public static function enqueueClientRecontacts(Database $db, int $remainingCap): int
+    {
+        if ($remainingCap <= 0 || setting('client_recontact_enabled', '0') !== '1') {
+            return 0;
+        }
+        $ownDailyLimit = (int) (setting('client_recontact_daily_limit', '5') ?? '5');
+        $cap = min($remainingCap, max(0, $ownDailyLimit));
+        if ($cap <= 0) {
+            return 0;
+        }
+
+        $clients = self::eligibleClientsForRecontact($db, $cap);
+        $enqueued = 0;
+        foreach ($clients as $client) {
+            $phone = ArgentinePhoneNormalizer::normalize((string) $client['phone']);
+            if ($phone === null) {
+                continue;
+            }
+            $items = self::lastOrderItems($db, (int) $client['last_quote_id']);
+            $body = self::buildClientRecontactBody($client, $items);
+            $db->insert('outreach_queue', [
+                'uuid' => self::generateUuid(),
+                'campaign_id' => null,
+                'prospect_id' => null,
+                'client_id' => (int) $client['client_id'],
+                'phone_override' => $phone,
+                'template_id' => null,
+                'rendered_body' => $body,
+                'status' => 'queued',
+                'scheduled_for' => date('Y-m-d'),
+            ]);
+            $enqueued++;
+        }
+
+        return $enqueued;
     }
 
     private static function nextMatchingProspect(Database $db, array $campaign): ?array
