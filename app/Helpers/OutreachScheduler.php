@@ -519,11 +519,11 @@ final class OutreachScheduler
         return $db->fetchAll($sql, ['days' => $days, 'cooldown' => $cooldownDays]);
     }
 
-    /** @return list<array{name: string, cross_sell_tip: ?string}> */
+    /** @return list<array{id: int, name: string}> */
     public static function lastOrderItems(Database $db, int $quoteId): array
     {
         return $db->fetchAll(
-            'SELECT p.name, p.cross_sell_tip FROM quote_items qi
+            'SELECT p.id, p.name FROM quote_items qi
              INNER JOIN products p ON p.id = qi.product_id
              WHERE qi.quote_id = ? ORDER BY qi.sort_order ASC, qi.id ASC',
             [$quoteId]
@@ -531,14 +531,30 @@ final class OutreachScheduler
     }
 
     /**
+     * Productos "estrella" que Gonzalo eligio a mano para recomendar en los
+     * recontactos (no confundir con lo que el cliente ya compro). Un producto
+     * es "estrella" simplemente por tener cross_sell_tip cargado.
+     *
+     * @return list<array{id: int, name: string, cross_sell_tip: string}>
+     */
+    public static function starProducts(Database $db): array
+    {
+        return $db->fetchAll(
+            "SELECT id, name, cross_sell_tip FROM products WHERE cross_sell_tip IS NOT NULL AND cross_sell_tip <> '' ORDER BY name"
+        );
+    }
+
+    /**
      * Arma el mensaje de recontacto: nombra los primeros 2 productos del
-     * ultimo pedido ("y otros" si hay mas), y agrega un tip de venta cruzada
-     * si alguno de esos productos tiene uno cargado (sino, un cierre generico).
+     * ultimo pedido ("y otros" si hay mas), y recomienda un producto estrella
+     * que el cliente NO haya comprado ya en ese pedido (si no hay ninguno
+     * disponible, un cierre generico).
      *
      * @param array<string, mixed> $client Fila de eligibleClientsForRecontact (name, last_order_at)
-     * @param list<array{name: string, cross_sell_tip: ?string}> $items
+     * @param list<array{id: int, name: string}> $items Productos del ultimo pedido
+     * @param list<array{id: int, name: string, cross_sell_tip: string}> $starProducts
      */
-    public static function buildClientRecontactBody(array $client, array $items): string
+    public static function buildClientRecontactBody(array $client, array $items, array $starProducts): string
     {
         $names = array_column($items, 'name');
         if ($names === []) {
@@ -551,13 +567,12 @@ final class OutreachScheduler
             }
         }
 
-        $tip = null;
-        foreach ($items as $item) {
-            if (!empty($item['cross_sell_tip'])) {
-                $tip = (string) $item['cross_sell_tip'];
-                break;
-            }
-        }
+        $purchasedIds = array_column($items, 'id');
+        $candidates = array_values(array_filter(
+            $starProducts,
+            static fn (array $sp) => !in_array((int) $sp['id'], $purchasedIds, true)
+        ));
+        $tip = $candidates !== [] ? (string) $candidates[array_rand($candidates)]['cross_sell_tip'] : null;
         $tipLine = $tip !== null
             ? "Aprovechá también para probar algo nuevo: {$tip}."
             : 'Tenemos más de 300 productos para todo tipo de limpieza — capaz hay algo más que te sirva.';
@@ -565,7 +580,7 @@ final class OutreachScheduler
         $lastOrderAt = new \DateTimeImmutable((string) $client['last_order_at']);
 
         return sprintf(
-            'Hola %s! ¿Cómo andás? Tu último pedido fue el %s, llevaste %s. Seguramente ya te estés por quedar sin alguno, ¿no andás necesitando reponer? %s',
+            'Hola %s! ¿Cómo andás? Tu último pedido fue el %s, llevaste %s. Seguramente ya te estés por quedar sin alguno, ¿no andás necesitando reponer? %s Gracias, espero tu respuesta. Gonzalo de Limpia Oeste',
             self::firstName((string) $client['name']),
             $lastOrderAt->format('d/m'),
             $productList,
@@ -602,6 +617,7 @@ final class OutreachScheduler
         }
 
         $clients = self::eligibleClientsForRecontact($db, $cap);
+        $starProducts = self::starProducts($db);
         $enqueued = 0;
         foreach ($clients as $client) {
             $phone = ArgentinePhoneNormalizer::normalize((string) $client['phone']);
@@ -609,7 +625,7 @@ final class OutreachScheduler
                 continue;
             }
             $items = self::lastOrderItems($db, (int) $client['last_quote_id']);
-            $body = self::buildClientRecontactBody($client, $items);
+            $body = self::buildClientRecontactBody($client, $items, $starProducts);
             $db->insert('outreach_queue', [
                 'uuid' => self::generateUuid(),
                 'campaign_id' => null,

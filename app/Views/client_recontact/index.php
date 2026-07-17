@@ -5,7 +5,9 @@ $cooldownDays = $cooldownDays ?? 60;
 $dailyLimit = $dailyLimit ?? 5;
 $count = $count ?? 0;
 $preview = $preview ?? [];
-$products = $products ?? [];
+$starProducts = $starProducts ?? [];
+$search = $search ?? '';
+$searchResults = $searchResults ?? [];
 ?>
 <div class="space-y-5">
     <div class="lo-card p-5">
@@ -64,24 +66,51 @@ $products = $products ?? [];
         <?php endif; ?>
     </div>
 
-    <?php if ($products !== []): ?>
-        <div class="lo-card p-5">
-            <p class="text-sm font-semibold text-slate-800 mb-1">Tips de venta cruzada</p>
-            <p class="text-xs text-slate-500 mb-4">
-                Por producto, opcional — se usa en el mensaje cuando ese producto es parte del último pedido del cliente
-                (ej: "nuestro Strong limpia el vidrio del horno como ningún otro"). Si lo dejás vacío, el mensaje usa un cierre genérico.
-                Solo se listan productos que aparecen en compras de clientes elegibles para recontacto ahora mismo.
-            </p>
-            <div class="space-y-2">
-                <?php foreach ($products as $p): ?>
+    <div class="lo-card p-5">
+        <p class="text-sm font-semibold text-slate-800 mb-1">Productos estrella para recomendar</p>
+        <p class="text-xs text-slate-500 mb-4">
+            No son "otro uso del mismo producto que ya compró" — son productos tuyos que querés ofrecerle
+            aunque no los haya llevado nunca (ej. CP130, Strong, Quitasarro). El mensaje elige uno al azar
+            entre estos (que el cliente no haya comprado ya en su último pedido) y lo suma como recomendación.
+            Si no cargás ninguno, el mensaje usa un cierre genérico.
+        </p>
+
+        <?php if ($starProducts !== []): ?>
+            <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Estrella actuales</p>
+            <div class="space-y-2 mb-5">
+                <?php foreach ($starProducts as $p): ?>
                     <form method="post" action="<?= e(url('/prospeccion/recontacto-clientes/productos/' . (int) $p['id'])) ?>" class="flex flex-col sm:flex-row sm:items-center gap-2">
                         <?= csrfField() ?>
-                        <span class="text-sm text-slate-700 sm:w-64 shrink-0"><?= e((string) $p['name']) ?></span>
-                        <input type="text" name="cross_sell_tip" value="<?= e((string) ($p['cross_sell_tip'] ?? '')) ?>" placeholder="Sin tip (usa el cierre genérico)" class="flex-1 min-h-10 rounded-lg border border-lo-border px-3 text-sm">
-                        <button type="submit" class="inline-flex items-center justify-center px-3 py-2 bg-slate-600 text-white text-xs font-medium rounded-lg hover:bg-slate-700">Guardar</button>
+                        <span class="text-sm text-slate-700 sm:w-56 shrink-0"><?= e((string) $p['name']) ?></span>
+                        <input type="text" name="cross_sell_tip" value="<?= e((string) $p['cross_sell_tip']) ?>" class="flex-1 min-h-10 rounded-lg border border-lo-border px-3 text-sm">
+                        <div class="flex gap-2">
+                            <button type="submit" class="inline-flex items-center justify-center px-3 py-2 bg-slate-600 text-white text-xs font-medium rounded-lg hover:bg-slate-700">Guardar</button>
+                        </div>
                     </form>
                 <?php endforeach; ?>
             </div>
-        </div>
-    <?php endif; ?>
+        <?php endif; ?>
+
+        <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Agregar un producto estrella</p>
+        <form method="get" action="<?= e(url('/prospeccion/recontacto-clientes')) ?>" class="flex gap-2 mb-3">
+            <input type="text" name="buscar" value="<?= e($search) ?>" placeholder="Buscar por nombre o código..." class="flex-1 min-h-10 rounded-lg border border-lo-border px-3 text-sm">
+            <button type="submit" class="inline-flex items-center justify-center px-4 py-2 bg-slate-600 text-white text-sm font-medium rounded-lg hover:bg-slate-700">Buscar</button>
+        </form>
+        <?php if ($search !== ''): ?>
+            <?php if ($searchResults !== []): ?>
+                <div class="space-y-2">
+                    <?php foreach ($searchResults as $p): ?>
+                        <form method="post" action="<?= e(url('/prospeccion/recontacto-clientes/productos/' . (int) $p['id'])) ?>" class="flex flex-col sm:flex-row sm:items-center gap-2">
+                            <?= csrfField() ?>
+                            <span class="text-sm text-slate-700 sm:w-56 shrink-0"><?= e((string) $p['name']) ?></span>
+                            <input type="text" name="cross_sell_tip" value="<?= e((string) ($p['cross_sell_tip'] ?? '')) ?>" placeholder="Tip para recomendarlo (ej: nuestro Strong limpia el vidrio del horno como ningún otro)" class="flex-1 min-h-10 rounded-lg border border-lo-border px-3 text-sm">
+                            <button type="submit" class="inline-flex items-center justify-center px-3 py-2 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700">Marcar estrella</button>
+                        </form>
+                    <?php endforeach; ?>
+                </div>
+            <?php else: ?>
+                <p class="text-sm text-slate-500">No encontré productos con "<?= e($search) ?>".</p>
+            <?php endif; ?>
+        <?php endif; ?>
+    </div>
 </div>
