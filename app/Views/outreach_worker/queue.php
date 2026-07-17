@@ -46,7 +46,11 @@ $fmtHora = static function (mixed $raw): string {
                     <tr class="hover:bg-gray-50">
                         <td class="px-4 py-3 text-slate-600"><?= e($fmtHora($r['sent_at'] ?? $r['claimed_at'] ?? $r['created_at'])) ?></td>
                         <td class="px-4 py-3">
-                            <a href="<?= e(url('/prospeccion/prospectos/' . (int) $r['prospect_id'])) ?>" class="text-slate-900 hover:text-lo-blue hover:underline"><?= e((string) $r['prospect_name']) ?></a>
+                            <?php if ($r['client_id'] !== null): ?>
+                                <a href="<?= e(url('/clientes/' . (int) $r['client_id'])) ?>" class="text-slate-900 hover:text-lo-blue hover:underline"><?= e((string) $r['prospect_name']) ?></a>
+                            <?php else: ?>
+                                <a href="<?= e(url('/prospeccion/prospectos/' . (int) $r['prospect_id'])) ?>" class="text-slate-900 hover:text-lo-blue hover:underline"><?= e((string) $r['prospect_name']) ?></a>
+                            <?php endif; ?>
                             <span class="text-slate-400"> · <?= e((string) $r['phone']) ?></span>
                         </td>
                         <td class="px-4 py-3 text-slate-600"><?= e((string) ($r['campaign_name'] ?? '—')) ?></td>

@@ -5,7 +5,27 @@ $cooldownDays = $cooldownDays ?? 60;
 $dailyLimit = $dailyLimit ?? 5;
 $count = $count ?? 0;
 $preview = $preview ?? [];
+$history = $history ?? [];
 $starProducts = $starProducts ?? [];
+$statusBadge = static function (string $status): string {
+    return match ($status) {
+        'sent' => 'bg-green-100 text-green-800',
+        'failed' => 'bg-red-100 text-red-800',
+        'claimed' => 'bg-blue-100 text-blue-800',
+        'queued' => 'bg-slate-100 text-slate-700',
+        default => 'bg-gray-200 text-gray-600',
+    };
+};
+$statusLabel = static function (string $status): string {
+    return match ($status) {
+        'sent' => 'Enviado',
+        'failed' => 'Fallido',
+        'claimed' => 'Enviando...',
+        'queued' => 'Pendiente',
+        'cancelled' => 'Cancelado',
+        default => ucfirst($status),
+    };
+};
 $search = $search ?? '';
 $searchResults = $searchResults ?? [];
 ?>
@@ -63,6 +83,51 @@ $searchResults = $searchResults ?? [];
             </div>
         <?php else: ?>
             <p class="text-sm text-slate-500 mt-3">No hay clientes que matcheen el filtro ahora mismo.</p>
+        <?php endif; ?>
+    </div>
+
+    <div class="lo-card p-5">
+        <p class="text-sm font-semibold text-slate-800 mb-1">Historial de recontactos</p>
+        <p class="text-xs text-slate-500 mb-4">Últimos 50, más reciente primero. "Enviado" confirma que el worker hizo click y el cuadro de WhatsApp quedó vacío.</p>
+        <?php if ($history === []): ?>
+            <p class="text-sm text-slate-500">Todavía no se mandó ningún recontacto.</p>
+        <?php else: ?>
+            <div class="lo-table-wrap hidden md:block">
+                <table class="min-w-full text-sm lo-table">
+                    <thead class="bg-gray-50 border-b border-gray-200 text-gray-600">
+                        <tr>
+                            <th class="text-left px-4 py-3">Fecha</th>
+                            <th class="text-left px-4 py-3">Cliente</th>
+                            <th class="text-left px-4 py-3">Teléfono</th>
+                            <th class="text-left px-4 py-3">Estado</th>
+                            <th class="text-left px-4 py-3">Error</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        <?php foreach ($history as $h): ?>
+                            <tr class="hover:bg-gray-50">
+                                <td class="px-4 py-3 text-slate-600"><?= e(date('d/m H:i', strtotime((string) ($h['sent_at'] ?? $h['created_at'])))) ?></td>
+                                <td class="px-4 py-3"><a href="<?= e(url('/clientes/' . (int) $h['client_id'])) ?>" class="text-slate-900 hover:text-lo-blue hover:underline"><?= e((string) $h['client_name']) ?></a></td>
+                                <td class="px-4 py-3 text-slate-600"><?= e((string) $h['phone']) ?></td>
+                                <td class="px-4 py-3"><span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium <?= e($statusBadge((string) $h['status'])) ?>"><?= e($statusLabel((string) $h['status'])) ?></span></td>
+                                <td class="px-4 py-3 text-red-600 text-xs"><?= e((string) ($h['error'] ?? '')) ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <div class="md:hidden lo-mobile-card-list">
+                <?php foreach ($history as $h): ?>
+                    <article class="lo-mobile-card shadow-sm">
+                        <div class="flex items-start justify-between gap-2 mb-1">
+                            <p class="text-base font-semibold text-slate-900"><?= e((string) $h['client_name']) ?></p>
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium <?= e($statusBadge((string) $h['status'])) ?>"><?= e($statusLabel((string) $h['status'])) ?></span>
+                        </div>
+                        <p class="text-sm text-slate-500"><?= e((string) $h['phone']) ?> · <?= e(date('d/m H:i', strtotime((string) ($h['sent_at'] ?? $h['created_at'])))) ?></p>
+                        <?php if (!empty($h['error'])): ?><p class="text-xs text-red-600 mt-1"><?= e((string) $h['error']) ?></p><?php endif; ?>
+                    </article>
+                <?php endforeach; ?>
+            </div>
         <?php endif; ?>
     </div>
 
