@@ -418,6 +418,10 @@ function mlListingForm(cfg) {
         onMarkupInput() {
             this.priceMode = 'markup';
             this.targetPrice = '';
+            // Cambiar el markup a mano siempre implica "quiero el precio que da la fórmula": si no se
+            // vacía acá, refreshPricePreview() deja el precio publicado viejo (solo lo completa cuando
+            // el campo está vacío) y el formulario termina guardando un precio que no es el del preview.
+            this.price = '';
             this.refreshPricePreview();
         },
         onTargetPriceInput() {

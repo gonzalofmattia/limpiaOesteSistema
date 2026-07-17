@@ -501,6 +501,14 @@ final class MlSyncEngine
         $db = Database::getInstance();
 
         if ($action === self::PUSH_TO_ML) {
+            if ($field === 'price') {
+                // syncItemPrice() empuja lo que esté guardado en ml_listings.price tal cual (a propósito:
+                // así respeta precios manuales/sugeridos por MlPriceIntelligence). Acá el motor ya decidió
+                // que hay que pushear el precio recalculado del sistema ($value), así que hay que dejarlo
+                // guardado antes de sincronizar — si no, se reenvía el precio viejo pero el snapshot queda
+                // marcado como si ya estuviera al día, y el desfasaje se vuelve invisible para siempre.
+                $db->update('ml_listings', ['price' => round((float) $value, 2)], 'id = :id', ['id' => $listingId]);
+            }
             $result = match ($field) {
                 'title' => MercadoLibreService::syncItemTitle($listingId),
                 'price' => MercadoLibreService::syncItemPrice($listingId),
