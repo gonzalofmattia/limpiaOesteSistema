@@ -15,9 +15,13 @@ final class OutreachWorkerController extends Controller
     {
         $db = Database::getInstance();
         $rows = $db->fetchAll(
-            "SELECT oq.*, p.name AS prospect_name, p.phone, c.name AS campaign_name
+            "SELECT oq.*,
+                    COALESCE(p.name, cl.name) AS prospect_name,
+                    COALESCE(oq.phone_override, p.phone) AS phone,
+                    CASE WHEN oq.client_id IS NOT NULL THEN 'Recontacto cliente' ELSE c.name END AS campaign_name
              FROM outreach_queue oq
-             INNER JOIN prospects p ON p.id = oq.prospect_id
+             LEFT JOIN prospects p ON p.id = oq.prospect_id
+             LEFT JOIN clients cl ON cl.id = oq.client_id
              LEFT JOIN outreach_campaigns c ON c.id = oq.campaign_id
              WHERE oq.scheduled_for = CURDATE()
              ORDER BY oq.created_at DESC"

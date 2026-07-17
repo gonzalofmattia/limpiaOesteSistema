@@ -35,6 +35,16 @@ final class ClientRecontactController extends Controller
             ];
         }
 
+        $history = $db->fetchAll(
+            "SELECT oq.status, oq.sent_at, oq.created_at, oq.error, cl.id AS client_id, cl.name AS client_name,
+                    COALESCE(oq.phone_override, cl.phone) AS phone
+             FROM outreach_queue oq
+             INNER JOIN clients cl ON cl.id = oq.client_id
+             WHERE oq.client_id IS NOT NULL
+             ORDER BY oq.created_at DESC
+             LIMIT 50"
+        );
+
         $search = trim((string) $this->query('buscar', ''));
         $searchResults = [];
         if ($search !== '') {
@@ -54,6 +64,7 @@ final class ClientRecontactController extends Controller
             'dailyLimit' => (int) (setting('client_recontact_daily_limit', '5') ?? '5'),
             'count' => count($eligible),
             'preview' => $preview,
+            'history' => $history,
             'starProducts' => $starProducts,
             'search' => $search,
             'searchResults' => $searchResults,
