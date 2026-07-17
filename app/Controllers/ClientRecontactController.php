@@ -24,25 +24,24 @@ final class ClientRecontactController extends Controller
 
         $eligible = OutreachScheduler::eligibleClientsForRecontact($db);
         $sample = array_slice($eligible, 0, self::PREVIEW_LIMIT);
+        $starProducts = OutreachScheduler::starProducts($db);
 
         $preview = [];
         foreach ($sample as $client) {
             $items = OutreachScheduler::lastOrderItems($db, (int) $client['last_quote_id']);
             $preview[] = [
                 'client' => $client,
-                'rendered_body' => OutreachScheduler::buildClientRecontactBody($client, $items),
+                'rendered_body' => OutreachScheduler::buildClientRecontactBody($client, $items, $starProducts),
             ];
         }
 
-        $products = [];
-        if ($eligible !== []) {
-            $quoteIds = array_map(static fn (array $c) => (int) $c['last_quote_id'], $eligible);
-            $placeholders = implode(',', array_fill(0, count($quoteIds), '?'));
-            $products = $db->fetchAll(
-                "SELECT DISTINCT p.id, p.name, p.cross_sell_tip FROM quote_items qi
-                 INNER JOIN products p ON p.id = qi.product_id
-                 WHERE qi.quote_id IN ({$placeholders}) ORDER BY p.name",
-                $quoteIds
+        $search = trim((string) $this->query('buscar', ''));
+        $searchResults = [];
+        if ($search !== '') {
+            $searchResults = $db->fetchAll(
+                'SELECT id, code, name, cross_sell_tip FROM products
+                 WHERE name LIKE ? OR code LIKE ? ORDER BY name LIMIT 20',
+                ['%' . $search . '%', '%' . $search . '%']
             );
         }
 
@@ -55,7 +54,9 @@ final class ClientRecontactController extends Controller
             'dailyLimit' => (int) (setting('client_recontact_daily_limit', '5') ?? '5'),
             'count' => count($eligible),
             'preview' => $preview,
-            'products' => $products,
+            'starProducts' => $starProducts,
+            'search' => $search,
+            'searchResults' => $searchResults,
         ]);
     }
 
