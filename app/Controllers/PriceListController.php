@@ -22,6 +22,28 @@ final class PriceListController extends Controller
         'HB100', 'H3080P',
     ];
 
+    /** Códigos de producto para el preset "Lista Gastronómica" (restaurantes/parrillas), agrupados por rubro. */
+    private const GASTRONOMICO_PRODUCT_CODES = [
+        // Cuidado de la Cocina: detergentes, desengrasantes de horno/parrilla, lavavajillas, recuperador, fajinado, cremoso
+        '861017', '2026F', '861018', '861020', '250060', '861008 B', '261011', '861024', '398120', '250065', '262205', '260065', '28014',
+        // Limpiadores Desengrasantes
+        '382018', '861013', '861015', '250067', '250066', '2048',
+        // Limpiadores Desinfectantes
+        '260073', '861016', '861019', 'ECHL1', '464656',
+        // Cuidado de Manos
+        '861023', '291920', '861023 A', '861022', '100000', '260000',
+        // Limpieza y Tratamiento de Pisos (uso diario, sin ceras/cristalizadores)
+        '861014', '861145', '861017 A', '861105',
+        // Baños y Sanitarios
+        '861012', '260072', '260070',
+        // Papelería Higienik — Papel Higiénico
+        'H8300P', 'H8300PG', 'H8200P', 'H8200PG', 'H8300A', 'H8300AG', 'H8200A', 'H8200AG', 'H8300A ECO', 'H8300AG ECO', 'H3080A', 'HB100', 'H3080P',
+        // Papelería Higienik — Rollos de cocina
+        'R4x150P', 'R4x200P', 'R2x250P', 'R4x150A', 'R4x200A', 'R2x250A', 'R4x150B', 'R4x200B', 'R2x250B',
+        // Papelería Higienik — Toallas intercaladas
+        'IB2500', 'IB2000', 'E1500', 'IN2500', 'IN2000', 'EB1500',
+    ];
+
     public function index(): void
     {
         $db = Database::getInstance();
@@ -72,6 +94,9 @@ final class PriceListController extends Controller
         $minoristaHogarProducts = $this->fetchProductsByCodesOrdered($db, self::MINORISTA_HOGAR_PRODUCT_CODES);
         $minoristaDefaultMarkup = $this->resolveMinoristaDefaultMarkupPercent();
         $minoristaDefaultName = $this->buildMinoristaHogarDefaultListName();
+        $gastronomicoProducts = $this->fetchProductsByCodesOrdered($db, self::GASTRONOMICO_PRODUCT_CODES);
+        $gastronomicoDefaultMarkup = $this->resolveSegmentDefaultMarkupPercent($db, 'gastronomico', '70');
+        $gastronomicoDefaultName = $this->buildGastronomicoDefaultListName();
         $this->view('pricelists/generate', [
             'title' => 'Generar lista',
             'categories' => $categories,
@@ -80,6 +105,9 @@ final class PriceListController extends Controller
             'minorista_hogar_products' => $minoristaHogarProducts,
             'minorista_default_markup' => $minoristaDefaultMarkup,
             'minorista_default_name' => $minoristaDefaultName,
+            'gastronomico_products' => $gastronomicoProducts,
+            'gastronomico_default_markup' => $gastronomicoDefaultMarkup,
+            'gastronomico_default_name' => $gastronomicoDefaultName,
         ]);
     }
 
@@ -439,6 +467,33 @@ final class PriceListController extends Controller
         $mesNombre = $meses[$m] ?? date('F');
 
         return 'Lista Minorista Hogar — ' . $mesNombre . ' ' . $y;
+    }
+
+    /** Markup default de un segmento (`client_segment_config.segment_key`), con fallback fijo si la tabla no lo tiene. */
+    private function resolveSegmentDefaultMarkupPercent(Database $db, string $segmentKey, string $fallback): string
+    {
+        $row = $db->fetch(
+            'SELECT default_markup FROM client_segment_config WHERE segment_key = ? AND is_active = 1',
+            [$segmentKey]
+        );
+        if ($row && $row['default_markup'] !== null && $row['default_markup'] !== '') {
+            return (string) (float) $row['default_markup'];
+        }
+
+        return $fallback;
+    }
+
+    private function buildGastronomicoDefaultListName(): string
+    {
+        $meses = [
+            1 => 'Enero', 2 => 'Febrero', 3 => 'Marzo', 4 => 'Abril', 5 => 'Mayo', 6 => 'Junio',
+            7 => 'Julio', 8 => 'Agosto', 9 => 'Septiembre', 10 => 'Octubre', 11 => 'Noviembre', 12 => 'Diciembre',
+        ];
+        $m = (int) date('n');
+        $y = (int) date('Y');
+        $mesNombre = $meses[$m] ?? date('F');
+
+        return 'Lista Gastronómica — ' . $mesNombre . ' ' . $y;
     }
 
     /** @param array<string, mixed> $bundle */

@@ -103,7 +103,7 @@ $leyendaIvaLista = priceIvaLegendLine($includeIva);
         <?php endforeach; ?>
         <div class="footer">
             <p style="font-style:italic;color:#4B5563;margin-bottom:6px;"><?= htmlspecialchars($leyendaIvaLista) ?></p>
-            Entrega prioritaria — <?= htmlspecialchars($zona ?: 'Zona Oeste GBA') ?>.
+            Envíos prioritarios — <?= htmlspecialchars($zona ?: 'Zona Oeste GBA') ?>.
         </div>
     </div>
 </body>
