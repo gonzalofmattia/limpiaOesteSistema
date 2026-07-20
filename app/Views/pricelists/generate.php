@@ -7,15 +7,24 @@ $allFields = [
 $minorista_hogar_products = $minorista_hogar_products ?? [];
 $minorista_default_name = (string) ($minorista_default_name ?? 'Lista Minorista Hogar');
 $minorista_default_markup = (string) ($minorista_default_markup ?? '90');
+$gastronomico_products = $gastronomico_products ?? [];
+$gastronomico_default_name = (string) ($gastronomico_default_name ?? 'Lista Gastronómica');
+$gastronomico_default_markup = (string) ($gastronomico_default_markup ?? '70');
 $presetJsonFlags = JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_THROW_ON_ERROR;
 $minoristaPresetProductsJson = json_encode($minorista_hogar_products, $presetJsonFlags);
 $minoristaDefaultNameJson = json_encode($minorista_default_name, $presetJsonFlags);
 $minoristaDefaultMarkupJson = json_encode($minorista_default_markup, $presetJsonFlags);
+$gastronomicoPresetProductsJson = json_encode($gastronomico_products, $presetJsonFlags);
+$gastronomicoDefaultNameJson = json_encode($gastronomico_default_name, $presetJsonFlags);
+$gastronomicoDefaultMarkupJson = json_encode($gastronomico_default_markup, $presetJsonFlags);
 ?>
 <script>
 window.__priceListMinoristaPreset = <?= $minoristaPresetProductsJson ?>;
 window.__priceListMinoristaDefaultName = <?= $minoristaDefaultNameJson ?>;
 window.__priceListMinoristaDefaultMarkup = <?= $minoristaDefaultMarkupJson ?>;
+window.__priceListGastronomicoPreset = <?= $gastronomicoPresetProductsJson ?>;
+window.__priceListGastronomicoDefaultName = <?= $gastronomicoDefaultNameJson ?>;
+window.__priceListGastronomicoDefaultMarkup = <?= $gastronomicoDefaultMarkupJson ?>;
 </script>
 <div class="max-w-4xl bg-white rounded-xl border border-gray-200 shadow-sm p-6" x-data="{
     supplier: '',
@@ -24,6 +33,9 @@ window.__priceListMinoristaDefaultMarkup = <?= $minoristaDefaultMarkupJson ?>;
     minoristaPresetProducts: (typeof window.__priceListMinoristaPreset !== 'undefined' && window.__priceListMinoristaPreset ? window.__priceListMinoristaPreset : []),
     minoristaDefaultName: (typeof window.__priceListMinoristaDefaultName !== 'undefined' ? window.__priceListMinoristaDefaultName : ''),
     minoristaDefaultMarkup: (typeof window.__priceListMinoristaDefaultMarkup !== 'undefined' ? window.__priceListMinoristaDefaultMarkup : '90'),
+    gastronomicoPresetProducts: (typeof window.__priceListGastronomicoPreset !== 'undefined' && window.__priceListGastronomicoPreset ? window.__priceListGastronomicoPreset : []),
+    gastronomicoDefaultName: (typeof window.__priceListGastronomicoDefaultName !== 'undefined' ? window.__priceListGastronomicoDefaultName : ''),
+    gastronomicoDefaultMarkup: (typeof window.__priceListGastronomicoDefaultMarkup !== 'undefined' ? window.__priceListGastronomicoDefaultMarkup : '70'),
     searchQ: '',
     searchHits: [],
     searchOpen: false,
@@ -85,6 +97,22 @@ window.__priceListMinoristaDefaultMarkup = <?= $minoristaDefaultMarkupJson ?>;
         var pf = root.querySelector('select[name=\'price_field\']');
         if (pf) { pf.value = 'precio_lista_unitario'; }
         this.listType = 'minorista';
+    },
+    applyGastronomicoPreset() {
+        this.clearAllCategories();
+        this.supplier = '';
+        var rows = this.gastronomicoPresetProducts || [];
+        this.picked = rows.map(function (r) {
+            return { id: parseInt(r.id, 10), code: r.code || '', name: r.name || '' };
+        }).filter(function (p) { return p.id > 0; });
+        var root = this.$root;
+        var nameInput = root.querySelector('input[name=\'name\']');
+        if (nameInput) { nameInput.value = this.gastronomicoDefaultName; }
+        var mkInput = root.querySelector('input[name=\'custom_markup\']');
+        if (mkInput) { mkInput.value = this.gastronomicoDefaultMarkup; }
+        var pf = root.querySelector('select[name=\'price_field\']');
+        if (pf) { pf.value = 'precio_lista_caja'; }
+        this.listType = '';
     }
 }">
     <form method="post" action="<?= e(url('/listas/preview')) ?>" class="space-y-6">
@@ -96,6 +124,13 @@ window.__priceListMinoristaDefaultMarkup = <?= $minoristaDefaultMarkupJson ?>;
                 Generar Lista Minorista Hogar
             </button>
             <p class="text-xs text-gray-500 max-w-xl">Precarga productos, markup minorista (configuración o 90%), precio unitario y nombre con mes actual. Podés editar todo antes de la vista previa.</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-3 pb-2 border-b border-gray-100">
+            <button type="button" @click="applyGastronomicoPreset()"
+                    class="px-4 py-2 rounded-lg bg-[#1565C0] text-white text-sm font-medium hover:bg-[#0D47A1]">
+                Generar Lista Gastronómica
+            </button>
+            <p class="text-xs text-gray-500 max-w-xl">Precarga la selección de rubros para restaurantes/parrillas (cocina, desengrasantes, desinfectantes, manos, pisos de uso diario, baños y papelería), markup del segmento gastronómico (configuración o 70%) y precio caja/bulto. Podés editar todo antes de la vista previa.</p>
         </div>
         <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Nombre de la lista</label>
