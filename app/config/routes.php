@@ -215,6 +215,7 @@ return [
     ['GET', 'cuenta-corriente/proveedor/{id}/pdf', 'AccountController@supplierStatementPdf', []],
 
     ['GET', 'api/presupuestos/{id}/items-explotados', 'QuoteController@apiItemsExplotados', ['public' => true]],
+    ['GET', 'api/catalogo/feed-meta.csv', 'ApiController@catalogFeedMeta', ['public' => true]],
     ['GET', 'api/catalogo/productos/{slug}', 'ApiController@catalogProductDetail', ['public' => true]],
     ['GET', 'api/catalogo/productos', 'ApiController@catalogProducts', ['public' => true]],
     ['GET', 'api/catalogo/categorias', 'ApiController@catalogCategories', ['public' => true]],
