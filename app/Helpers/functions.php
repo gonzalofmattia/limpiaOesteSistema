@@ -51,6 +51,26 @@ function productImageUrl(int $productId, string $filename): string
         . rawurlencode($filename);
 }
 
+/**
+ * Base pública HTTPS del storefront (React), para links de producto en feeds externos
+ * (catálogo de Meta/WhatsApp). Override opcional: STOREFRONT_PUBLIC_BASE en .env
+ */
+function storefrontPublicBaseUrl(): string
+{
+    $base = trim(\App\Helpers\Env::get('STOREFRONT_PUBLIC_BASE', ''));
+    if ($base === '') {
+        $base = 'https://limpiaoeste.com.ar';
+    }
+
+    return preg_replace('#^http:#i', 'https:', rtrim($base, '/'));
+}
+
+/** URL absoluta HTTPS de la ficha de producto en el storefront: /productos/{slug} */
+function storefrontProductUrl(string $slug): string
+{
+    return storefrontPublicBaseUrl() . '/productos/' . rawurlencode($slug);
+}
+
 function redirect(string $pathOrUrl): void
 {
     if (preg_match('#^https?://#i', $pathOrUrl)) {

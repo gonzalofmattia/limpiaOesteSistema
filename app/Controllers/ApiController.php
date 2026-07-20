@@ -472,6 +472,101 @@ final class ApiController extends Controller
         $this->json(['products' => $products]);
     }
 
+    /**
+     * Feed CSV para el catálogo de Meta (Commerce Manager) que alimenta WhatsApp/Facebook/Instagram.
+     * Mismo criterio de publicación que la tienda web (is_published + is_active + foto de portada),
+     * siempre con precio MINORISTA (nunca mayorista, para no filtrar costos de reventa).
+     */
+    public function catalogFeedMeta(): void
+    {
+        $db = Database::getInstance();
+        $rows = $db->fetchAll(
+            'SELECT p.*,
+                    COALESCE(pc.slug, c.slug) AS category_effective_slug,
+                    c.name AS category_leaf_name,
+                    pc.name AS category_parent_name,
+                    c.default_discount,
+                    c.default_markup AS category_default_markup,
+                    c.markup_override AS category_markup_override,
+                    c.markup_locked AS category_markup_locked,
+                    c.markup_minorista AS category_markup_minorista,
+                    pc.default_discount AS parent_discount,
+                    pc.default_markup AS parent_default_markup,
+                    pc.markup_override AS parent_markup_override,
+                    pc.markup_locked AS parent_markup_locked,
+                    pc.markup_minorista AS parent_markup_minorista,
+                    cov.id AS cover_image_id,
+                    cov.filename AS cover_filename,
+                    cov.alt_text AS cover_alt_text
+             FROM products p
+             JOIN categories c ON c.id = p.category_id
+             LEFT JOIN categories pc ON c.parent_id = pc.id
+             LEFT JOIN product_images cov ON cov.id = (
+                 SELECT pi.id FROM product_images pi
+                 WHERE pi.product_id = p.id AND pi.is_cover = 1
+                 ORDER BY pi.sort_order ASC, pi.id ASC LIMIT 1
+             )
+             WHERE p.is_published = 1 AND p.is_active = 1
+               AND COALESCE(pc.slug, c.slug) <> \'alimenticia\'
+               AND EXISTS (
+                   SELECT 1 FROM product_images pi2
+                   WHERE pi2.product_id = p.id AND pi2.is_cover = 1
+               )
+             ORDER BY p.sort_order ASC, p.name ASC'
+        );
+
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: inline; filename="limpia-oeste-feed-meta.csv"');
+        $out = fopen('php://output', 'w');
+        fputcsv($out, ['id', 'title', 'description', 'availability', 'condition', 'price', 'link', 'image_link', 'brand', 'identifier_exists']);
+
+        foreach ($rows as $row) {
+            $slug = trim((string) ($row['slug'] ?? ''));
+            $filename = trim((string) ($row['cover_filename'] ?? ''));
+            if ($slug === '' || $filename === '') {
+                continue;
+            }
+
+            $payload = $this->catalogProductPayload($row, true);
+            $price = (float) $payload['prices']['minorista'];
+            if ($price <= 0) {
+                continue;
+            }
+
+            $title = (string) $payload['name'];
+            if (!empty($payload['content_volume'])) {
+                $title .= ' - ' . $payload['content_volume'];
+            }
+
+            $description = $this->plainTextForFeed(
+                (string) ($payload['full_description'] ?? $payload['short_description'] ?? $payload['name'])
+            );
+
+            fputcsv($out, [
+                (string) $payload['id'],
+                $title,
+                $description,
+                'in stock',
+                'new',
+                number_format($price, 2, '.', '') . ' ARS',
+                storefrontProductUrl($slug),
+                productImageUrl((int) $row['id'], $filename),
+                'Limpia Oeste',
+                'no',
+            ]);
+        }
+        fclose($out);
+    }
+
+    /** Texto plano simple para descripciones de feed (sin markdown ni saltos de línea repetidos). */
+    private function plainTextForFeed(string $text): string
+    {
+        $text = preg_replace('/[#*_`>]+/', '', $text) ?? $text;
+        $text = preg_replace('/\s+/', ' ', $text) ?? $text;
+
+        return trim($text);
+    }
+
     public function catalogProductDetail(string $slug): void
     {
         $slug = strtolower(trim($slug));
