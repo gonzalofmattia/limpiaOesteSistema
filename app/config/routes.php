@@ -23,6 +23,7 @@ return [
     ['POST', 'catalogo/generar-descripciones/ejecutar', 'CatalogDescriptionController@execute', []],
     ['GET', 'productos', 'ProductController@index', []],
     ['GET', 'productos/crear', 'ProductController@create', []],
+    ['GET', 'productos/{id}', 'ProductController@show', []],
     ['POST', 'productos', 'ProductController@store', []],
     ['GET', 'productos/{id}/editar', 'ProductController@edit', []],
     ['POST', 'productos/{id}', 'ProductController@update', []],

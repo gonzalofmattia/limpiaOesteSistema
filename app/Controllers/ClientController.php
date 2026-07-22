@@ -528,6 +528,7 @@ final class ClientController extends Controller
                 'phone' => $phone !== '' ? $phone : null,
                 'city' => $city !== '' ? $city : null,
                 'owner_user_id' => Auth::userId(),
+                'client_type' => Auth::isReseller() ? 'minorista' : 'mayorista',
             ]);
             $client = $db->fetch('SELECT id, name, phone, city FROM clients WHERE id = ?', [(int) $id]);
             if (!$client) {
@@ -573,7 +574,7 @@ final class ClientController extends Controller
             'address' => $this->nullStr($this->input('address', '')),
             'city' => $this->nullStr($this->input('city', '')),
             'notes' => $this->nullStr($this->input('notes', '')),
-            'client_type' => $this->validateClientType((string) $this->input('client_type', 'mayorista')),
+            'client_type' => $this->validateClientType((string) $this->input('client_type', Auth::isReseller() ? 'minorista' : 'mayorista')),
             'default_markup' => $this->nullableMarkup($this->input('default_markup', '')),
             'is_active' => $this->input('is_active') ? 1 : 0,
         ];

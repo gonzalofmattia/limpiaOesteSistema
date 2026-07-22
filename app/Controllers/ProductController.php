@@ -177,6 +177,48 @@ final class ProductController extends Controller
         ]);
     }
 
+    public function show(string $id): void
+    {
+        $db = Database::getInstance();
+        $row = $db->fetch(
+            "SELECT p.*,
+                    COALESCE(pc.slug, c.slug) AS category_slug,
+                    c.name AS category_name,
+                    c.default_discount,
+                    c.default_markup AS category_default_markup,
+                    c.markup_override AS category_markup_override,
+                    c.markup_locked AS category_markup_locked,
+                    c.markup_minorista AS category_markup_minorista,
+                    pc.default_discount AS parent_discount,
+                    pc.default_markup AS parent_default_markup,
+                    pc.markup_override AS parent_markup_override,
+                    pc.markup_locked AS parent_markup_locked,
+                    pc.markup_minorista AS parent_markup_minorista,
+                    COALESCE(c.supplier_id, pc.supplier_id) AS supplier_id,
+                    s.name AS supplier_name
+             FROM products p
+             JOIN categories c ON c.id = p.category_id
+             LEFT JOIN categories pc ON c.parent_id = pc.id
+             LEFT JOIN suppliers s ON s.id = COALESCE(c.supplier_id, pc.supplier_id)
+             WHERE p.id = ?",
+            [(int) $id]
+        );
+        if (!$row) {
+            flash('error', 'Producto no encontrado.');
+            redirect('/productos');
+            return;
+        }
+
+        $field = PricingEngine::getPrimaryPriceField((string) $row['category_slug']);
+        $calc = PricingEngine::calculate($row, $field, null, false);
+
+        $this->view('products/show', [
+            'title' => (string) $row['name'],
+            'product' => $row,
+            'calc' => $calc,
+        ]);
+    }
+
     public function create(): void
     {
         $db = Database::getInstance();

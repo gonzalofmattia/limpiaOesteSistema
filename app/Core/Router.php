@@ -50,7 +50,7 @@ final class Router
                 if (!$route['public'] && empty($_SESSION['admin_user_id'])) {
                     \redirect('/login');
                 }
-                if (!empty($_SESSION['admin_user_id']) && !Auth::canAccess($route['pattern'])) {
+                if (!$route['public'] && !empty($_SESSION['admin_user_id']) && !Auth::canAccess($route['pattern'])) {
                     http_response_code(403);
                     require APP_PATH . '/Views/errors/403.php';
                     return;

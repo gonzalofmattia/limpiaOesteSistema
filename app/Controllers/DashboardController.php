@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Controller;
+use App\Helpers\Auth;
 use App\Helpers\ClientReceivableSummary;
 use App\Helpers\QuoteDeliveryStock;
 use App\Helpers\SeiqOrderBuilder;
@@ -15,8 +16,12 @@ final class DashboardController extends Controller
     public function index(): void
     {
         $db = Database::getInstance();
+        $isReseller = Auth::isReseller();
+        $ownerId = (int) Auth::userId();
+        $ownerAndBare = $isReseller ? " AND owner_user_id = {$ownerId}" : '';
+        $ownerAndQ = $isReseller ? " AND q.owner_user_id = {$ownerId}" : '';
         $accountsTable = (bool) $db->fetchColumn("SHOW TABLES LIKE 'account_transactions'");
-        $salesBaseWhere = "status IN ('accepted','delivered') AND COALESCE(sale_number,'') <> ''";
+        $salesBaseWhere = "status IN ('accepted','delivered') AND COALESCE(sale_number,'') <> ''" . $ownerAndBare;
         $billedAmountExpr = "CASE WHEN COALESCE(is_mercadolibre,0) = 1 THEN COALESCE(ml_net_amount,0) ELSE COALESCE(total,0) END";
         $today = date('Y-m-d');
 
@@ -45,30 +50,57 @@ final class DashboardController extends Controller
 
         $receivable = 0.0;
         $clientsWithDebt = 0;
-        if ($accountsTable) {
+        if ($accountsTable && !$isReseller) {
             $tolerance = (float) (setting('balance_tolerance', '800') ?? '800');
             if ($tolerance < 0) {
                 $tolerance = 0.0;
             }
             $receivable = ClientReceivableSummary::totalReceivable($db);
             $clientsWithDebt = ClientReceivableSummary::countClientsWithDebt($db, $tolerance);
+        } elseif ($accountsTable && $isReseller) {
+            $tolerance = (float) (setting('balance_tolerance', '800') ?? '800');
+            if ($tolerance < 0) {
+                $tolerance = 0.0;
+            }
+            $txAgg = ClientReceivableSummary::sqlTxAggByClientSubquery();
+            $qAgg = ClientReceivableSummary::sqlQuotesAcceptedByClientSubquery();
+            $hybrid = ClientReceivableSummary::sqlCaseHybridBalance();
+            $receivable = (float) $db->fetchColumn(
+                "SELECT COALESCE(SUM(bal), 0) FROM (
+                    SELECT c.id, ({$hybrid}) AS bal
+                    FROM clients c
+                    LEFT JOIN ({$txAgg}) tx ON tx.account_id = c.id
+                    LEFT JOIN ({$qAgg}) q ON q.client_id = c.id
+                    WHERE c.owner_user_id = {$ownerId}
+                ) z WHERE z.bal > 0"
+            );
+            $clientsWithDebt = (int) $db->fetchColumn(
+                "SELECT COUNT(*) FROM (
+                    SELECT c.id, ({$hybrid}) AS bal
+                    FROM clients c
+                    LEFT JOIN ({$txAgg}) tx ON tx.account_id = c.id
+                    LEFT JOIN ({$qAgg}) q ON q.client_id = c.id
+                    WHERE c.owner_user_id = {$ownerId}
+                ) z WHERE z.bal > ?",
+                [$tolerance]
+            );
         }
 
-        $supplierDebts = $accountsTable ? $this->fetchSupplierDebtsSameAsAccount($db) : [];
+        $supplierDebts = ($accountsTable && !$isReseller) ? $this->fetchSupplierDebtsSameAsAccount($db) : [];
 
-        $mainCostEstimated = (float) $db->fetchColumn(
+        $mainCostEstimated = Auth::effectiveCost((float) $db->fetchColumn(
             "SELECT COALESCE(SUM(qi.cost_subtotal_snapshot),0)
              FROM quote_items qi
              INNER JOIN quotes q ON q.id = qi.quote_id
-             WHERE q.status IN ('accepted','delivered') AND COALESCE(q.sale_number,'') <> ''" . str_replace('DATE(created_at)', 'DATE(q.created_at)', $periodWhere),
+             WHERE q.status IN ('accepted','delivered') AND COALESCE(q.sale_number,'') <> ''" . str_replace('DATE(created_at)', 'DATE(q.created_at)', $periodWhere) . $ownerAndQ,
             $periodParams
-        );
+        ));
         $mainCostNullCount = (int) $db->fetchColumn(
             "SELECT COUNT(*)
              FROM quote_items qi
              INNER JOIN quotes q ON q.id = qi.quote_id
              WHERE q.status IN ('accepted','delivered') AND COALESCE(q.sale_number,'') <> ''" . str_replace('DATE(created_at)', 'DATE(q.created_at)', $periodWhere) . "
-               AND qi.cost_subtotal_snapshot IS NULL",
+               AND qi.cost_subtotal_snapshot IS NULL{$ownerAndQ}",
             $periodParams
         );
         $profitEstimated = round($mainSalesAmount - $mainCostEstimated, 2);
@@ -81,22 +113,22 @@ final class DashboardController extends Controller
         }
 
         $pendingDeliveryCount = (int) $db->fetchColumn(
-            "SELECT COUNT(*) FROM quotes WHERE status = 'accepted'"
+            "SELECT COUNT(*) FROM quotes WHERE status = 'accepted'{$ownerAndBare}"
         );
         $pendingDeliveryAmount = (float) $db->fetchColumn(
-            "SELECT COALESCE(SUM({$billedAmountExpr}),0) FROM quotes WHERE status = 'accepted'"
+            "SELECT COALESCE(SUM({$billedAmountExpr}),0) FROM quotes WHERE status = 'accepted'{$ownerAndBare}"
         );
         $pendingDeliveryCountAll = (int) $db->fetchColumn(
-            "SELECT COUNT(*) FROM quotes WHERE status IN ('accepted', 'partially_delivered')"
+            "SELECT COUNT(*) FROM quotes WHERE status IN ('accepted', 'partially_delivered'){$ownerAndBare}"
         );
         $pendingDeliveryAmountAll = (float) $db->fetchColumn(
-            "SELECT COALESCE(SUM({$billedAmountExpr}),0) FROM quotes WHERE status IN ('accepted', 'partially_delivered')"
+            "SELECT COALESCE(SUM({$billedAmountExpr}),0) FROM quotes WHERE status IN ('accepted', 'partially_delivered'){$ownerAndBare}"
         );
         $pendingDeliveryPartialCount = (int) $db->fetchColumn(
-            "SELECT COUNT(*) FROM quotes WHERE status = 'partially_delivered'"
+            "SELECT COUNT(*) FROM quotes WHERE status = 'partially_delivered'{$ownerAndBare}"
         );
         $pendingDeliveryAcceptedCount = (int) $db->fetchColumn(
-            "SELECT COUNT(*) FROM quotes WHERE status = 'accepted'"
+            "SELECT COUNT(*) FROM quotes WHERE status = 'accepted'{$ownerAndBare}"
         );
 
         $partialDeliveries = $db->fetchAll(
@@ -127,7 +159,7 @@ final class DashboardController extends Controller
             LEFT JOIN combos cb ON cb.id = qi.combo_id
             LEFT JOIN combo_products cp ON cp.combo_id = qi.combo_id
             LEFT JOIN products p2 ON p2.id = cp.product_id
-            WHERE q.status = 'partially_delivered'
+            WHERE q.status = 'partially_delivered'{$ownerAndQ}
             GROUP BY q.id, q.quote_number, c.name
             ORDER BY q.updated_at ASC"
         );
@@ -193,7 +225,7 @@ final class DashboardController extends Controller
             "SELECT c.name, ROUND(SUM(CASE WHEN COALESCE(q.is_mercadolibre,0) = 1 THEN COALESCE(q.ml_net_amount,0) ELSE COALESCE(q.total,0) END),2) AS total_amount
              FROM quotes q
              INNER JOIN clients c ON c.id = q.client_id
-             WHERE {$salesBaseWhere}
+             WHERE q.status IN ('accepted','delivered') AND COALESCE(q.sale_number,'') <> ''{$ownerAndQ}
              GROUP BY c.id, c.name
              ORDER BY total_amount DESC
              LIMIT 5"
@@ -202,6 +234,7 @@ final class DashboardController extends Controller
             "SELECT q.id, q.quote_number, q.total, q.status, c.name AS client_name
              FROM quotes q
              LEFT JOIN clients c ON c.id = q.client_id
+             " . ($isReseller ? "WHERE q.owner_user_id = {$ownerId}" : '') . "
              ORDER BY q.created_at DESC
              LIMIT 5"
         );
@@ -261,13 +294,22 @@ final class DashboardController extends Controller
         $value = 0.0;
         $explain = '';
         $rows = [];
+        $isReseller = Auth::isReseller();
+        $ownerId = (int) Auth::userId();
+
+        if ($isReseller && in_array($metric, ['cobrado', 'ganancia'], true)) {
+            flash('error', 'Indicador no disponible.');
+            redirect('/');
+            return;
+        }
 
         if ($metric === 'aceptados') {
+            $ownerAndQ = $isReseller ? " AND q.owner_user_id = {$ownerId}" : '';
             $title = 'Detalle - Presupuestos aceptados';
             $value = (float) $db->fetchColumn(
                 "SELECT COALESCE(SUM(CASE WHEN COALESCE(is_mercadolibre,0) = 1 THEN COALESCE(ml_net_amount,0) ELSE COALESCE(total,0) END), 0)
                  FROM quotes
-                 WHERE status IN ('accepted', 'delivered')"
+                 WHERE status IN ('accepted', 'delivered')" . ($isReseller ? " AND owner_user_id = {$ownerId}" : '')
             );
             $explain = "Suma facturada de presupuestos accepted/delivered (en ML usa neto MP).";
             $rows = $db->fetchAll(
@@ -276,7 +318,7 @@ final class DashboardController extends Controller
                         q.status, q.created_at, c.name AS client_name
                  FROM quotes q
                  LEFT JOIN clients c ON c.id = q.client_id
-                 WHERE q.status IN ('accepted', 'delivered')
+                 WHERE q.status IN ('accepted', 'delivered'){$ownerAndQ}
                  ORDER BY q.created_at DESC
                  LIMIT 30"
             );
@@ -348,17 +390,28 @@ final class DashboardController extends Controller
             );
         } elseif ($metric === 'pendiente') {
             $title = 'Detalle - Pendiente (saldo clientes)';
-            $value = ClientReceivableSummary::totalReceivable($db);
-            $explain = 'Suma de saldos a cobrar (clientes con saldo híbrido > 0: facturas/presupuestos menos cobros y ajustes). Sin estado “parcial”.';
             $txAgg = ClientReceivableSummary::sqlTxAggByClientSubquery();
             $qAgg = ClientReceivableSummary::sqlQuotesAcceptedByClientSubquery();
             $hybrid = ClientReceivableSummary::sqlCaseHybridBalance();
+            $ownerClause = $isReseller ? " AND c.owner_user_id = {$ownerId}" : '';
+            $explain = 'Suma de saldos a cobrar (clientes con saldo híbrido > 0: facturas/presupuestos menos cobros y ajustes). Sin estado “parcial”.';
+            $value = $isReseller
+                ? (float) $db->fetchColumn(
+                    "SELECT COALESCE(SUM(bal), 0) FROM (
+                        SELECT c.id, ({$hybrid}) AS bal
+                        FROM clients c
+                        LEFT JOIN ({$txAgg}) tx ON tx.account_id = c.id
+                        LEFT JOIN ({$qAgg}) q ON q.client_id = c.id
+                        WHERE c.owner_user_id = {$ownerId}
+                    ) z WHERE z.bal > 0"
+                )
+                : ClientReceivableSummary::totalReceivable($db);
             $rows = $db->fetchAll(
                 "SELECT c.id, c.name, ROUND({$hybrid}, 2) AS balance
                  FROM clients c
                  LEFT JOIN ({$txAgg}) tx ON tx.account_id = c.id
                  LEFT JOIN ({$qAgg}) q ON q.client_id = c.id
-                 WHERE c.is_active = 1
+                 WHERE c.is_active = 1{$ownerClause}
                  HAVING balance > 0
                  ORDER BY balance DESC
                  LIMIT 30"

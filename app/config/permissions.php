@@ -13,15 +13,16 @@ declare(strict_types=1);
 return [
     'revendedor' => [
         ['method' => 'GET', 'pattern' => ''],
+        ['method' => 'GET', 'pattern' => 'logout'],
         ['method' => 'GET', 'pattern' => 'dashboard/detalle/{slug}'],
         ['method' => 'GET', 'pattern' => 'buscar'],
         ['method' => 'GET', 'pattern' => 'productos'],
+        ['method' => 'GET', 'pattern' => 'productos/{id}'],
         ['method' => '*', 'pattern' => 'listas*'],
         ['method' => '*', 'pattern' => 'clientes*'],
         ['method' => '*', 'pattern' => 'presupuestos*'],
         ['method' => 'GET', 'pattern' => 'stock-actual'],
         ['method' => 'GET', 'pattern' => 'stock-actual/reposicion'],
-        ['method' => 'GET', 'pattern' => 'stock/proyeccion'],
         ['method' => 'GET', 'pattern' => 'stock/reorder-suggestion'],
         ['method' => '*', 'pattern' => 'api/*'],
     ],

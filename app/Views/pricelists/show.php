@@ -44,8 +44,10 @@ $waMeta = [
                 <th class="text-left px-4 py-2">Categoría</th>
                 <th class="text-left px-4 py-2">Código</th>
                 <th class="text-left px-4 py-2">Producto</th>
-                <th class="text-right px-4 py-2">Lista base</th>
-                <th class="text-right px-4 py-2">Costo LO</th>
+                <?php if (\App\Helpers\Auth::isAdmin()): ?>
+                    <th class="text-right px-4 py-2">Lista base</th>
+                <?php endif; ?>
+                <th class="text-right px-4 py-2">Costo</th>
                 <th class="text-right px-4 py-2">Precio caja/bulto</th>
             </tr>
         </thead>
@@ -55,8 +57,10 @@ $waMeta = [
                     <td class="px-4 py-2 text-gray-600"><?= e($it['category_name']) ?></td>
                     <td class="px-4 py-2 font-mono text-xs"><?= e($it['code']) ?></td>
                     <td class="px-4 py-2"><?= e($it['name']) ?></td>
-                    <td class="px-4 py-2 text-right"><?= formatPrice((float) $it['precio_base_usado']) ?></td>
-                    <td class="px-4 py-2 text-right"><?= formatPrice((float) $it['costo_limpia_oeste']) ?></td>
+                    <?php if (\App\Helpers\Auth::isAdmin()): ?>
+                        <td class="px-4 py-2 text-right"><?= formatPrice((float) $it['precio_base_usado']) ?></td>
+                    <?php endif; ?>
+                    <td class="px-4 py-2 text-right"><?= formatPrice(\App\Helpers\Auth::effectiveCost((float) $it['costo_limpia_oeste'])) ?></td>
                     <td class="px-4 py-2 text-right font-medium">
                         <?= formatPrice((float) (((int) $list['include_iva'] === 1) && $it['precio_venta_iva'] ? $it['precio_venta_iva'] : $it['precio_venta'])) ?>
                     </td>

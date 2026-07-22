@@ -4,7 +4,7 @@ $action = url($isEdit ? '/clientes/' . (int) $client['id'] : '/clientes');
 $c = $client ?? [];
 $segments = is_array($segments ?? null) ? $segments : [];
 $segmentsJson = json_encode($segments, JSON_UNESCAPED_UNICODE);
-$initialType = (string) ($c['client_type'] ?? 'mayorista');
+$initialType = (string) ($c['client_type'] ?? (\App\Helpers\Auth::isReseller() ? 'minorista' : 'mayorista'));
 $initialMarkup = isset($c['default_markup']) && $c['default_markup'] !== null && $c['default_markup'] !== ''
     ? (string) $c['default_markup']
     : '';

@@ -129,8 +129,8 @@ $loggedInInitials = strtoupper(mb_substr((string) $loggedInName, 0, 2));
                     || isActive('/pedidos-proveedor') || isActive('/cuenta-corriente'),
                 'sistema' => isActive('/settings') || isActive('/sincronizacion'),
             ];
-            $navGroupOpen = static function (string $key) use ($navGroupActive): string {
-                if ($navGroupActive[$key]) {
+            $navGroupOpen = static function (string $key) use ($navGroupActive, $isReseller): string {
+                if ($navGroupActive[$key] || $isReseller) {
                     return 'true';
                 }
                 return "(localStorage.getItem('lo_nav_{$key}') ?? '1') === '1'";
@@ -162,7 +162,9 @@ $loggedInInitials = strtoupper(mb_substr((string) $loggedInName, 0, 2));
             <a href="<?= e(url('/catalogo/generar-descripciones')) ?>" class="<?= $itemBase ?> <?= isActive('/catalogo/generar-descripciones') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?> pl-6"><i data-lucide="sparkles" class="h-4 w-4"></i><span>Generar descripciones IA</span></a>
             <?php endif; ?>
             <a href="<?= e(url('/stock-actual')) ?>" class="<?= $itemBase ?> <?= isActive('/stock-actual') && !isActive('/stock/proyeccion') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="warehouse" class="h-4 w-4"></i><span>Stock actual</span></a>
+            <?php if (!$isReseller): ?>
             <a href="<?= e(url('/stock/proyeccion')) ?>" class="<?= $itemBase ?> <?= isActive('/stock/proyeccion') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?> pl-6"><i data-lucide="trending-up" class="h-4 w-4"></i><span>Proyección compra</span></a>
+            <?php endif; ?>
             <?php $navGroupEnd(); ?>
             <?php $navGroupStart('comercial', 'Comercial'); ?>
             <a href="<?= e(url('/listas')) ?>" class="<?= $itemBase ?> <?= isActive('/listas') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="list-ordered" class="h-4 w-4"></i><span>Listas de precios</span></a>

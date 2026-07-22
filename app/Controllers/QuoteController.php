@@ -73,9 +73,12 @@ final class QuoteController extends Controller
             $params[] = Auth::userId();
         }
         $whereSql = $where === [] ? '' : ('WHERE ' . implode(' AND ', $where));
+        $ownerWhere = Auth::isReseller() ? ' WHERE owner_user_id = ' . (int) Auth::userId() : '';
+        $ownerAnd = Auth::isReseller() ? ' AND owner_user_id = ' . (int) Auth::userId() : '';
         $rawStatusCounts = $db->fetchAll(
             "SELECT status, COUNT(*) AS qty
              FROM quotes
+             {$ownerWhere}
              GROUP BY status"
         );
         $statusCounts = [];
@@ -89,7 +92,7 @@ final class QuoteController extends Controller
         $rawPipeline = $db->fetchAll(
             "SELECT status, COUNT(*) AS cantidad, COALESCE(SUM(total), 0) AS monto_total
              FROM quotes
-             WHERE status NOT IN ('rejected', 'expired')
+             WHERE status NOT IN ('rejected', 'expired'){$ownerAnd}
              GROUP BY status"
         );
         $pipeline = [];
@@ -164,7 +167,9 @@ final class QuoteController extends Controller
     public function create(): void
     {
         $db = Database::getInstance();
-        $clients = $db->fetchAll('SELECT * FROM clients WHERE is_active = 1 ORDER BY name');
+        $clients = Auth::isReseller()
+            ? $db->fetchAll('SELECT * FROM clients WHERE is_active = 1 AND owner_user_id = ? ORDER BY name', [Auth::userId()])
+            : $db->fetchAll('SELECT * FROM clients WHERE is_active = 1 ORDER BY name');
         $this->view('quotes/form', [
             'title' => 'Nuevo presupuesto',
             'quote' => null,
@@ -521,7 +526,9 @@ final class QuoteController extends Controller
              WHERE qi.quote_id = ? ORDER BY qi.sort_order, qi.id',
             [(int) $id]
         );
-        $clients = $db->fetchAll('SELECT * FROM clients WHERE is_active = 1 ORDER BY name');
+        $clients = Auth::isReseller()
+            ? $db->fetchAll('SELECT * FROM clients WHERE is_active = 1 AND owner_user_id = ? ORDER BY name', [Auth::userId()])
+            : $db->fetchAll('SELECT * FROM clients WHERE is_active = 1 ORDER BY name');
         $this->view('quotes/form', [
             'title' => 'Editar presupuesto',
             'quote' => $quote,

@@ -6,12 +6,14 @@ $currentMonthIndex = count($labels) > 0 ? count($labels) - 1 : 0;
 <div class="space-y-6">
     <section class="rounded-2xl bg-gradient-to-r from-[#1a6b3c] to-[#1565C0] text-white p-6 lg:p-8">
         <p class="text-xs font-semibold uppercase tracking-widest text-white/70">Panel Comercial</p>
-        <h2 class="mt-2 text-2xl font-semibold">¡Buen día, <?= e((string) ($_SESSION['admin_username'] ?? 'admin')) ?>! 👋</h2>
+        <h2 class="mt-2 text-2xl font-semibold">¡Buen día, <?= e((string) (\App\Helpers\Auth::fullName() ?? ($_SESSION['admin_username'] ?? 'admin'))) ?>! 👋</h2>
         <p class="mt-2 text-sm text-white/80">Hoy llevás <span class="font-semibold"><?= formatPrice((float) ($salesTodayAmount ?? 0)) ?></span> en ventas. La semana acumula <span class="font-semibold"><?= formatPrice((float) ($salesWeekAmount ?? 0)) ?></span>.</p>
         <div class="mt-5 flex flex-wrap gap-2">
             <a href="<?= e(url('/presupuestos/rapido')) ?>" class="inline-flex items-center gap-2 rounded-xl bg-amber-400 px-4 py-2 text-sm font-semibold text-slate-900 shadow-sm">➕ Presupuesto rápido</a>
             <a href="<?= e(url('/presupuestos/crear')) ?>" class="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-900"><i data-lucide="plus" class="h-4 w-4"></i>Nuevo presupuesto</a>
-            <a href="<?= e(url('/productos/crear')) ?>" class="inline-flex items-center gap-2 rounded-xl border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold text-white"><i data-lucide="package" class="h-4 w-4"></i>Nuevo producto</a>
+            <?php if (\App\Helpers\Auth::isAdmin()): ?>
+                <a href="<?= e(url('/productos/crear')) ?>" class="inline-flex items-center gap-2 rounded-xl border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold text-white"><i data-lucide="package" class="h-4 w-4"></i>Nuevo producto</a>
+            <?php endif; ?>
         </div>
     </section>
 
@@ -128,7 +130,7 @@ $currentMonthIndex = count($labels) > 0 ? count($labels) - 1 : 0;
     <section class="lo-card p-4">
         <div class="flex items-center justify-between mb-3">
             <div><h3 class="text-sm font-semibold">Ventas</h3><p class="text-xs text-slate-500">Resumen del período</p></div>
-            <a href="<?= e(url('/ventas')) ?>" class="text-xs font-semibold text-lo-blue">Ver detalle</a>
+            <a href="<?= e(url(\App\Helpers\Auth::isAdmin() ? '/ventas' : '/presupuestos')) ?>" class="text-xs font-semibold text-lo-blue">Ver detalle</a>
         </div>
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <div class="rounded-xl bg-slate-50 p-4"><p class="text-xs text-slate-500">Hoy</p><p class="mt-1 text-lg font-semibold"><?= formatPrice((float) ($salesTodayAmount ?? 0)) ?></p><p class="text-[11px] text-slate-500"><?= (int) ($salesTodayCount ?? 0) ?> ventas</p></div>
@@ -151,6 +153,7 @@ $currentMonthIndex = count($labels) > 0 ? count($labels) - 1 : 0;
                 <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded bg-[#F97316]"></span>Pago proveedor</span>
             </div>
         </article>
+        <?php if (\App\Helpers\Auth::isAdmin()): ?>
         <article class="lo-card p-4 shadow-sm flex flex-col min-h-[280px]">
             <div class="flex items-center justify-between mb-3">
                 <h3 class="text-sm font-semibold text-gray-800">Saldo proveedores</h3>
@@ -176,6 +179,7 @@ $currentMonthIndex = count($labels) > 0 ? count($labels) - 1 : 0;
                 <?php endif; ?>
             </div>
         </article>
+        <?php endif; ?>
     </section>
 
     <section class="grid grid-cols-1 lg:grid-cols-2 gap-4">

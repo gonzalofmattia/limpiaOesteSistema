@@ -66,10 +66,12 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
                 </div>
                 <button type="submit" class="h-10 px-4 rounded-lg bg-gray-900 text-white text-sm">Filtrar</button>
             </form>
+            <?php if (\App\Helpers\Auth::isAdmin()): ?>
             <div class="flex flex-col sm:flex-row flex-wrap gap-2 sm:justify-end">
                 <?php $uiBtnHref = url('/productos/importar'); $uiBtnLabel = 'Importar CSV'; require APP_PATH . '/Views/layout/partials/ui-btn-outline.php'; ?>
                 <?php $uiBtnHref = url('/productos/crear'); $uiBtnLabel = 'Nuevo producto'; require APP_PATH . '/Views/layout/partials/ui-btn-primary.php'; ?>
             </div>
+            <?php endif; ?>
         </div>
         <div class="flex gap-2 overflow-x-auto pb-1 mb-2">
             <span class="px-3 h-8 rounded-full bg-slate-900 text-white inline-flex items-center text-xs font-semibold">Todos <span class="ml-1 text-[10px]"><?= (int) ($total ?? 0) ?></span></span>
@@ -89,14 +91,12 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
                         <th class="text-right px-3 py-2 whitespace-nowrap text-[10px]">Stock</th>
                         <th class="text-right px-3 py-2 whitespace-nowrap text-[10px]">Comp.</th>
                         <th class="text-right px-3 py-2 whitespace-nowrap text-[10px]">Disp.</th>
-                        <?php if (!\App\Helpers\Auth::isReseller()): ?>
+                        <?php if (\App\Helpers\Auth::isAdmin()): ?>
                             <th class="text-right px-3 py-2">Lista</th>
-                            <th class="text-right px-3 py-2 whitespace-nowrap text-[10px]">Costo LO</th>
                         <?php endif; ?>
+                        <th class="text-right px-3 py-2 whitespace-nowrap text-[10px]">Costo</th>
                         <th class="text-right px-3 py-2">Venta</th>
-                        <?php if (!\App\Helpers\Auth::isReseller()): ?>
-                            <th class="text-right px-3 py-2">Margen</th>
-                        <?php endif; ?>
+                        <th class="text-right px-3 py-2">Margen</th>
                         <th class="text-center px-3 py-2">Estado</th>
                         <th class="text-right px-3 py-2">Acciones</th>
                     </tr>
@@ -117,14 +117,16 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
                             <td class="px-3 py-2 text-right"><?= $stockTotal ?></td>
                             <td class="px-3 py-2 text-right <?= $stockCommitted > 0 ? 'text-amber-600 font-medium' : 'text-gray-500' ?>"><?= $stockCommitted ?></td>
                             <td class="px-3 py-2 text-right font-semibold <?= $stockAvailable > 0 ? 'text-green-700' : 'text-red-700' ?>"><?= $stockAvailable ?></td>
-                            <?php if (!\App\Helpers\Auth::isReseller()): ?>
+                            <?php
+                            $costoMostrado = \App\Helpers\Auth::effectiveCost((float) $calc['costo']);
+                            $margenMostrado = round((float) $calc['precio_venta'] - $costoMostrado, 2);
+                            ?>
+                            <?php if (\App\Helpers\Auth::isAdmin()): ?>
                                 <td class="px-3 py-2 text-right whitespace-nowrap"><?= formatPrice($calc['precio_lista_seiq']) ?></td>
-                                <td class="px-3 py-2 text-right whitespace-nowrap"><?= formatPrice($calc['costo']) ?></td>
                             <?php endif; ?>
+                            <td class="px-3 py-2 text-right whitespace-nowrap"><?= formatPrice($costoMostrado) ?></td>
                             <td class="px-3 py-2 text-right font-medium whitespace-nowrap"><?= formatPrice($calc['precio_venta']) ?></td>
-                            <?php if (!\App\Helpers\Auth::isReseller()): ?>
-                                <td class="px-3 py-2 text-right text-green-700 whitespace-nowrap"><?= formatPrice($calc['margen_pesos']) ?></td>
-                            <?php endif; ?>
+                            <td class="px-3 py-2 text-right text-green-700 whitespace-nowrap"><?= formatPrice($margenMostrado) ?></td>
                             <td class="px-3 py-2 text-center">
                                 <span class="inline-flex px-2 py-1 rounded-full text-xs font-medium <?= e(statusBadgeClass((int) ($p['is_active'] ?? 0) === 1 ? 'active' : 'inactive')) ?>">
                                     <?= e(statusLabel((int) ($p['is_active'] ?? 0) === 1 ? 'active' : 'inactive')) ?>
@@ -132,6 +134,10 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
                             </td>
                             <td class="px-3 py-2">
                                 <div class="flex items-center justify-end gap-2">
+                                <a href="<?= e(url('/productos/' . (int) $p['id'])) ?>" class="text-slate-600 hover:text-blue-600 transition hover:scale-105" title="Ver detalle">
+                                    <i data-lucide="eye" class="w-5 h-5 text-gray-500 hover:text-blue-600"></i>
+                                </a>
+                                <?php if (\App\Helpers\Auth::isAdmin()): ?>
                                 <a href="<?= e(url('/productos/' . (int) $p['id'] . '/editar')) ?>" class="text-blue-600 hover:text-blue-700 transition hover:scale-105" title="Editar">
                                     <i data-lucide="pencil" class="w-5 h-5 text-blue-500 hover:text-blue-700"></i>
                                 </a>
@@ -141,6 +147,7 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
                                         <i data-lucide="<?= $p['is_active'] ? 'toggle-right' : 'toggle-left' ?>" class="w-5 h-5 <?= $p['is_active'] ? 'text-green-500' : 'text-gray-400' ?>"></i>
                                     </button>
                                 </form>
+                                <?php endif; ?>
                                 </div>
                             </td>
                         </tr>

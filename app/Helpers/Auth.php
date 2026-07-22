@@ -42,6 +42,20 @@ final class Auth
     }
 
     /**
+     * Costo a mostrar/usar para el usuario actual: para revendedor, el costo real
+     * multiplicado por su cost_multiplier (nunca el costo real de proveedor/LO). Para
+     * admin, el costo real sin cambios. No modifica el cálculo de precio_venta —
+     * solo determina qué "costo" ve o usa cada uno para su propio margen.
+     */
+    public static function effectiveCost(float $realCost): float
+    {
+        if (!self::isReseller()) {
+            return $realCost;
+        }
+        return round($realCost * self::costMultiplier(), 2);
+    }
+
+    /**
      * Valida el patrón de ruta (tal como está declarado en config/routes.php) contra el
      * whitelist de app/config/permissions.php para el rol revendedor. Los admins siempre
      * tienen acceso. El método HTTP se toma de la request actual.
