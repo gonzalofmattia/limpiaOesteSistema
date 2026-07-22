@@ -121,8 +121,8 @@ final class UserController extends Controller
         if (!in_array($role, self::ROLES, true)) {
             $role = 'revendedor';
         }
-        $costMultiplierRaw = trim((string) $this->input('cost_multiplier', '1.0000'));
-        $costMultiplier = $costMultiplierRaw === '' ? 1.0 : parseAmount($costMultiplierRaw);
+        $costMultiplierRaw = trim((string) $this->input('cost_multiplier', '1.1900'));
+        $costMultiplier = $costMultiplierRaw === '' ? 1.19 : parseAmount($costMultiplierRaw);
         if ($costMultiplier < 1.0 || $costMultiplier > 2.0) {
             $errors[] = 'El multiplicador de costo debe estar entre 1.0000 y 2.0000.';
         }

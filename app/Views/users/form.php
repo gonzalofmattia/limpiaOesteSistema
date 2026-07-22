@@ -3,7 +3,7 @@ $isEdit = $user !== null;
 $action = url($isEdit ? '/usuarios/' . (int) $user['id'] : '/usuarios');
 $u = $user ?? [];
 $role = (string) ($u['role'] ?? 'revendedor');
-$costMultiplier = isset($u['cost_multiplier']) ? (string) $u['cost_multiplier'] : '1.0000';
+$costMultiplier = isset($u['cost_multiplier']) ? (string) $u['cost_multiplier'] : '1.1900';
 ?>
 <div class="max-w-lg bg-white rounded-xl border border-gray-200 shadow-sm p-6">
     <form method="post" action="<?= e($action) ?>" class="space-y-4">
@@ -18,10 +18,16 @@ $costMultiplier = isset($u['cost_multiplier']) ? (string) $u['cost_multiplier'] 
             <input type="text" name="full_name" value="<?= e((string) ($u['full_name'] ?? '')) ?>"
                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
         </div>
-        <div>
+        <div x-data="{ showPw: false }">
             <label class="block text-sm font-medium text-gray-700 mb-1"><?= $isEdit ? 'Nueva contraseña (vacío = no cambiar)' : 'Contraseña' ?></label>
-            <input type="password" name="password" autocomplete="new-password"
-                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <div class="relative">
+                <input :type="showPw ? 'text' : 'password'" name="password" autocomplete="new-password"
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2 pr-10 text-sm">
+                <button type="button" @click="showPw = !showPw" class="absolute inset-y-0 right-0 flex items-center px-3 text-gray-400 hover:text-gray-600" tabindex="-1" title="Mostrar/ocultar contraseña">
+                    <i data-lucide="eye" class="w-4 h-4" x-show="!showPw"></i>
+                    <i data-lucide="eye-off" class="w-4 h-4" x-show="showPw" x-cloak></i>
+                </button>
+            </div>
         </div>
         <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Rol</label>
