@@ -6,6 +6,7 @@ namespace App\Controllers;
 
 use App\Core\Controller;
 use App\Helpers\AnthropicConfig;
+use App\Helpers\Auth;
 use App\Helpers\ClientMarkupResolver;
 use App\Helpers\CategoryHierarchy;
 use App\Helpers\Env;
@@ -132,6 +133,7 @@ final class ApiController extends Controller
         $listaSeiq = $resolved['lista_seiq'];
         $fieldUsed = $resolved['price_field_used'];
         $calc = PricingEngine::calculateWithListaSeiq($listaSeiq, $row, $ov, $includeIva);
+        $calc = self::applyResellerCostDisplay($calc);
         $this->json([
             'unit_type' => $unitMode,
             'unit_label' => $snap['unit_label'],
@@ -279,6 +281,7 @@ final class ApiController extends Controller
 
         $includeIva = !empty($data['include_iva']);
         $calc = PricingEngine::calculate($product, $field, $ov, $includeIva);
+        $calc = self::applyResellerCostDisplay($calc);
         $this->json([
             'calc' => $calc,
             'formatted' => [
@@ -1177,5 +1180,26 @@ PROMPT;
             'products' => $products,
             'message' => $parsed['message'] ?? null,
         ];
+    }
+
+    /**
+     * Para revendedor, reemplaza costo/margen_pesos por el costo con su multiplicador
+     * (nunca el costo real de proveedor/LO) antes de exponerlos por API — evita que quede
+     * visible en la respuesta JSON aunque la UI no lo muestre.
+     *
+     * @param array<string, mixed> $calc
+     * @return array<string, mixed>
+     */
+    private static function applyResellerCostDisplay(array $calc): array
+    {
+        if (!Auth::isReseller()) {
+            return $calc;
+        }
+        $displayCosto = Auth::effectiveCost((float) ($calc['costo'] ?? 0));
+        $calc['costo'] = $displayCosto;
+        if (isset($calc['precio_venta'])) {
+            $calc['margen_pesos'] = round((float) $calc['precio_venta'] - $displayCosto, 2);
+        }
+        return $calc;
     }
 }

@@ -29,6 +29,7 @@ foreach ($items as $it) {
         'stock_committed_units' => (int) ($it['stock_committed_units'] ?? 0),
         'stock_available_units' => (int) ($it['stock_units'] ?? 0) - (int) ($it['stock_committed_units'] ?? 0),
         'unit_price' => (float) ($it['unit_price'] ?? 0),
+        'real_cost' => $isComboLine ? 0 : \App\Helpers\Auth::effectiveCost((float) ($it['cost_unit_snapshot'] ?? 0)),
         'markup_percent' => isset($it['markup_applied']) && $it['markup_applied'] !== null ? (float) $it['markup_applied'] : null,
         'markup_locked' => 0,
     ];
@@ -207,6 +208,10 @@ window.__quoteForm = {
                                     Sugerido: <span x-text="formatCurrency(line.suggested_price)"></span>
                                     <button type="button" class="text-[#1565C0] hover:underline ml-1" @click="line.unit_price = line.suggested_price; recalculateDiscountIfAuto()">usar sugerido</button>
                                 </p>
+                                <p class="text-xs text-emerald-700 mt-1" x-show="lineMarginPercent(line) !== null">
+                                    Te queda: <span x-text="lineMarginPercent(line) !== null ? lineMarginPercent(line).toFixed(1) + '%' : ''"></span>
+                                    (<span x-text="formatCurrency(lineMarginAmount(line))"></span>)
+                                </p>
                             </div>
                         </template>
                         <input type="hidden" :name="'items['+idx+'][product_id]'" :value="line.product_id">
@@ -252,6 +257,16 @@ window.__quoteForm = {
                     <p class="text-lg font-semibold text-[#1a6b3c]" x-text="formatCurrency(finalTotal())"></p>
                 </div>
             </div>
+            <template x-if="isReseller && resellerMarginRevenue() > 0">
+                <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
+                    <p class="text-sm text-emerald-900">
+                        Te queda limpio aprox.
+                        <span class="font-semibold" x-text="formatCurrency(resellerMarginAmount())"></span>
+                        (<span class="font-semibold" x-text="resellerMarginPercent().toFixed(1) + '%'"></span> de esta venta)
+                    </p>
+                    <p class="text-xs text-emerald-800/80 mt-1" x-show="hasComboLines()">No incluye las líneas de combo.</p>
+                </div>
+            </template>
             <input type="hidden" name="discount_percentage" :value="normalizedDiscountPercentage()">
             <input type="hidden" name="discount_amount" :value="normalizedDiscountAmount()">
         </div>
@@ -347,6 +362,7 @@ function quoteForm() {
                 sale_unit_default: l.sale_unit_default || 'caja',
                 unit_price: Number(l.unit_price || 0),
                 suggested_price: Number(l.unit_price || 0),
+                real_cost: Number(l.real_cost || 0),
                 markup_percent: l.markup_percent === null || l.markup_percent === undefined ? null : Number(l.markup_percent),
                 markup_locked: Number(l.markup_locked || 0),
                 units_per_box: Number(l.units_per_box || 1),
@@ -496,14 +512,14 @@ function quoteForm() {
         addLine() {
             this.lines.push({
                 combo_id: 0, product_id: 0, code: '', name: '', category_context: '', quantity: 1, unit_type: 'caja',
-                pack_label: 'Caja', sale_unit_default: 'caja', unit_price: 0, suggested_price: 0, markup_percent: null, markup_locked: 0, units_per_box: 1, stock_units: 0, stock_committed_units: 0,
+                pack_label: 'Caja', sale_unit_default: 'caja', unit_price: 0, suggested_price: 0, real_cost: 0, markup_percent: null, markup_locked: 0, units_per_box: 1, stock_units: 0, stock_committed_units: 0,
                 stock_available_units: 0, combo_products: [], stock_warnings: [], query: '', results: []
             });
         },
         addComboLine() {
             this.lines.push({
                 combo_id: 0, product_id: 0, code: '', name: '', category_context: '', quantity: 1, unit_type: 'combo',
-                pack_label: 'Combo', sale_unit_default: 'caja', unit_price: 0, suggested_price: 0, markup_percent: null, markup_locked: 0, units_per_box: 1, stock_units: 0, stock_committed_units: 0,
+                pack_label: 'Combo', sale_unit_default: 'caja', unit_price: 0, suggested_price: 0, real_cost: 0, markup_percent: null, markup_locked: 0, units_per_box: 1, stock_units: 0, stock_committed_units: 0,
                 stock_available_units: 0, combo_products: [], stock_warnings: [], query: '', results: []
             });
         },
@@ -615,6 +631,7 @@ function quoteForm() {
                 if (j && j.calc) {
                     line.unit_price = Number(this.includeIva && j.calc.precio_con_iva !== null ? j.calc.precio_con_iva : j.calc.precio_venta) || 0;
                     line.suggested_price = line.unit_price;
+                    line.real_cost = Number(j.calc.costo) || 0;
                     line.markup_percent = Number.isFinite(Number(j.calc.markup_percent)) ? Number(j.calc.markup_percent) : null;
                     line.markup_locked = j.calc.markup_locked ? 1 : 0;
                 }
@@ -677,6 +694,39 @@ function quoteForm() {
         },
         isComboLine(line) {
             return String(line.unit_type || '') === 'combo';
+        },
+        hasComboLines() {
+            return this.lines.some(line => this.isComboLine(line) && Number(line.combo_id || 0) > 0);
+        },
+        lineMarginPercent(line) {
+            const unit = Number(line.unit_price || 0);
+            const cost = Number(line.real_cost || 0);
+            if (unit <= 0 || cost <= 0) return null;
+            return ((unit - cost) / unit) * 100;
+        },
+        lineMarginAmount(line) {
+            const qty = Number(line.quantity || 0);
+            const unit = Number(line.unit_price || 0);
+            const cost = Number(line.real_cost || 0);
+            if (unit <= 0 || cost <= 0) return 0;
+            return (unit - cost) * qty;
+        },
+        resellerMarginRevenue() {
+            return this.lines.reduce((acc, line) => {
+                if (this.isComboLine(line) || Number(line.real_cost || 0) <= 0) return acc;
+                return acc + this.lineSubtotal(line);
+            }, 0);
+        },
+        resellerMarginAmount() {
+            return this.lines.reduce((acc, line) => {
+                if (this.isComboLine(line) || Number(line.real_cost || 0) <= 0) return acc;
+                return acc + this.lineMarginAmount(line);
+            }, 0);
+        },
+        resellerMarginPercent() {
+            const revenue = this.resellerMarginRevenue();
+            if (revenue <= 0) return 0;
+            return (this.resellerMarginAmount() / revenue) * 100;
         },
         subtotalDiscountable() {
             return this.lines.reduce((acc, line) => acc + (this.isComboLine(line) ? 0 : this.lineSubtotal(line)), 0);
