@@ -23,10 +23,12 @@ final class OutreachApiController extends Controller
         }
         $db = Database::getInstance();
         $result = OutreachScheduler::nextBatch($db, 5);
-        $this->logApi('next-batch', ['paused' => $result['paused'], 'count' => count($result['messages'])]);
+        $remainingCap = OutreachScheduler::remainingCapToday($db);
+        $this->logApi('next-batch', ['paused' => $result['paused'], 'count' => count($result['messages']), 'remaining_cap' => $remainingCap]);
         $this->json([
             'paused' => $result['paused'],
             'messages' => $result['messages'],
+            'remaining_cap' => $remainingCap,
             'settings' => [
                 'min_delay' => (int) (setting('outreach_min_delay_seconds', '60') ?? '60'),
                 'max_delay' => (int) (setting('outreach_max_delay_seconds', '180') ?? '180'),

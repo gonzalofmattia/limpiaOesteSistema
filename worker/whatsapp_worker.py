@@ -43,6 +43,10 @@ CHAT_LOAD_TIMEOUT = 35
 SEND_CONFIRM_TIMEOUT = 15
 CONSECUTIVE_FAILURE_PAUSE_SECONDS = 1800
 MAX_CONSECUTIVE_FAILURES = 3
+PAGE_LOAD_TIMEOUT = 45
+# Una vez agotado el cupo diario, sigue escaneando respuestas esta cantidad de
+# segundos antes de cortar del todo (nada de tocar Chrome) hasta el dia siguiente.
+POST_CAP_LISTEN_SECONDS = 3600
 
 # WhatsApp Web cambia su DOM con cierta frecuencia; si el envio empieza a fallar
 # siempre con "no se encontro el cuadro de mensaje", revisar/actualizar esto.
@@ -149,11 +153,21 @@ def build_driver(chrome_profile_path: str) -> "webdriver.Chrome":
     options.add_argument("--profile-directory=Default")
     options.add_argument("--start-maximized")
     options.add_experimental_option("excludeSwitches", ["enable-logging"])
-    return webdriver.Chrome(options=options)
+    driver = webdriver.Chrome(options=options)
+    # Sin esto, un driver.get() puede quedar colgado indefinidamente si la red
+    # se pone rara a mitad de una carga (visto en produccion: el worker seguia
+    # "vivo" pero sin loguear nada durante horas). Con el timeout, siempre
+    # termina levantando TimeoutException y el loop puede recuperarse.
+    driver.set_page_load_timeout(PAGE_LOAD_TIMEOUT)
+    return driver
 
 
 def wait_for_whatsapp_login(driver: "webdriver.Chrome") -> None:
-    driver.get("https://web.whatsapp.com")
+    try:
+        driver.get("https://web.whatsapp.com")
+    except TimeoutException:
+        log.warning("La carga inicial de WhatsApp Web tardo demasiado, reintento una vez.")
+        driver.get("https://web.whatsapp.com")
     log.info("Esperando login de WhatsApp Web (escaneá el QR la primera vez, despues queda guardado)...")
     WebDriverWait(driver, 120).until(EC.presence_of_element_located((By.XPATH, "//div[@id='pane-side']")))
     log.info("WhatsApp Web logueado.")
@@ -189,8 +203,8 @@ def scan_unread_chats(driver: "webdriver.Chrome") -> list:
     en WhatsApp (no hay forma de evitarlo desde la UI). Si un chat falla al
     procesarlo, se saltea y se loguea; nunca corta el ciclo completo.
     """
-    driver.get("https://web.whatsapp.com")
     try:
+        driver.get("https://web.whatsapp.com")
         WebDriverWait(driver, CHAT_LOAD_TIMEOUT).until(
             EC.presence_of_element_located((By.XPATH, "//div[@id='pane-side']"))
         )
@@ -305,9 +319,9 @@ def send_message(driver: "webdriver.Chrome", phone: str, body: str) -> tuple[boo
     salvo perdida de sesion de Chrome (la deja subir para que el llamador la maneje)."""
     clean_phone = phone.lstrip("+")
     url = f"https://web.whatsapp.com/send?phone={clean_phone}&text={urllib.parse.quote(body)}"
-    driver.get(url)
 
     try:
+        driver.get(url)
         WebDriverWait(driver, CHAT_LOAD_TIMEOUT).until(
             lambda d: find_message_box(d) or _is_invalid_number_page(d)
         )
@@ -415,12 +429,22 @@ def main() -> None:
 
     sent_today = 0
     current_day = date.today()
+    cap_reached_at: Optional[datetime] = None
+    stopped_for_today = False
     log.info("Worker %s arrancado. Ctrl+C para salir.", WORKER_VERSION)
 
     while True:
         if date.today() != current_day:
             current_day = date.today()
             sent_today = 0
+            cap_reached_at = None
+            stopped_for_today = False
+
+        if stopped_for_today:
+            # Ya se agoto el cupo de hoy y termino la hora de escucha extra —
+            # no se vuelve a tocar Chrome hasta que cambie el dia (arriba).
+            time.sleep(IDLE_SLEEP_SECONDS)
+            continue
 
         if not is_driver_alive(driver):
             log.warning("La sesion de Chrome no responde (¿se cerro la ventana o crasheo?). La recreo.")
@@ -456,6 +480,20 @@ def main() -> None:
             log.info("Envios en pausa global desde el panel. Durmiendo %s segundos.", IDLE_SLEEP_SECONDS)
             time.sleep(IDLE_SLEEP_SECONDS)
             continue
+
+        remaining_cap = batch.get("remaining_cap")
+        if isinstance(remaining_cap, int) and remaining_cap <= 0:
+            if cap_reached_at is None:
+                cap_reached_at = datetime.now()
+                log.info(
+                    "Cupo diario agotado. Sigo escuchando respuestas %s minutos mas y despues corto hasta mañana.",
+                    POST_CAP_LISTEN_SECONDS // 60,
+                )
+            elif (datetime.now() - cap_reached_at).total_seconds() >= POST_CAP_LISTEN_SECONDS:
+                stopped_for_today = True
+                log.info("Termine de escuchar respuestas por hoy. No vuelvo a tocar Chrome hasta mañana.")
+                time.sleep(IDLE_SLEEP_SECONDS)
+                continue
 
         messages = batch.get("messages", [])
         if not messages:
