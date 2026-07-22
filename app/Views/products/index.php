@@ -167,7 +167,9 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
             <div class="flex gap-2 overflow-x-auto pb-1">
                 <span class="px-3 h-8 rounded-full bg-slate-900 text-white inline-flex items-center text-xs font-semibold">Combos <span class="ml-1 text-[10px]"><?= count($combos ?? []) ?></span></span>
             </div>
-            <?php $uiBtnHref = url('/combos/crear'); $uiBtnLabel = 'Nuevo combo'; require APP_PATH . '/Views/layout/partials/ui-btn-primary.php'; ?>
+            <?php if (\App\Helpers\Auth::isAdmin()): ?>
+                <?php $uiBtnHref = url('/combos/crear'); $uiBtnLabel = 'Nuevo combo'; require APP_PATH . '/Views/layout/partials/ui-btn-primary.php'; ?>
+            <?php endif; ?>
         </div>
         <div class="lo-table-wrap">
             <table class="min-w-full text-sm lo-table">
@@ -202,6 +204,7 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
                             </td>
                             <td class="px-3 py-2">
                                 <div class="flex items-center justify-end gap-2">
+                                <?php if (\App\Helpers\Auth::isAdmin()): ?>
                                 <a href="<?= e(url('/combos/' . (int) $c['id'] . '/editar')) ?>" class="text-blue-600 hover:text-blue-700 transition hover:scale-105" title="Editar">
                                     <i data-lucide="pencil" class="w-5 h-5 text-blue-500 hover:text-blue-700"></i>
                                 </a>
@@ -219,6 +222,9 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
                                         <i data-lucide="trash-2" class="w-5 h-5 text-red-400 hover:text-red-600"></i>
                                     </button>
                                 </form>
+                                <?php else: ?>
+                                    <span class="text-slate-300">—</span>
+                                <?php endif; ?>
                                 </div>
                             </td>
                         </tr>

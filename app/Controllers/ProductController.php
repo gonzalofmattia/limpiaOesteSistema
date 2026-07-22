@@ -212,10 +212,31 @@ final class ProductController extends Controller
         $field = PricingEngine::getPrimaryPriceField((string) $row['category_slug']);
         $calc = PricingEngine::calculate($row, $field, null, false);
 
+        $segmentMarkups = ['mayorista' => 60.0, 'minorista' => 90.0];
+        try {
+            $segmentRows = $db->fetchAll(
+                "SELECT segment_key, default_markup FROM client_segment_config WHERE segment_key IN ('mayorista', 'minorista')"
+            );
+            foreach ($segmentRows as $sr) {
+                $key = (string) ($sr['segment_key'] ?? '');
+                if (isset($segmentMarkups[$key])) {
+                    $segmentMarkups[$key] = (float) $sr['default_markup'];
+                }
+            }
+        } catch (\Throwable) {
+            // Tabla no disponible: se mantienen los defaults de arriba.
+        }
+        $calcMayorista = PricingEngine::calculate($row, $field, $segmentMarkups['mayorista'], false);
+        $calcMinorista = PricingEngine::calculate($row, $field, $segmentMarkups['minorista'], false);
+
         $this->view('products/show', [
             'title' => (string) $row['name'],
             'product' => $row,
             'calc' => $calc,
+            'calc_mayorista' => $calcMayorista,
+            'calc_minorista' => $calcMinorista,
+            'markup_mayorista' => $segmentMarkups['mayorista'],
+            'markup_minorista' => $segmentMarkups['minorista'],
         ]);
     }
 

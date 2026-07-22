@@ -2,7 +2,10 @@
 $p = $product;
 $isAdmin = \App\Helpers\Auth::isAdmin();
 $costoMostrado = \App\Helpers\Auth::effectiveCost((float) $calc['costo']);
-$margenMostrado = round((float) $calc['precio_venta'] - $costoMostrado, 2);
+$ventaMayorista = (float) $calc_mayorista['precio_venta'];
+$ventaMinorista = (float) $calc_minorista['precio_venta'];
+$margenMayorista = round($ventaMayorista - $costoMostrado, 2);
+$margenMinorista = round($ventaMinorista - $costoMostrado, 2);
 $stockTotal = max(0, (int) ($p['stock_units'] ?? 0));
 $stockCommitted = max(0, (int) ($p['stock_committed_units'] ?? 0));
 $stockAvailable = $stockTotal - $stockCommitted;
@@ -34,13 +37,24 @@ $stockAvailable = $stockTotal - $stockCommitted;
 
     <div class="lo-card p-4">
         <p class="text-xs text-slate-500 uppercase font-semibold mb-3">Precios</p>
-        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
             <?php if ($isAdmin): ?>
                 <div><p class="text-xs text-slate-500">Lista proveedor</p><p class="text-lg font-semibold"><?= formatPrice((float) $calc['precio_lista_seiq']) ?></p></div>
             <?php endif; ?>
             <div><p class="text-xs text-slate-500">Costo</p><p class="text-lg font-semibold"><?= formatPrice($costoMostrado) ?></p></div>
-            <div><p class="text-xs text-slate-500">Venta</p><p class="text-lg font-semibold text-lo-blue"><?= formatPrice((float) $calc['precio_venta']) ?></p></div>
-            <div><p class="text-xs text-slate-500">Margen</p><p class="text-lg font-semibold text-green-700"><?= formatPrice($margenMostrado) ?></p></div>
+        </div>
+        <p class="text-xs text-slate-500 mb-2">Precio de venta sugerido por segmento — es solo punto de partida, el precio final de cada línea se define al armar el presupuesto.</p>
+        <div class="grid grid-cols-2 gap-3">
+            <div class="rounded-lg border border-slate-200 p-3">
+                <p class="text-xs text-slate-500">Minorista (<?= e(number_format((float) $markup_minorista, 0, ',', '.')) ?>%)</p>
+                <p class="text-lg font-semibold text-lo-blue"><?= formatPrice($ventaMinorista) ?></p>
+                <p class="text-xs text-green-700 mt-1">Margen: <?= formatPrice($margenMinorista) ?></p>
+            </div>
+            <div class="rounded-lg border border-slate-200 p-3">
+                <p class="text-xs text-slate-500">Mayorista (<?= e(number_format((float) $markup_mayorista, 0, ',', '.')) ?>%)</p>
+                <p class="text-lg font-semibold text-lo-blue"><?= formatPrice($ventaMayorista) ?></p>
+                <p class="text-xs text-green-700 mt-1">Margen: <?= formatPrice($margenMayorista) ?></p>
+            </div>
         </div>
     </div>
 
