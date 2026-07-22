@@ -1123,6 +1123,23 @@ final class QuoteController extends Controller
         );
     }
 
+    /**
+     * Precio unitario que el revendedor cargó a mano para esa línea (reemplaza el precio
+     * sugerido calculado por PricingEngine). Solo aplica para revendedor — un admin nunca
+     * manda este campo desde el form, y si lo mandara, se ignora.
+     */
+    private function parseResellerPriceOverride(mixed $raw): ?float
+    {
+        if (!Auth::isReseller()) {
+            return null;
+        }
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+        $value = round(parseAmount((string) $raw), 2);
+        return $value > 0 ? $value : null;
+    }
+
     /** @return array{id?:int,error:?string} */
     private function persistQuote(?int $id): array
     {
@@ -1292,6 +1309,10 @@ final class QuoteController extends Controller
                     $comboSubtotal = $combo['subtotal_override'] !== null ? (float) $combo['subtotal_override'] : round($subtotalCalc, 2);
                     $comboDiscount = (float) $combo['discount_percentage'];
                     $comboFinalUnit = round($comboSubtotal * (1 - ($comboDiscount / 100)), 2);
+                    $comboPriceOverride = $this->parseResellerPriceOverride($row['unit_price'] ?? null);
+                    if ($comboPriceOverride !== null) {
+                        $comboFinalUnit = $comboPriceOverride;
+                    }
                     $lineSub = round($comboFinalUnit * $qty, 2);
                     $lineCostUnit = round(max(0, $comboCostUnit), 2);
                     $lineCostSub = round($lineCostUnit * $qty, 2);
@@ -1363,12 +1384,25 @@ final class QuoteController extends Controller
                     ? $calcLine['precio_con_iva']
                     : $calcNet['precio_venta'];
                 $individualVenta = QuoteLinePricing::individualUnitSellingPrice($p, $slug, $customMarkup, $includeIva);
+                $netVentaForNetTotal = $calcNet['precio_venta'];
+                $unitPriceOverride = $this->parseResellerPriceOverride($row['unit_price'] ?? null);
+                if ($unitPriceOverride !== null) {
+                    $unitPrice = $unitPriceOverride;
+                    $unitsPerBox = max(1, (int) ($p['units_per_box'] ?? 1));
+                    $individualVenta = $unitMode === 'unidad' ? $unitPrice : round($unitPrice / $unitsPerBox, 2);
+                    $ivaRateForOverride = (float) (setting('iva_rate', '21') ?? 21);
+                    $netVentaForNetTotal = $includeIva ? round($unitPrice / (1 + $ivaRateForOverride / 100), 2) : $unitPrice;
+                }
                 $lineSub = round($unitPrice * $qty, 2);
                 $lineCostUnit = round((float) ($calcNet['costo'] ?? 0), 2);
                 $lineCostSub = round($lineCostUnit * $qty, 2);
-                $lineSubNet = round($calcNet['precio_venta'] * $qty, 2);
+                $lineSubNet = round($netVentaForNetTotal * $qty, 2);
                 $subtotalNetDiscountable += $lineSubNet;
                 $totalWithIvaDiscountable += $lineSub;
+                $markupApplied = $calcNet['markup_percent'];
+                if ($unitPriceOverride !== null && $lineCostUnit > 0) {
+                    $markupApplied = round((($netVentaForNetTotal / $lineCostUnit) - 1) * 100, 2);
+                }
                 $productItemData = [
                     'quantity' => $qty,
                     'unit_type' => $unitMode,
@@ -1379,7 +1413,7 @@ final class QuoteController extends Controller
                     'subtotal' => $lineSub,
                     'price_field_used' => $resolved['price_field_used'],
                     'discount_applied' => $calcNet['discount_percent'],
-                    'markup_applied' => $calcNet['markup_percent'],
+                    'markup_applied' => $markupApplied,
                     'cost_unit_snapshot' => $lineCostUnit,
                     'cost_subtotal_snapshot' => $lineCostSub,
                     'sort_order' => $sort++,

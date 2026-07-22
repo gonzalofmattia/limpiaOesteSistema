@@ -89,6 +89,7 @@ $clientFormCfg = json_encode([
             <textarea name="notes" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"><?= e($c['notes'] ?? '') ?></textarea>
         </div>
         <div class="grid sm:grid-cols-2 gap-4">
+            <?php if (\App\Helpers\Auth::isAdmin()): ?>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Segmento</label>
                 <select name="client_type" x-model="clientType"
@@ -109,6 +110,9 @@ $clientFormCfg = json_encode([
                     <span class="font-semibold" x-text="segmentMarkup() + '%'"></span>
                 </p>
             </div>
+            <?php else: ?>
+                <input type="hidden" name="client_type" value="minorista">
+            <?php endif; ?>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Markup individual (%)</label>
                 <input type="number" name="default_markup" step="0.01" min="0" max="500"
@@ -116,11 +120,14 @@ $clientFormCfg = json_encode([
                        :placeholder="'Dejar vacío para usar ' + segmentMarkup() + '%'"
                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
                 <p class="text-xs mt-1">
-                    <span class="text-gray-500">Markup efectivo: </span>
+                    <span class="text-gray-500">Markup sugerido: </span>
                     <span class="font-semibold text-gray-800" x-text="effectiveMarkup() + '%'"></span>
                     <span x-show="String(customMarkup || '').trim() !== ''" class="text-yellow-700">(override individual)</span>
-                    <span x-show="String(customMarkup || '').trim() === ''" class="text-green-700">(del segmento)</span>
+                    <span x-show="String(customMarkup || '').trim() === ''" class="text-green-700">(<?= \App\Helpers\Auth::isAdmin() ? 'del segmento' : 'default' ?>)</span>
                 </p>
+                <?php if (\App\Helpers\Auth::isReseller()): ?>
+                    <p class="text-xs text-gray-500 mt-1">Es solo el punto de partida — el precio final de cada línea lo definís vos al armar el presupuesto.</p>
+                <?php endif; ?>
             </div>
         </div>
         <label class="inline-flex items-center gap-2 text-sm">

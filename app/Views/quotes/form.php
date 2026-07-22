@@ -41,6 +41,7 @@ window.__quoteForm = {
     lines: <?= $linesJson ?: '[]' ?>,
     clients: <?= $clientsJson ?>,
     selectedClientId: <?= (int) ($q['client_id'] ?? 0) ?>,
+    isReseller: <?= \App\Helpers\Auth::isReseller() ? 'true' : 'false' ?>,
     csrf: <?= json_encode(csrfToken(), JSON_UNESCAPED_UNICODE) ?>,
     customMarkup: <?= json_encode(isset($q['custom_markup']) && $q['custom_markup'] !== null && $q['custom_markup'] !== '' ? (string) $q['custom_markup'] : '', JSON_UNESCAPED_UNICODE) ?>,
     includeIva: <?= !empty($q['include_iva']) ? 'true' : 'false' ?>,
@@ -170,9 +171,9 @@ window.__quoteForm = {
                                     <option value="caja" x-text="line.pack_label || 'Presentación'"></option>
                                     <option value="unidad">Unidad</option>
                                 </select>
-                                <p class="text-base font-semibold text-gray-900 shrink-0 md:hidden" x-text="formatCurrency(line.unit_price)"></p>
+                                <p class="text-base font-semibold text-gray-900 shrink-0 md:hidden" x-show="!isReseller" x-text="formatCurrency(line.unit_price)"></p>
                             </div>
-                            <p class="hidden md:block text-xs text-gray-500 mt-1" x-show="line.product_id">Precio unit.: <span class="font-medium text-gray-800" x-text="formatCurrency(line.unit_price)"></span></p>
+                            <p class="hidden md:block text-xs text-gray-500 mt-1" x-show="!isReseller && line.product_id">Precio unit.: <span class="font-medium text-gray-800" x-text="formatCurrency(line.unit_price)"></span></p>
                         </div>
                         <div class="hidden md:block w-full md:col-span-3" x-show="line.unit_type === 'combo'">
                             <label class="block text-xs text-gray-500 mb-1">Tipo</label>
@@ -194,10 +195,25 @@ window.__quoteForm = {
                         <div class="w-full md:col-span-2 flex md:justify-end pt-1 md:pt-0">
                             <button type="button" class="min-h-11 w-full md:w-auto px-4 rounded-lg border border-red-100 md:border-0 text-red-600 text-sm font-semibold hover:bg-red-50" @click="remove(idx)">Quitar ítem</button>
                         </div>
+                        <template x-if="isReseller">
+                            <div class="w-full md:col-span-12 border-t border-gray-100 pt-3" x-show="line.product_id || line.combo_id">
+                                <label class="block text-xs text-gray-500 mb-1">Precio de venta (por <span x-text="line.unit_type === 'unidad' ? 'unidad' : (line.unit_type === 'combo' ? 'combo' : 'caja')"></span>)</label>
+                                <div class="flex items-center gap-2 max-w-xs">
+                                    <span class="text-gray-500">$</span>
+                                    <input type="number" min="0" step="0.01" x-model.number="line.unit_price" @input="recalculateDiscountIfAuto()"
+                                           class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-base md:text-sm min-h-11">
+                                </div>
+                                <p class="text-xs text-gray-500 mt-1" x-show="line.suggested_price">
+                                    Sugerido: <span x-text="formatCurrency(line.suggested_price)"></span>
+                                    <button type="button" class="text-[#1565C0] hover:underline ml-1" @click="line.unit_price = line.suggested_price; recalculateDiscountIfAuto()">usar sugerido</button>
+                                </p>
+                            </div>
+                        </template>
                         <input type="hidden" :name="'items['+idx+'][product_id]'" :value="line.product_id">
                         <input type="hidden" :name="'items['+idx+'][combo_id]'" :value="line.combo_id">
                         <input type="hidden" :name="'items['+idx+'][quantity]'" :value="line.quantity">
                         <input type="hidden" :name="'items['+idx+'][unit_type]'" :value="line.unit_type">
+                        <input type="hidden" :name="'items['+idx+'][unit_price]'" :value="line.unit_price">
                         <div class="w-full md:col-span-12" x-show="line.stock_warnings && line.stock_warnings.length">
                             <div class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                                 <template x-for="(warn, widx) in line.stock_warnings" :key="widx">
@@ -305,6 +321,7 @@ function quoteForm() {
         clients: [],
         selectedClientId: '',
         isEdit: false,
+        isReseller: false,
         clientMarkupInfo: '',
         customMarkup: '',
         includeIva: false,
@@ -329,6 +346,7 @@ function quoteForm() {
                 pack_label: l.pack_label || 'Caja',
                 sale_unit_default: l.sale_unit_default || 'caja',
                 unit_price: Number(l.unit_price || 0),
+                suggested_price: Number(l.unit_price || 0),
                 markup_percent: l.markup_percent === null || l.markup_percent === undefined ? null : Number(l.markup_percent),
                 markup_locked: Number(l.markup_locked || 0),
                 units_per_box: Number(l.units_per_box || 1),
@@ -342,6 +360,7 @@ function quoteForm() {
             }));
             this.customMarkup = cfg.customMarkup || '';
             this.isEdit = !!cfg.isEdit;
+            this.isReseller = !!cfg.isReseller;
             this.includeIva = !!cfg.includeIva;
             this.discountPercentage = cfg.discountPercentage || '';
             this.discountAmount = cfg.discountAmount || '';
@@ -477,14 +496,14 @@ function quoteForm() {
         addLine() {
             this.lines.push({
                 combo_id: 0, product_id: 0, code: '', name: '', category_context: '', quantity: 1, unit_type: 'caja',
-                pack_label: 'Caja', sale_unit_default: 'caja', unit_price: 0, markup_percent: null, markup_locked: 0, units_per_box: 1, stock_units: 0, stock_committed_units: 0,
+                pack_label: 'Caja', sale_unit_default: 'caja', unit_price: 0, suggested_price: 0, markup_percent: null, markup_locked: 0, units_per_box: 1, stock_units: 0, stock_committed_units: 0,
                 stock_available_units: 0, combo_products: [], stock_warnings: [], query: '', results: []
             });
         },
         addComboLine() {
             this.lines.push({
                 combo_id: 0, product_id: 0, code: '', name: '', category_context: '', quantity: 1, unit_type: 'combo',
-                pack_label: 'Combo', sale_unit_default: 'caja', unit_price: 0, markup_percent: null, markup_locked: 0, units_per_box: 1, stock_units: 0, stock_committed_units: 0,
+                pack_label: 'Combo', sale_unit_default: 'caja', unit_price: 0, suggested_price: 0, markup_percent: null, markup_locked: 0, units_per_box: 1, stock_units: 0, stock_committed_units: 0,
                 stock_available_units: 0, combo_products: [], stock_warnings: [], query: '', results: []
             });
         },
@@ -511,6 +530,7 @@ function quoteForm() {
             line.product_id = 0;
             line.name = combo.name || '';
             line.unit_price = Number(combo.final_price || 0);
+            line.suggested_price = line.unit_price;
                 line.markup_percent = null;
                 line.markup_locked = 0;
             line.pack_label = 'Combo';
@@ -594,6 +614,7 @@ function quoteForm() {
                 const j = await res.json();
                 if (j && j.calc) {
                     line.unit_price = Number(this.includeIva && j.calc.precio_con_iva !== null ? j.calc.precio_con_iva : j.calc.precio_venta) || 0;
+                    line.suggested_price = line.unit_price;
                     line.markup_percent = Number.isFinite(Number(j.calc.markup_percent)) ? Number(j.calc.markup_percent) : null;
                     line.markup_locked = j.calc.markup_locked ? 1 : 0;
                 }
