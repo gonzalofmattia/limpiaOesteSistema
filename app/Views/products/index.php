@@ -89,10 +89,14 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
                         <th class="text-right px-3 py-2 whitespace-nowrap text-[10px]">Stock</th>
                         <th class="text-right px-3 py-2 whitespace-nowrap text-[10px]">Comp.</th>
                         <th class="text-right px-3 py-2 whitespace-nowrap text-[10px]">Disp.</th>
-                        <th class="text-right px-3 py-2">Lista</th>
-                        <th class="text-right px-3 py-2 whitespace-nowrap text-[10px]">Costo LO</th>
+                        <?php if (!\App\Helpers\Auth::isReseller()): ?>
+                            <th class="text-right px-3 py-2">Lista</th>
+                            <th class="text-right px-3 py-2 whitespace-nowrap text-[10px]">Costo LO</th>
+                        <?php endif; ?>
                         <th class="text-right px-3 py-2">Venta</th>
-                        <th class="text-right px-3 py-2">Margen</th>
+                        <?php if (!\App\Helpers\Auth::isReseller()): ?>
+                            <th class="text-right px-3 py-2">Margen</th>
+                        <?php endif; ?>
                         <th class="text-center px-3 py-2">Estado</th>
                         <th class="text-right px-3 py-2">Acciones</th>
                     </tr>
@@ -113,10 +117,14 @@ if (!in_array($activeTab, ['productos', 'combos'], true)) {
                             <td class="px-3 py-2 text-right"><?= $stockTotal ?></td>
                             <td class="px-3 py-2 text-right <?= $stockCommitted > 0 ? 'text-amber-600 font-medium' : 'text-gray-500' ?>"><?= $stockCommitted ?></td>
                             <td class="px-3 py-2 text-right font-semibold <?= $stockAvailable > 0 ? 'text-green-700' : 'text-red-700' ?>"><?= $stockAvailable ?></td>
-                            <td class="px-3 py-2 text-right whitespace-nowrap"><?= formatPrice($calc['precio_lista_seiq']) ?></td>
-                            <td class="px-3 py-2 text-right whitespace-nowrap"><?= formatPrice($calc['costo']) ?></td>
+                            <?php if (!\App\Helpers\Auth::isReseller()): ?>
+                                <td class="px-3 py-2 text-right whitespace-nowrap"><?= formatPrice($calc['precio_lista_seiq']) ?></td>
+                                <td class="px-3 py-2 text-right whitespace-nowrap"><?= formatPrice($calc['costo']) ?></td>
+                            <?php endif; ?>
                             <td class="px-3 py-2 text-right font-medium whitespace-nowrap"><?= formatPrice($calc['precio_venta']) ?></td>
-                            <td class="px-3 py-2 text-right text-green-700 whitespace-nowrap"><?= formatPrice($calc['margen_pesos']) ?></td>
+                            <?php if (!\App\Helpers\Auth::isReseller()): ?>
+                                <td class="px-3 py-2 text-right text-green-700 whitespace-nowrap"><?= formatPrice($calc['margen_pesos']) ?></td>
+                            <?php endif; ?>
                             <td class="px-3 py-2 text-center">
                                 <span class="inline-flex px-2 py-1 rounded-full text-xs font-medium <?= e(statusBadgeClass((int) ($p['is_active'] ?? 0) === 1 ? 'active' : 'inactive')) ?>">
                                     <?= e(statusLabel((int) ($p['is_active'] ?? 0) === 1 ? 'active' : 'inactive')) ?>

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Controller;
+use App\Helpers\Auth;
 use App\Helpers\ClientReceivableSummary;
 use App\Helpers\PricingEngine;
 use App\Helpers\QuoteDeliveryStock;
@@ -67,6 +68,10 @@ final class QuoteController extends Controller
             $params[] = '%' . $search . '%';
             $params[] = '%' . $search . '%';
         }
+        if (Auth::isReseller()) {
+            $where[] = 'q.owner_user_id = ?';
+            $params[] = Auth::userId();
+        }
         $whereSql = $where === [] ? '' : ('WHERE ' . implode(' AND ', $where));
         $rawStatusCounts = $db->fetchAll(
             "SELECT status, COUNT(*) AS qty
@@ -118,10 +123,11 @@ final class QuoteController extends Controller
         $offset = ($page - 1) * $perPage;
         if ($hasAttach) {
             $rows = $db->fetchAll(
-                'SELECT q.*, c.name AS client_name,
+                'SELECT q.*, c.name AS client_name, au.full_name AS owner_full_name, au.username AS owner_username,
                         (SELECT COUNT(*) FROM quote_attachments qa WHERE qa.quote_id = q.id) AS attachments_count
                  FROM quotes q
                  LEFT JOIN clients c ON c.id = q.client_id
+                 LEFT JOIN admin_users au ON au.id = q.owner_user_id
                  ' . $whereSql . '
                  ORDER BY ' . $orderBySql . '
                  LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
@@ -129,9 +135,10 @@ final class QuoteController extends Controller
             );
         } else {
             $rows = $db->fetchAll(
-                'SELECT q.*, c.name AS client_name, 0 AS attachments_count
+                'SELECT q.*, c.name AS client_name, au.full_name AS owner_full_name, au.username AS owner_username, 0 AS attachments_count
                  FROM quotes q
                  LEFT JOIN clients c ON c.id = q.client_id
+                 LEFT JOIN admin_users au ON au.id = q.owner_user_id
                  ' . $whereSql . '
                  ORDER BY ' . $orderBySql . '
                  LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
@@ -1144,6 +1151,7 @@ final class QuoteController extends Controller
                 $id = $db->insert('quotes', [
                     'quote_number' => $number,
                     'client_id' => $clientId,
+                    'owner_user_id' => Auth::userId(),
                     'title' => $title ?: null,
                     'notes' => $notes ?: null,
                     'validity_days' => $validity,

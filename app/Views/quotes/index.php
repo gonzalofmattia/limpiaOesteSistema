@@ -177,6 +177,9 @@ $loFilterQuotesActive = $currentStatus !== '' || trim((string) ($search ?? '')) 
                         Estado <span class="text-xs"><?= e($sortArrow('status', $currentSort, $currentDir) !== '' ? $sortArrow('status', $currentSort, $currentDir) : '↕') ?></span>
                     </a>
                 </th>
+                <?php if (\App\Helpers\Auth::isAdmin()): ?>
+                    <th class="text-left px-4 py-3">Vendedor</th>
+                <?php endif; ?>
                 <th class="text-right px-4 py-3">Acciones</th>
             </tr>
         </thead>
@@ -204,6 +207,9 @@ $loFilterQuotesActive = $currentStatus !== '' || trim((string) ($search ?? '')) 
                         <?php $status = (string) ($q['status'] ?? ''); ?>
                         <?php include APP_PATH . '/Views/components/status_badge.php'; ?>
                     </td>
+                    <?php if (\App\Helpers\Auth::isAdmin()): ?>
+                        <td class="px-4 py-3 text-slate-600"><?= e((string) ($q['owner_full_name'] ?? $q['owner_username'] ?? '—')) ?></td>
+                    <?php endif; ?>
                     <td class="px-4 py-3">
                         <div class="flex items-center justify-end gap-2">
                         <a href="<?= e(url('/presupuestos/' . (int) $q['id'])) ?>" class="text-slate-600 hover:text-blue-600 transition hover:scale-105" title="Ver detalle">

@@ -46,10 +46,19 @@ final class AuthController extends Controller
             redirect('/login');
         }
 
-        $row = $db->fetch('SELECT id, password_hash FROM admin_users WHERE username = ?', [$user]);
+        $row = $db->fetch(
+            'SELECT id, password_hash, role, cost_multiplier, full_name, is_active FROM admin_users WHERE username = ?',
+            [$user]
+        );
         if (!$row || !password_verify($pass, $row['password_hash'])) {
             $db->query('INSERT INTO login_attempts (ip_address) VALUES (?)', [$ip]);
             flash('error', 'Credenciales incorrectas.');
+            redirect('/login');
+        }
+
+        if ((int) ($row['is_active'] ?? 1) === 0) {
+            $db->query('INSERT INTO login_attempts (ip_address) VALUES (?)', [$ip]);
+            flash('error', 'Usuario deshabilitado. Contactá al administrador.');
             redirect('/login');
         }
 
@@ -57,13 +66,24 @@ final class AuthController extends Controller
         session_regenerate_id(true);
         $_SESSION['admin_user_id'] = (int) $row['id'];
         $_SESSION['admin_username'] = $user;
+        $_SESSION['admin_role'] = (string) ($row['role'] ?? 'admin');
+        $_SESSION['cost_multiplier'] = (float) ($row['cost_multiplier'] ?? 1.0);
+        $_SESSION['admin_full_name'] = $row['full_name'] !== null && $row['full_name'] !== ''
+            ? (string) $row['full_name']
+            : $user;
         $db->query('UPDATE admin_users SET last_login = NOW() WHERE id = ?', [(int) $row['id']]);
         redirect('/');
     }
 
     public function logout(): void
     {
-        unset($_SESSION['admin_user_id'], $_SESSION['admin_username']);
+        unset(
+            $_SESSION['admin_user_id'],
+            $_SESSION['admin_username'],
+            $_SESSION['admin_role'],
+            $_SESSION['cost_multiplier'],
+            $_SESSION['admin_full_name']
+        );
         flash('success', 'Sesión cerrada.');
         redirect('/login');
     }

@@ -32,6 +32,9 @@ $expiredLists = count(array_filter($lists ?? [], fn($l) => (string) ($l['status'
                 <th class="text-left px-4 py-3">Fecha</th>
                 <th class="text-right px-4 py-3">Markup</th>
                 <th class="text-center px-4 py-3">Estado</th>
+                <?php if (\App\Helpers\Auth::isAdmin()): ?>
+                    <th class="text-left px-4 py-3">Vendedor</th>
+                <?php endif; ?>
                 <th class="text-right px-4 py-3">Acciones</th>
             </tr>
         </thead>
@@ -45,6 +48,9 @@ $expiredLists = count(array_filter($lists ?? [], fn($l) => (string) ($l['status'
                         <?php $st = (string) ($l['status'] ?? ''); ?>
                         <span class="inline-flex px-2 py-1 rounded-full text-xs font-medium <?= e(statusBadgeClass($st)) ?>"><?= e(statusLabel($st)) ?></span>
                     </td>
+                    <?php if (\App\Helpers\Auth::isAdmin()): ?>
+                        <td class="px-4 py-3 text-slate-600"><?= e((string) ($l['owner_full_name'] ?? $l['owner_username'] ?? '—')) ?></td>
+                    <?php endif; ?>
                     <td class="px-4 py-3">
                         <div class="flex items-center justify-end gap-2">
                         <a href="<?= e(url('/listas/' . (int) $l['id'])) ?>" class="text-slate-600 hover:text-blue-600 transition hover:scale-105" title="Ver detalle">

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Controller;
+use App\Helpers\Auth;
 use App\Helpers\ClientMarkupResolver;
 use App\Helpers\ClientReceivableSummary;
 use App\Models\Database;
@@ -35,15 +36,20 @@ final class ClientController extends Controller
             $where[] = '(c.name LIKE :search OR c.business_name LIKE :search OR c.email LIKE :search OR c.phone LIKE :search OR c.city LIKE :search)';
             $params['search'] = '%' . $search . '%';
         }
+        if (Auth::isReseller()) {
+            $where[] = 'c.owner_user_id = :owner_user_id';
+            $params['owner_user_id'] = Auth::userId();
+        }
         $whereSql = $where === [] ? '' : ('WHERE ' . implode(' AND ', $where));
 
         $lastQuoteSub = "(SELECT MAX(q2.created_at) FROM quotes q2 WHERE q2.client_id = c.id AND q2.status IN ('accepted', 'delivered')) AS last_quote_at";
-        $listSelect = "c.id, c.name, c.email, c.business_name, c.balance, {$lastQuoteSub}";
+        $listSelect = "c.id, c.name, c.email, c.business_name, c.balance, {$lastQuoteSub}, au.full_name AS owner_full_name, au.username AS owner_username";
         if ($hasSegmentSupport) {
             $listSelect .= ", c.client_type, c.default_markup, csc.segment_label, csc.default_markup AS segment_default_markup";
         } else {
             $listSelect .= ", 'mayorista' AS client_type, NULL AS default_markup, NULL AS segment_label, NULL AS segment_default_markup";
         }
+        $ownerJoin = 'LEFT JOIN admin_users au ON au.id = c.owner_user_id';
         $stats = ['total' => 0, 'with_debt' => 0, 'with_favor' => 0, 'sum_balance' => 0.0];
         $rows = [];
         $total = 0;
@@ -60,6 +66,7 @@ final class ClientController extends Controller
                     : '';
                 $fromJoins = "FROM clients c
                      {$segmentJoin}
+                     {$ownerJoin}
                      LEFT JOIN ({$txAgg}) tx ON tx.account_id = c.id
                      LEFT JOIN ({$qAgg}) q ON q.client_id = c.id
                      {$whereSql}";
@@ -171,6 +178,7 @@ final class ClientController extends Controller
                     "SELECT {$listSelect}
                      FROM clients c
                      {$segmentJoin}
+                     {$ownerJoin}
                      {$debtClause}
                      ORDER BY c.name
                      LIMIT {$perPage} OFFSET {$offset}",
@@ -198,6 +206,7 @@ final class ClientController extends Controller
                 "SELECT {$listSelect}
                  FROM clients c
                  {$segmentJoin}
+                 {$ownerJoin}
                  {$debtClause}
                  ORDER BY c.name
                  LIMIT {$perPage} OFFSET {$offset}",
@@ -380,6 +389,7 @@ final class ClientController extends Controller
             redirect('/clientes/crear');
         }
         unset($data['errors']);
+        $data['owner_user_id'] = Auth::userId();
         Database::getInstance()->insert('clients', $data);
         flash('success', 'Cliente creado.');
         redirect('/clientes');
@@ -517,6 +527,7 @@ final class ClientController extends Controller
                 'name' => $name,
                 'phone' => $phone !== '' ? $phone : null,
                 'city' => $city !== '' ? $city : null,
+                'owner_user_id' => Auth::userId(),
             ]);
             $client = $db->fetch('SELECT id, name, phone, city FROM clients WHERE id = ?', [(int) $id]);
             if (!$client) {

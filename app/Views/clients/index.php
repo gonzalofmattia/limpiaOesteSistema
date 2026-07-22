@@ -78,6 +78,9 @@ $loFilterClientsActive = $withDebt || $withFavor || trim((string) ($search ?? ''
             <tr>
                 <th class="text-left px-4 py-3">Nombre</th>
                 <th class="text-left px-4 py-3">Segmento</th>
+                <?php if (\App\Helpers\Auth::isAdmin()): ?>
+                    <th class="text-left px-4 py-3">Vendedor</th>
+                <?php endif; ?>
                 <th class="text-right px-4 py-3">Saldo</th>
                 <th class="text-left px-4 py-3">Última</th>
                 <th class="text-right px-4 py-3">Acciones</th>
@@ -122,6 +125,9 @@ $loFilterClientsActive = $withDebt || $withFavor || trim((string) ($search ?? ''
                             <?= e($segmentLabel) ?> (<?= e(number_format($segmentMarkup, 2, ',', '.')) ?>%)
                         </span>
                     </td>
+                    <?php if (\App\Helpers\Auth::isAdmin()): ?>
+                        <td class="px-4 py-3 text-slate-600"><?= e((string) ($c['owner_full_name'] ?? $c['owner_username'] ?? '—')) ?></td>
+                    <?php endif; ?>
                     <td class="px-4 py-3 text-right">
                         <?php if (($display['status'] ?? '') === 'al_dia'): ?>
                             <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700" title="<?= e((string) ($display['detail'] ?? '')) ?>">Al día</span>

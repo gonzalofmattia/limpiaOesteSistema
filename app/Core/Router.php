@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Core;
 
+use App\Helpers\Auth;
+
 final class Router
 {
     /** @var list<array{method:string,pattern:string,handler:array{0:class-string,1:string},public:bool}> */
@@ -47,6 +49,11 @@ final class Router
                 $paramValues = $this->orderedParams($route['pattern'], $matches);
                 if (!$route['public'] && empty($_SESSION['admin_user_id'])) {
                     \redirect('/login');
+                }
+                if (!empty($_SESSION['admin_user_id']) && !Auth::canAccess($route['pattern'])) {
+                    http_response_code(403);
+                    require APP_PATH . '/Views/errors/403.php';
+                    return;
                 }
                 [$class, $action] = $route['handler'];
                 $controller = new $class();

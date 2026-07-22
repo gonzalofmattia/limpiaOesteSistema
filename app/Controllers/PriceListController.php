@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Controller;
+use App\Helpers\Auth;
 use App\Helpers\CategoryHierarchy;
 use App\Helpers\PricingEngine;
 use App\Helpers\QuoteLinePricing;
@@ -51,20 +52,29 @@ final class PriceListController extends Controller
         $perPage = (int) $this->query('per_page', 20);
         $perPage = $perPage > 0 ? min($perPage, 100) : 20;
         $search = trim((string) $this->query('search', ''));
-        $where = '';
+        $where = [];
         $params = [];
         if ($search !== '') {
-            $where = 'WHERE name LIKE ?';
+            $where[] = 'pl.name LIKE ?';
             $params[] = '%' . $search . '%';
         }
-        $total = (int) $db->fetchColumn("SELECT COUNT(*) FROM price_lists {$where}", $params);
+        if (Auth::isReseller()) {
+            $where[] = 'pl.owner_user_id = ?';
+            $params[] = Auth::userId();
+        }
+        $whereSql = $where === [] ? '' : ('WHERE ' . implode(' AND ', $where));
+        $total = (int) $db->fetchColumn("SELECT COUNT(*) FROM price_lists pl {$whereSql}", $params);
         $totalPages = max(1, (int) ceil($total / $perPage));
         if ($page > $totalPages) {
             $page = $totalPages;
         }
         $offset = ($page - 1) * $perPage;
         $rows = $db->fetchAll(
-            "SELECT * FROM price_lists {$where} ORDER BY created_at DESC LIMIT {$perPage} OFFSET {$offset}",
+            "SELECT pl.*, au.full_name AS owner_full_name, au.username AS owner_username
+             FROM price_lists pl
+             LEFT JOIN admin_users au ON au.id = pl.owner_user_id
+             {$whereSql}
+             ORDER BY pl.created_at DESC LIMIT {$perPage} OFFSET {$offset}",
             $params
         );
         $this->view('pricelists/index', [
@@ -148,6 +158,7 @@ final class PriceListController extends Controller
         $catFilter = json_encode($filterPayload, JSON_THROW_ON_ERROR);
         $listId = $db->insert('price_lists', [
             'name' => $bundle['name'],
+            'owner_user_id' => Auth::userId(),
             'description' => $bundle['description'] ?: null,
             'custom_markup' => $bundle['markup'],
             'include_iva' => ((int) ($bundle['include_iva'] ?? 0) === 1) ? 1 : 0,

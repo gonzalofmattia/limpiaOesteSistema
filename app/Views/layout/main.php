@@ -100,6 +100,9 @@ try {
     $mlActiveListingsCount = 0;
 }
 $outreachInboxCount = \App\Controllers\InboxController::pendingCount();
+$isReseller = \App\Helpers\Auth::isReseller();
+$loggedInName = \App\Helpers\Auth::fullName() ?? ($_SESSION['admin_username'] ?? 'Usuario');
+$loggedInInitials = strtoupper(mb_substr((string) $loggedInName, 0, 2));
 ?>
 <div class="min-h-screen lg:flex">
     <aside class="fixed lg:static inset-y-0 left-0 z-40 w-[220px] bg-white border-r border-lo-border flex flex-col transition-transform duration-200"
@@ -150,10 +153,14 @@ $outreachInboxCount = \App\Controllers\InboxController::pendingCount();
             </a>
             <?php $navGroupEnd(); ?>
             <?php $navGroupStart('catalogo', 'Catálogo'); ?>
+            <?php if (!$isReseller): ?>
             <a href="<?= e(url('/categorias')) ?>" class="<?= $itemBase ?> <?= isActive('/categorias') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="tags" class="h-4 w-4"></i><span>Categorías</span></a>
+            <?php endif; ?>
             <a href="<?= e(url('/productos')) ?>" class="<?= $itemBase ?> <?= isActive('/productos') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="package" class="h-4 w-4"></i><span>Productos</span></a>
+            <?php if (!$isReseller): ?>
             <a href="<?= e(url('/catalogo-visual')) ?>" class="<?= $itemBase ?> <?= isActive('/catalogo-visual') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?> pl-6"><i data-lucide="layout-grid" class="h-4 w-4"></i><span>Vista visual</span></a>
             <a href="<?= e(url('/catalogo/generar-descripciones')) ?>" class="<?= $itemBase ?> <?= isActive('/catalogo/generar-descripciones') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?> pl-6"><i data-lucide="sparkles" class="h-4 w-4"></i><span>Generar descripciones IA</span></a>
+            <?php endif; ?>
             <a href="<?= e(url('/stock-actual')) ?>" class="<?= $itemBase ?> <?= isActive('/stock-actual') && !isActive('/stock/proyeccion') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="warehouse" class="h-4 w-4"></i><span>Stock actual</span></a>
             <a href="<?= e(url('/stock/proyeccion')) ?>" class="<?= $itemBase ?> <?= isActive('/stock/proyeccion') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?> pl-6"><i data-lucide="trending-up" class="h-4 w-4"></i><span>Proyección compra</span></a>
             <?php $navGroupEnd(); ?>
@@ -161,6 +168,7 @@ $outreachInboxCount = \App\Controllers\InboxController::pendingCount();
             <a href="<?= e(url('/listas')) ?>" class="<?= $itemBase ?> <?= isActive('/listas') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="list-ordered" class="h-4 w-4"></i><span>Listas de precios</span></a>
             <a href="<?= e(url('/clientes')) ?>" class="<?= $itemBase ?> <?= isActive('/clientes') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="users" class="h-4 w-4"></i><span>Clientes</span></a>
             <a href="<?= e(url('/presupuestos')) ?>" class="<?= $itemBase ?> <?= isActive('/presupuestos') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="file-text" class="h-4 w-4"></i><span>Presupuestos</span></a>
+            <?php if (!$isReseller): ?>
             <a href="<?= e(url('/ventas')) ?>" class="<?= $itemBase ?> <?= isActive('/ventas') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="shopping-cart" class="h-4 w-4"></i><span>Ventas</span></a>
             <a href="<?= e(url('/ventas-ml')) ?>" class="<?= $itemBase ?> <?= isActive('/ventas-ml') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="store" class="h-4 w-4"></i><span>Ventas ML</span></a>
             <a href="<?= e(url('/mercadolibre')) ?>" class="<?= $itemBase ?> <?= isActive('/mercadolibre') && !isActive('/mercadolibre/publicacion-masiva') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>">
@@ -184,11 +192,15 @@ $outreachInboxCount = \App\Controllers\InboxController::pendingCount();
             <a href="<?= e(url('/prospeccion/instrucciones')) ?>" class="<?= $itemBase ?> <?= isActive('/prospeccion/instrucciones') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?> pl-6"><i data-lucide="book-open" class="h-4 w-4"></i><span>Instrucciones</span></a>
             <a href="<?= e(url('/pedidos-proveedor')) ?>" class="<?= $itemBase ?> <?= isActive('/pedidos-proveedor') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="truck" class="h-4 w-4"></i><span>Pedidos a Proveedores</span></a>
             <a href="<?= e(url('/cuenta-corriente')) ?>" class="<?= $itemBase ?> <?= isActive('/cuenta-corriente') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="wallet" class="h-4 w-4"></i><span>Cuenta Corriente</span></a>
+            <?php endif; ?>
             <?php $navGroupEnd(); ?>
+            <?php if (!$isReseller): ?>
             <?php $navGroupStart('sistema', 'Sistema'); ?>
             <a href="<?= e(url('/settings')) ?>" class="<?= $itemBase ?> <?= isActive('/settings') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="settings" class="h-4 w-4"></i><span>Configuración</span></a>
+            <a href="<?= e(url('/usuarios')) ?>" class="<?= $itemBase ?> <?= isActive('/usuarios') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="user-cog" class="h-4 w-4"></i><span>Usuarios</span></a>
             <a href="<?= e(url('/sincronizacion')) ?>" class="<?= $itemBase ?> <?= isActive('/sincronizacion') ? 'bg-lo-blueSoft text-lo-blue border-lo-blue' : 'text-slate-600 hover:bg-slate-50 border-transparent' ?>"><i data-lucide="refresh-cw" class="h-4 w-4"></i><span>Sincronización</span></a>
             <?php $navGroupEnd(); ?>
+            <?php endif; ?>
         </nav>
         <div class="p-3 border-t border-lo-border">
             <div class="rounded-xl bg-slate-50 px-3 py-2 mb-2">
@@ -241,8 +253,8 @@ $outreachInboxCount = \App\Controllers\InboxController::pendingCount();
                     <button type="button" class="hidden md:grid min-h-11 min-w-11 rounded-xl border border-lo-border bg-white place-items-center" aria-label="Notificaciones"><i data-lucide="bell" class="h-4 w-4 text-slate-500"></i></button>
                     <div class="relative" x-data="{ open:false }">
                         <button type="button" @click="open=!open" class="min-h-11 h-11 rounded-xl border border-lo-border bg-white px-1.5 md:px-2.5 flex items-center gap-2">
-                            <span class="h-7 w-7 rounded-full bg-sky-500 text-white text-xs font-semibold grid place-items-center shrink-0">AD</span>
-                            <span class="hidden md:inline text-sm text-slate-700">admin</span>
+                            <span class="h-7 w-7 rounded-full bg-sky-500 text-white text-xs font-semibold grid place-items-center shrink-0"><?= e($loggedInInitials !== '' ? $loggedInInitials : 'US') ?></span>
+                            <span class="hidden md:inline text-sm text-slate-700"><?= e((string) $loggedInName) ?></span>
                             <i data-lucide="chevron-down" class="hidden md:block h-4 w-4 text-slate-400 shrink-0"></i>
                         </button>
                         <div x-show="open" x-cloak @click.away="open=false" x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 -translate-y-1" x-transition:enter-end="opacity-100 translate-y-0" x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 -translate-y-1" class="absolute right-0 mt-2 w-36 rounded-xl border border-lo-border bg-white shadow-md py-1">
@@ -307,7 +319,11 @@ $outreachInboxCount = \App\Controllers\InboxController::pendingCount();
             $navItem(url('/'), 'layout-dashboard', 'Dashboard', isActive('/') && !isActive('/categorias') && !isActive('/productos') && !isActive('/stock-actual') && !isActive('/presupuestos') && !isActive('/cuenta-corriente'));
             $navItem(url('/presupuestos'), 'file-text', 'Presupuestos', isActive('/presupuestos'));
             $navItem(url('/stock-actual'), 'warehouse', 'Stock', isActive('/stock-actual'));
-            $navItem(url('/cuenta-corriente'), 'wallet', 'Cuenta cte.', isActive('/cuenta-corriente'));
+            if ($isReseller) {
+                $navItem(url('/clientes'), 'users', 'Clientes', isActive('/clientes'));
+            } else {
+                $navItem(url('/cuenta-corriente'), 'wallet', 'Cuenta cte.', isActive('/cuenta-corriente'));
+            }
             ?>
         </nav>
     </div>

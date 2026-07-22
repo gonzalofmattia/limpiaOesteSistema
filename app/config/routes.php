@@ -155,6 +155,11 @@ return [
 
     ['GET', 'settings', 'SettingsController@index', []],
     ['POST', 'settings', 'SettingsController@update', []],
+    ['GET', 'usuarios', 'UserController@index', []],
+    ['GET', 'usuarios/crear', 'UserController@create', []],
+    ['POST', 'usuarios', 'UserController@store', []],
+    ['GET', 'usuarios/{id}/editar', 'UserController@edit', []],
+    ['POST', 'usuarios/{id}', 'UserController@update', []],
     ['GET', 'fix-stock', 'ToolsController@fixStock', []],
     ['POST', 'fix-stock/apply', 'ToolsController@fixStockApply', []],
     ['GET', 'tools/reconciliar-stock', 'ToolsController@reconcileStock', []],
